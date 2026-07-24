@@ -1,4 +1,4 @@
-"""Web dashboard routing (socket-free) — WebApp.route covers every surface (§3.1, §19)."""
+"""Web dashboard routing (socket-free), WebApp.route covers every surface (§3.1, §19)."""
 import json
 import os
 import sys
@@ -39,6 +39,9 @@ def test_dashboard_is_spa_shell_and_api_reflects_scans():
     assert data["scan"]["scan_id"] == d["scan_id"]
     assert "threat_matrix" in data and "attack_path" in data and "runtime" in data
     assert len(data["findings"]) > 0
+    # The persisted-runtime slot is always present in the contract; None for a mock scan
+    # (which pulls no Falco feed) and populated when a --live scan baked one in.
+    assert "runtime_correlation" in data and data["runtime_correlation"] is None
 
 
 def test_runtime_endpoint_correlates_and_detects_drift():
@@ -52,6 +55,57 @@ def test_runtime_endpoint_correlates_and_detects_drift():
     out = json.loads(r.text)
     assert "correlation" in out and "drift" in out
     assert out["correlation"]["total_alerts"] >= 1
+
+
+def test_runtime_refresh_needs_scan_then_degrades_without_cluster():
+    app = _app()
+    # No scan yet -> clear 400, not a crash.
+    r = app.route("POST", "/api/runtime/refresh", body=b"{}")
+    assert r.status == 400 and "no saved scan" in json.loads(r.text)["error"]
+    # With a (mock) scan but no live cluster access, the live pull degrades gracefully.
+    _scan(app)
+    r = app.route("POST", "/api/runtime/refresh", body=b"{}")
+    assert r.status == 400 and "cluster access" in json.loads(r.text)["error"]
+
+
+def test_finding_context_endpoint_returns_report_grade_detail():
+    from k8smatrixwarden.core.reporting import finding_anchor
+    app = _app()
+    _, d = _scan(app)
+    data = json.loads(app.route("GET", "/api/dashboard").text)
+    f = data["findings"][0]; r = f["resource"]
+    anchor = finding_anchor(f["rule_id"], r["kind"], r["name"], r.get("namespace"))
+    res = app.route("GET", "/api/finding",
+                    query=f"scan_id={data['scan']['scan_id']}&anchor={anchor}")
+    assert res.status == 200
+    ctx = json.loads(res.text)
+    assert ctx["summary"] and ctx["impact"] and isinstance(ctx["validation"], list)
+    # unknown anchor is a clean 404, not a crash
+    bad = app.route("GET", "/api/finding",
+                    query=f"scan_id={data['scan']['scan_id']}&anchor=f-nope")
+    assert bad.status == 404
+
+
+def test_report_export_pdf_and_excel():
+    app = _app()
+    _scan(app)
+    sid = json.loads(app.route("GET", "/api/reports").text)[0]["scan_id"]
+    # PDF: 200 + %PDF magic when fpdf2 is present, else a clean 400 naming the dependency.
+    pdf = app.route("GET", "/api/report/" + sid, query="format=pdf")
+    if pdf.status == 200:
+        assert pdf.content_type == "application/pdf" and pdf.body[:4] == b"%PDF"
+    else:
+        assert pdf.status == 400 and "fpdf" in pdf.text.lower()
+    # XLSX (and the 'excel' alias): 200 + PK zip magic when openpyxl is present, else 400.
+    for fmt in ("xlsx", "excel"):
+        xl = app.route("GET", "/api/report/" + sid, query="format=" + fmt)
+        if xl.status == 200:
+            assert "spreadsheet" in xl.content_type and xl.body[:2] == b"PK"
+        else:
+            assert xl.status == 400 and "openpyxl" in xl.text.lower()
+    # unknown format still errors clearly, and now lists pdf/xlsx as valid
+    bad = app.route("GET", "/api/report/" + sid, query="format=doc")
+    assert bad.status == 400 and "xlsx" in bad.text
 
 
 def test_scan_runs_saves_and_is_downloadable():
@@ -196,7 +250,7 @@ def test_dashboard_payload_carries_scan_health_and_owasp_links():
 
 
 # --------------------------------------------------------------------------- #
-# Client-supplied kubeconfig is code execution — gate it on the bind address
+# Client-supplied kubeconfig is code execution, gate it on the bind address
 #
 # Loading a kubeconfig runs its credential plugin (aws/gcloud/kubelogin) as the server's
 # user. On loopback the only caller is the operator. On a routable bind it is RCE, so the
@@ -211,7 +265,7 @@ def test_is_loopback_is_conservative_about_bind_addresses():
     from k8smatrixwarden.web.server import is_loopback
     for local in ("127.0.0.1", "localhost", "::1", "127.0.0.53", "[::1]"):
         assert is_loopback(local), local
-    # "" and 0.0.0.0 bind every interface; a hostname is unknowable here — all remote.
+    # "" and 0.0.0.0 bind every interface; a hostname is unknowable here, all remote.
     for remote in ("0.0.0.0", "", "::", "10.0.0.5", "192.168.1.20", "example.com", None):
         assert not is_loopback(remote), remote
 
@@ -227,7 +281,7 @@ def test_remote_bind_refuses_a_kubeconfig_from_the_request_body():
 
 
 def test_remote_bind_still_allows_scans_without_a_kubeconfig():
-    # the gate is on the kubeconfig, not on scanning — a mock scan still works
+    # the gate is on the kubeconfig, not on scanning, a mock scan still works
     app = _remote_app()
     r = app.route("POST", "/api/scan", body=b'{"mock": true}')
     assert r.status == 200 and "scan_id" in r.text
@@ -239,7 +293,7 @@ def test_loopback_bind_still_accepts_a_kubeconfig():
 
     def fake_collector(mock=True, fixture=None, kubeconfig=None, context=None):
         seen["kubeconfig"] = kubeconfig
-        raise RuntimeError("stop here — we only care that it got through the gate")
+        raise RuntimeError("stop here, we only care that it got through the gate")
 
     app.p.make_collector = fake_collector
     r = app.route("POST", "/api/scan", body=b'{"mock": false, "kubeconfig": "/tmp/kc"}')

@@ -1,4 +1,4 @@
-"""Report quality — structure & correctness across all six formats (§18.2)."""
+"""Report quality, structure & correctness across all six formats (§18.2)."""
 import json
 import os
 import sys
@@ -91,7 +91,7 @@ def test_markdown_finding_cards_have_all_required_sections():
     md = p.reporting.render(res, "markdown")
     for marker in ("##### Summary", "##### 📚 Standards & Benchmark Mapping",
                   "##### 🎯 MITRE ATT&CK Mapping", "##### 💥 Impact",
-                  "##### ✅ Validation — How to Reproduce / Verify"):
+                  "##### ✅ Validation, How to Reproduce / Verify"):
         assert marker in md, f"missing per-finding section: {marker!r}"
 
 
@@ -109,7 +109,7 @@ def test_markdown_cis_control_shows_real_title_not_generic_placeholder():
     # the generic "Control X.Y.Z" placeholder must never appear once real CIS titles
     # are wired in (regression guard for the redundant "5.7.2 -- Control 5.7.2" bug)
     import re
-    assert not re.search(r"— Control \d+\.\d+", md)
+    assert not re.search(r", Control \d+\.\d+", md)
 
 
 def test_json_findings_carry_full_context_block():
@@ -144,11 +144,11 @@ def test_html_cards_have_standards_and_mitre_tables():
     assert "Standards &amp; Benchmark Mapping" in html
     assert "MITRE ATT&amp;CK Mapping" in html
     assert "ctx-table" in html
-    assert "Validation — how to reproduce" in html
+    assert "Validation, how to reproduce" in html
 
 
 # --------------------------------------------------------------------------- #
-# OWASP Kubernetes Top 10 — every tag links to its own control page
+# OWASP Kubernetes Top 10, every tag links to its own control page
 # --------------------------------------------------------------------------- #
 def test_owasp_ids_link_to_their_own_page_not_the_project_landing_page():
     from k8smatrixwarden.core.finding_context import (OWASP_K8S_TOP10_URL,

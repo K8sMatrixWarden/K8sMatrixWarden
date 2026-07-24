@@ -1,0 +1,767 @@
+{
+  "workload-hostpath-writable|Pod|payment-api|production": {
+    "rule_id": "workload-hostpath-writable",
+    "title": "Writable hostPath mount",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "iam-overpermissive|CloudIAM|shared-sa|production": {
+    "rule_id": "iam-overpermissive",
+    "title": "Over-permissive workload identity",
+    "severity": "HIGH",
+    "resource": "CloudIAM/shared-sa (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "iam-overpermissive|CloudIAM|?|": {
+    "rule_id": "iam-overpermissive",
+    "title": "Over-permissive workload identity",
+    "severity": "HIGH",
+    "resource": "CloudIAM/?",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-hostpath-root|Pod|payment-api|production": {
+    "rule_id": "workload-hostpath-root",
+    "title": "Sensitive hostPath mount",
+    "severity": "CRITICAL",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-secret-read-broad|ClusterRole|super-role|": {
+    "rule_id": "rbac-secret-read-broad",
+    "title": "Broad secret read access",
+    "severity": "HIGH",
+    "resource": "ClusterRole/super-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-secret-read-broad|ClusterRole|secret-reader|": {
+    "rule_id": "rbac-secret-read-broad",
+    "title": "Broad secret read access",
+    "severity": "HIGH",
+    "resource": "ClusterRole/secret-reader",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "img-pull-policy|Pod|payment-api|production": {
+    "rule_id": "img-pull-policy",
+    "title": "Stale-image pull policy",
+    "severity": "LOW",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "as-sa-fanout|ServiceAccount|shared-sa|": {
+    "rule_id": "as-sa-fanout",
+    "title": "ServiceAccount fan-out",
+    "severity": "MEDIUM",
+    "resource": "ServiceAccount/shared-sa",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-docker-socket|Pod|payment-api|production": {
+    "rule_id": "workload-docker-socket",
+    "title": "Docker socket mounted",
+    "severity": "CRITICAL",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-host-ipc|Pod|payment-api|production": {
+    "rule_id": "workload-host-ipc",
+    "title": "Host IPC namespace shared",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "admission-sidecar-injection|MutatingWebhookConfiguration|evil-webhook|": {
+    "rule_id": "admission-sidecar-injection",
+    "title": "Unrecognized sidecar injection",
+    "severity": "HIGH",
+    "resource": "MutatingWebhookConfiguration/evil-webhook",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-host-network|Pod|payment-api|production": {
+    "rule_id": "workload-host-network",
+    "title": "Host network shared",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-host-network|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-host-network",
+    "title": "Host network shared",
+    "severity": "HIGH",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-bind-escalate-verbs|ClusterRole|binder|": {
+    "rule_id": "rbac-bind-escalate-verbs",
+    "title": "bind/escalate/impersonate verbs",
+    "severity": "CRITICAL",
+    "resource": "ClusterRole/binder",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "etcd-encryption-missing|ControlPlane|apiServer|": {
+    "rule_id": "etcd-encryption-missing",
+    "title": "etcd encryption not configured",
+    "severity": "HIGH",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "compliance-psa-not-restricted|Namespace|production|": {
+    "rule_id": "compliance-psa-not-restricted",
+    "title": "PSA not enforcing 'restricted'",
+    "severity": "HIGH",
+    "resource": "Namespace/production",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "compliance-psa-not-restricted|Namespace|staging|": {
+    "rule_id": "compliance-psa-not-restricted",
+    "title": "PSA not enforcing 'restricted'",
+    "severity": "HIGH",
+    "resource": "Namespace/staging",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "deprecated-k8s-version|ControlPlane|version|": {
+    "rule_id": "deprecated-k8s-version",
+    "title": "Deprecated/EOL Kubernetes version",
+    "severity": "HIGH",
+    "resource": "ControlPlane/version",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-host-pid|Pod|payment-api|production": {
+    "rule_id": "workload-host-pid",
+    "title": "Host PID namespace shared",
+    "severity": "CRITICAL",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-cluster-admin-default-sa|ClusterRoleBinding|default-admin|": {
+    "rule_id": "rbac-cluster-admin-default-sa",
+    "title": "cluster-admin on default SA",
+    "severity": "CRITICAL",
+    "resource": "ClusterRoleBinding/default-admin",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "kubelet-anonymous-auth|ControlPlane|kubelet|": {
+    "rule_id": "kubelet-anonymous-auth",
+    "title": "Kubelet anonymous auth enabled",
+    "severity": "CRITICAL",
+    "resource": "ControlPlane/kubelet",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-caps-not-dropped|Pod|payment-api|production": {
+    "rule_id": "workload-caps-not-dropped",
+    "title": "Capabilities not dropped (ALL)",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-caps-not-dropped|Pod|cache-redis|staging": {
+    "rule_id": "workload-caps-not-dropped",
+    "title": "Capabilities not dropped (ALL)",
+    "severity": "HIGH",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-caps-not-dropped|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-caps-not-dropped",
+    "title": "Capabilities not dropped (ALL)",
+    "severity": "HIGH",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-wildcard-resources|ClusterRole|super-role|": {
+    "rule_id": "rbac-wildcard-resources",
+    "title": "Wildcard resources in role",
+    "severity": "CRITICAL",
+    "resource": "ClusterRole/super-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-dangerous-caps|Pod|payment-api|production": {
+    "rule_id": "workload-dangerous-caps",
+    "title": "Dangerous capabilities added",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-dangerous-caps|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-dangerous-caps",
+    "title": "Dangerous capabilities added",
+    "severity": "HIGH",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "cronjob-suspicious|CronJob|backup-cron|production": {
+    "rule_id": "cronjob-suspicious",
+    "title": "Suspicious CronJob",
+    "severity": "HIGH",
+    "resource": "CronJob/backup-cron (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "iam-managed-identity-reachable|ServiceAccount|shared-sa|production": {
+    "rule_id": "iam-managed-identity-reachable",
+    "title": "Managed identity reachable",
+    "severity": "MEDIUM",
+    "resource": "ServiceAccount/shared-sa (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-wildcard-verbs|ClusterRole|super-role|": {
+    "rule_id": "rbac-wildcard-verbs",
+    "title": "Wildcard verbs in role",
+    "severity": "CRITICAL",
+    "resource": "ClusterRole/super-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "kubelet-authz-always-allow|ControlPlane|kubelet|": {
+    "rule_id": "kubelet-authz-always-allow",
+    "title": "Kubelet AlwaysAllow authz",
+    "severity": "CRITICAL",
+    "resource": "ControlPlane/kubelet",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-writable-root-fs|Pod|payment-api|production": {
+    "rule_id": "workload-writable-root-fs",
+    "title": "Writable root filesystem",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-writable-root-fs|Pod|cache-redis|staging": {
+    "rule_id": "workload-writable-root-fs",
+    "title": "Writable root filesystem",
+    "severity": "MEDIUM",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-writable-root-fs|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-writable-root-fs",
+    "title": "Writable root filesystem",
+    "severity": "MEDIUM",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-metadata-api-open|Namespace|production|": {
+    "rule_id": "net-metadata-api-open",
+    "title": "Metadata API not blocked",
+    "severity": "HIGH",
+    "resource": "Namespace/production",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-metadata-api-open|Namespace|staging|": {
+    "rule_id": "net-metadata-api-open",
+    "title": "Metadata API not blocked",
+    "severity": "HIGH",
+    "resource": "Namespace/staging",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-lb-no-source-range|Service|lb-public|production": {
+    "rule_id": "net-lb-no-source-range",
+    "title": "LoadBalancer without source range",
+    "severity": "HIGH",
+    "resource": "Service/lb-public (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "admission-webhook-failurepolicy|MutatingWebhookConfiguration|evil-webhook|": {
+    "rule_id": "admission-webhook-failurepolicy",
+    "title": "Webhook failurePolicy=Ignore",
+    "severity": "HIGH",
+    "resource": "MutatingWebhookConfiguration/evil-webhook",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "etcd-client-cert-auth|ControlPlane|etcd|": {
+    "rule_id": "etcd-client-cert-auth",
+    "title": "etcd client cert auth disabled",
+    "severity": "CRITICAL",
+    "resource": "ControlPlane/etcd",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-run-as-root|Pod|payment-api|production": {
+    "rule_id": "workload-run-as-root",
+    "title": "Container runs as root",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-run-as-root|Pod|cache-redis|staging": {
+    "rule_id": "workload-run-as-root",
+    "title": "Container runs as root",
+    "severity": "HIGH",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-run-as-root|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-run-as-root",
+    "title": "Container runs as root",
+    "severity": "HIGH",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-no-networkpolicy|Namespace|production|": {
+    "rule_id": "net-no-networkpolicy",
+    "title": "Namespace without NetworkPolicy",
+    "severity": "HIGH",
+    "resource": "Namespace/production",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-no-networkpolicy|Namespace|staging|": {
+    "rule_id": "net-no-networkpolicy",
+    "title": "Namespace without NetworkPolicy",
+    "severity": "HIGH",
+    "resource": "Namespace/staging",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-nodeport-service|Service|api-nodeport|production": {
+    "rule_id": "net-nodeport-service",
+    "title": "NodePort service exposed",
+    "severity": "MEDIUM",
+    "resource": "Service/api-nodeport (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-nodeport-service|Service|kubernetes-dashboard|kubernetes-dashboard": {
+    "rule_id": "net-nodeport-service",
+    "title": "NodePort service exposed",
+    "severity": "MEDIUM",
+    "resource": "Service/kubernetes-dashboard (kubernetes-dashboard)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "apiserver-audit-logging|ControlPlane|apiServer|": {
+    "rule_id": "apiserver-audit-logging",
+    "title": "API audit logging disabled",
+    "severity": "HIGH",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-privileged-container|Pod|payment-api|production": {
+    "rule_id": "workload-privileged-container",
+    "title": "Privileged container",
+    "severity": "CRITICAL",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-privileged-container|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-privileged-container",
+    "title": "Privileged container",
+    "severity": "CRITICAL",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-ingress-no-tls|Ingress|web-ingress|production": {
+    "rule_id": "net-ingress-no-tls",
+    "title": "Ingress without TLS",
+    "severity": "HIGH",
+    "resource": "Ingress/web-ingress (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "log-no-collector|Cluster|log-pipeline|": {
+    "rule_id": "log-no-collector",
+    "title": "No log collector shipping logs off-node",
+    "severity": "MEDIUM",
+    "resource": "Cluster/log-pipeline",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "net-dashboard-exposed|Service|kubernetes-dashboard|kubernetes-dashboard": {
+    "rule_id": "net-dashboard-exposed",
+    "title": "Kubernetes dashboard exposed",
+    "severity": "CRITICAL",
+    "resource": "Service/kubernetes-dashboard (kubernetes-dashboard)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "sec-etcd-not-encrypted|ControlPlane|etcd|": {
+    "rule_id": "sec-etcd-not-encrypted",
+    "title": "etcd not encrypted",
+    "severity": "CRITICAL",
+    "resource": "ControlPlane/etcd",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "log-audit-rotation-weak|ControlPlane|apiServer|": {
+    "rule_id": "log-audit-rotation-weak",
+    "title": "Audit log rotation discards history",
+    "severity": "MEDIUM",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "apiserver-anonymous-auth|ControlPlane|apiServer|": {
+    "rule_id": "apiserver-anonymous-auth",
+    "title": "API server anonymous auth enabled",
+    "severity": "CRITICAL",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "iam-node-role-broad|CloudIAM|eks-node-role|": {
+    "rule_id": "iam-node-role-broad",
+    "title": "Broad node instance role",
+    "severity": "HIGH",
+    "resource": "CloudIAM/eks-node-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-can-delete-events|ClusterRole|super-role|": {
+    "rule_id": "rbac-can-delete-events",
+    "title": "Can delete Kubernetes events",
+    "severity": "HIGH",
+    "resource": "ClusterRole/super-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-can-delete-events|ClusterRole|cm-writer|": {
+    "rule_id": "rbac-can-delete-events",
+    "title": "Can delete Kubernetes events",
+    "severity": "HIGH",
+    "resource": "ClusterRole/cm-writer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "sec-mounted-cloud-creds|Pod|cache-redis|staging": {
+    "rule_id": "sec-mounted-cloud-creds",
+    "title": "Mounted cloud credentials",
+    "severity": "HIGH",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "sec-configmap-credentials|ConfigMap|app-config|production": {
+    "rule_id": "sec-configmap-credentials",
+    "title": "Credentials in ConfigMap",
+    "severity": "HIGH",
+    "resource": "ConfigMap/app-config (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "log-audit-retention-short|ControlPlane|apiServer|": {
+    "rule_id": "log-audit-retention-short",
+    "title": "Audit log retention below 30 days",
+    "severity": "MEDIUM",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "sec-env-var-secrets|Pod|payment-api|production": {
+    "rule_id": "sec-env-var-secrets",
+    "title": "Secret exposed as env var",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-allow-priv-escalation|Pod|payment-api|production": {
+    "rule_id": "workload-allow-priv-escalation",
+    "title": "Privilege escalation allowed",
+    "severity": "HIGH",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-allow-priv-escalation|Pod|cache-redis|staging": {
+    "rule_id": "workload-allow-priv-escalation",
+    "title": "Privilege escalation allowed",
+    "severity": "HIGH",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-allow-priv-escalation|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-allow-priv-escalation",
+    "title": "Privilege escalation allowed",
+    "severity": "HIGH",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "img-not-signed|Pod|payment-api|production": {
+    "rule_id": "img-not-signed",
+    "title": "Image not signed",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "kubelet-read-only-port|ControlPlane|kubelet|": {
+    "rule_id": "kubelet-read-only-port",
+    "title": "Kubelet read-only port open",
+    "severity": "HIGH",
+    "resource": "ControlPlane/kubelet",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "admission-malicious-webhook|MutatingWebhookConfiguration|evil-webhook|": {
+    "rule_id": "admission-malicious-webhook",
+    "title": "Suspicious mutating webhook",
+    "severity": "CRITICAL",
+    "resource": "MutatingWebhookConfiguration/evil-webhook",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-coredns-configmap-write|ClusterRole|super-role|": {
+    "rule_id": "rbac-coredns-configmap-write",
+    "title": "Can write ConfigMaps (CoreDNS risk)",
+    "severity": "HIGH",
+    "resource": "ClusterRole/super-role",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "rbac-coredns-configmap-write|ClusterRole|cm-writer|": {
+    "rule_id": "rbac-coredns-configmap-write",
+    "title": "Can write ConfigMaps (CoreDNS risk)",
+    "severity": "HIGH",
+    "resource": "ClusterRole/cm-writer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "log-audit-policy-missing|ControlPlane|apiServer|": {
+    "rule_id": "log-audit-policy-missing",
+    "title": "Audit policy file not configured",
+    "severity": "HIGH",
+    "resource": "ControlPlane/apiServer",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-missing-limits|Pod|payment-api|production": {
+    "rule_id": "workload-missing-limits",
+    "title": "Missing resource limits",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-missing-limits|Pod|cache-redis|staging": {
+    "rule_id": "workload-missing-limits",
+    "title": "Missing resource limits",
+    "severity": "MEDIUM",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-missing-limits|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-missing-limits",
+    "title": "Missing resource limits",
+    "severity": "MEDIUM",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-no-seccomp|Pod|payment-api|production": {
+    "rule_id": "workload-no-seccomp",
+    "title": "No seccomp profile",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-no-seccomp|Pod|cache-redis|staging": {
+    "rule_id": "workload-no-seccomp",
+    "title": "No seccomp profile",
+    "severity": "MEDIUM",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-no-seccomp|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-no-seccomp",
+    "title": "No seccomp profile",
+    "severity": "MEDIUM",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-sa-token-automount|Pod|payment-api|production": {
+    "rule_id": "workload-sa-token-automount",
+    "title": "SA token auto-mounted",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-sa-token-automount|Pod|cache-redis|staging": {
+    "rule_id": "workload-sa-token-automount",
+    "title": "SA token auto-mounted",
+    "severity": "MEDIUM",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-sa-token-automount|Pod|nignx-web|production": {
+    "rule_id": "workload-sa-token-automount",
+    "title": "SA token auto-mounted",
+    "severity": "MEDIUM",
+    "resource": "Pod/nignx-web (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-sa-token-automount|Pod|aws-node-64w2k|kube-system": {
+    "rule_id": "workload-sa-token-automount",
+    "title": "SA token auto-mounted",
+    "severity": "MEDIUM",
+    "resource": "Pod/aws-node-64w2k (kube-system)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-sa-token-automount|ReplicaSet|payment-api-7d9f8c9d76|production": {
+    "rule_id": "workload-sa-token-automount",
+    "title": "SA token auto-mounted",
+    "severity": "MEDIUM",
+    "resource": "ReplicaSet/payment-api-7d9f8c9d76 (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-latest-tag|Pod|payment-api|production": {
+    "rule_id": "workload-latest-tag",
+    "title": "Mutable :latest image tag",
+    "severity": "MEDIUM",
+    "resource": "Pod/payment-api (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-latest-tag|Pod|cache-redis|staging": {
+    "rule_id": "workload-latest-tag",
+    "title": "Mutable :latest image tag",
+    "severity": "MEDIUM",
+    "resource": "Pod/cache-redis (staging)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  },
+  "workload-latest-tag|Pod|nignx-web|production": {
+    "rule_id": "workload-latest-tag",
+    "title": "Mutable :latest image tag",
+    "severity": "MEDIUM",
+    "resource": "Pod/nignx-web (production)",
+    "first_seen": "2026-07-24T23:35:20+05:30",
+    "last_seen": "2026-07-24T23:35:20+05:30",
+    "resolved_at": null
+  }
+}

@@ -1,4 +1,4 @@
-"""Shard ⑥ — Secrets (§5.8)."""
+"""Shard ⑥, Secrets (§5.8)."""
 from __future__ import annotations
 
 import re
@@ -44,7 +44,7 @@ def _mounted_cloud_creds(rule, ev, scope):
                 mp = vm.get("mountPath", "")
                 if any(f in mp for f in _CLOUD_CRED_FILES):
                     yield rule.finding(
-                        ref(res), f"mounts a cloud credential path ({mp}) — service "
+                        ref(res), f"mounts a cloud credential path ({mp}), service "
                         f"principal / managed identity exposure",
                         evidence={"mountPath": mp})
 
@@ -61,7 +61,7 @@ def _etcd_encryption(rule, ev, scope):
     cfg = cfg[0] if cfg else {}
     if not Evidence.dig(cfg, "spec.apiServer.encryptionProvider"):
         yield rule.finding(ResourceRef("ControlPlane", "etcd"),
-                           "etcd encryption at rest is not enabled — Secrets stored in "
+                           "etcd encryption at rest is not enabled, Secrets stored in "
                            "plaintext", severity=S.CRITICAL, blast_radius=BR.CLUSTER)
 
 

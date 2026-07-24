@@ -116,7 +116,7 @@ class Orchestrator:
             re.search(r"\bin\s+(?:the\s+)?([a-z0-9\-]+)\s+namespace", low)
         if m:
             return Scope(ScopeLevel.NAMESPACE, namespace=m.group(1))
-        # "scan <ns> for <tactic>" / "scan the <ns> namespace" — bare namespace token.
+        # "scan <ns> for <tactic>" / "scan the <ns> namespace", bare namespace token.
         m = re.search(r"\bscan\s+(?:the\s+)?([a-z0-9][a-z0-9\-]*)\s+"
                       r"(?:namespace\s+)?for\b", low)
         if m and m.group(1) not in self._NON_NS:
@@ -150,7 +150,7 @@ class Orchestrator:
             if alias.lower() in low and alias not in sel.techniques:
                 sel.techniques.append(alias)
 
-        # Synonym expansion — tactics, modules, aliases via curated word-boundary patterns.
+        # Synonym expansion, tactics, modules, aliases via curated word-boundary patterns.
         self._apply_synonyms(low, sel)
 
         # Severity floor: "only critical", "critical only", "high and above", etc.
@@ -203,7 +203,7 @@ class Orchestrator:
         head = (f"Intent={interp.intent.upper()}  Scope={interp.request.scope.describe()}  "
                 f"Selector={interp.request.selector.describe()}")
         body = (f"→ resolves to {n} rule(s) across {len(shards)} shard(s): "
-                f"{', '.join(shards) or '—'}")
+                f"{', '.join(shards) or 'N/A'}")
         preview = ", ".join(interp.resolved_rule_ids[:8])
         if n > 8:
             preview += f", … (+{n - 8} more)"

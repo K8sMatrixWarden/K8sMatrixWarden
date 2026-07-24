@@ -1,4 +1,4 @@
-"""Shard ⑦ — CIS Benchmark & Compliance (§5.9).
+"""Shard ⑦, CIS Benchmark & Compliance (§5.9).
 
 Mostly owns framework tags. Native rules cover Pod Security Admission posture; deeper CIS
 coverage is folded in via the kube-bench external adapter when available.

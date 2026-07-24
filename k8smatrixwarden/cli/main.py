@@ -1,5 +1,5 @@
 """
-k8smatrixwarden CLI (§7, §16.4) — argparse-based (stdlib only, always runnable).
+k8smatrixwarden CLI (§7, §16.4), argparse-based (stdlib only, always runnable).
 
 Commands:
   scan       run a scan by scope × selector, OR a natural-language query
@@ -69,13 +69,43 @@ def _build_selector(a) -> Selector:
 
 
 def _warn_ignored_live_flags(a) -> None:
-    """Warn if --context/--kubeconfig were given but the scan is not actually live —
+    """Warn if --context/--kubeconfig were given but the scan is not actually live, 
     otherwise a forgotten --live silently runs against the mock cluster."""
     if not getattr(a, "live", False) and (getattr(a, "context", None)
                                           or getattr(a, "kubeconfig", None)):
         print("warning: --kubeconfig/--context are ignored without --live "
               "(scanning the bundled MOCK cluster). Add --live to scan a real cluster.",
               file=sys.stderr)
+
+
+def _attach_runtime_feed(result, collector, request, a) -> None:
+    """On a live scan, pull recent Falco alerts from the cluster and bake the correlation +
+    drift straight into `result.runtime`, so the dashboard shows "what is being exploited
+    right now" without any manual event paste. Best-effort and fully additive: any problem
+    is surfaced as a warning line and the static scan result is returned unchanged. Skipped
+    for mock scans and when --no-runtime is given."""
+    if getattr(a, "mock", False) or not getattr(a, "live", False):
+        return
+    if getattr(a, "no_runtime", False):
+        return
+    from ..core.falco_feed import since_to_seconds, build_runtime_feed
+
+    ns = getattr(a, "falco_namespace", None) or "falco"
+    try:
+        feed = build_runtime_feed(collector, result.findings, request.scope, namespace=ns,
+                                  since_seconds=since_to_seconds(getattr(a, "falco_since", None)))
+    except Exception as exc:  # never let the runtime feed break a completed scan
+        print(f"warning: Falco feed skipped ({exc})", file=sys.stderr)
+        return
+    if not feed:
+        # collector already recorded a warning explaining why (no Falco, no JSON, RBAC).
+        return
+    result.runtime = feed
+    c, d = feed["correlation"], feed["drift"]
+    print(f"[runtime] pulled {feed['events_seen']} Falco event(s) from ns/{ns} → "
+          f"{c['confirmed_exploitation']} confirmed exploited, "
+          f"{c['correlated']} correlated, {d['drift_count']} config drift",
+          file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- #
@@ -117,9 +147,13 @@ def cmd_scan(a) -> int:
         result = orch.run(request, collector, mode_label=mode_label,
                           name=getattr(a, "name", None) or "")
     except RuntimeError as exc:
-        # A clean, actionable message (e.g. cluster unreachable) — not a traceback.
+        # A clean, actionable message (e.g. cluster unreachable), not a traceback.
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    # Live runtime feed: pull Falco alerts and correlate them into the result BEFORE we
+    # render/persist, so the saved report + dashboard carry the runtime correlation.
+    _attach_runtime_feed(result, collector, request, a)
+
     for w in getattr(collector, "warnings", []):
         print(f"warning: {w}", file=sys.stderr)
 
@@ -173,7 +207,7 @@ def cmd_rules(a) -> int:
         print(f"  {r.severity.emoji} {r.id:<34} [{r.owning_shard}]  "
               f"surface={r.surface}  owasp={r.owasp or '-'}  mitre=[{tags}]")
     print("\nAll registry rules are scan-surface (point-in-time). Runtime-surface "
-          "detections\n(Falco/audit/drift) live in the Runtime Agent — see "
+          "detections\n(Falco/audit/drift) live in the Runtime Agent, see "
           "`mcp list_runtime_detections`.")
     return 0
 
@@ -371,7 +405,7 @@ def cmd_report(a) -> int:
         print(f"  {'NAME':<26} {'WHEN':<22} {'RATING':<9} {'RISK':<5} "
               f"{'FIND':<5} SCAN ID (download key)")
         for r in reports:
-            name = (r.name or "—")[:26]
+            name = (r.name or "N/A")[:26]
             print(f"  {name:<26} {format_ist(r.generated_at):<22} {r.rating:<9} "
                   f"{r.risk_score:<5} {r.total:<5} {r.scan_id}")
         print("\nDownload:  k8smatrixwarden report download --scan-id <ID> "
@@ -421,7 +455,7 @@ def platform_render(a, result) -> str:
 
 
 def cmd_matrix(a) -> int:
-    """Render the Kubernetes Threat Matrix for a scan (or global coverage) — §12."""
+    """Render the Kubernetes Threat Matrix for a scan (or global coverage), §12."""
     import json as _json
     from ..core.threat_matrix import build_threat_matrix
     from ..core.threat_matrix_render import (render_markdown as tm_md,
@@ -478,7 +512,7 @@ def cmd_web(a) -> int:
               allow_scan=not a.no_scan, open_browser=a.open,
               allow_remote_kubeconfig=a.allow_remote_kubeconfig)
     except OSError as exc:
-        print(f"error: could not start web server on {a.host}:{a.port} — {exc}",
+        print(f"error: could not start web server on {a.host}:{a.port}, {exc}",
               file=sys.stderr)
         return 2
     return 0
@@ -497,7 +531,7 @@ def cmd_mcp(a) -> int:
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="k8smatrixwarden",
-                                description="K8sMatrixWarden v1.0 — MITRE-aligned scanner")
+                                description="K8sMatrixWarden v1.0, MITRE-aligned scanner")
     p.add_argument("--config", help="path to a config JSON overriding defaults")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -529,6 +563,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR,
                    help=f"report store directory (shared default: {_DEFAULT_REPORTS_DIR}; "
                         f"override with $K8SMATRIXWARDEN_REPORTS_DIR)")
+    rt = s.add_argument_group("runtime feed (live only; auto-correlates Falco alerts)")
+    rt.add_argument("--no-runtime", action="store_true",
+                    help="do NOT pull Falco alerts on a --live scan (static findings only)")
+    rt.add_argument("--falco-namespace", default="falco",
+                    help="namespace the Falco DaemonSet runs in (default: falco)")
+    rt.add_argument("--falco-since", default="1h",
+                    help="how far back to read Falco logs, e.g. 30m / 1h / 2h (default: 1h)")
     s.set_defaults(func=cmd_scan)
 
     r = sub.add_parser("rules", help="list the rule registry")

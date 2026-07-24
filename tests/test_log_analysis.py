@@ -1,4 +1,4 @@
-"""Log Analysis shard (shards/log_analysis.py) — audit-trail posture.
+"""Log Analysis shard (shards/log_analysis.py), audit-trail posture.
 
 Answers "if an attacker got in, could you tell?" at scan time. The rules pair with the
 Runtime Agent's T1070 detections: it catches log tampering as it happens, this catches the
@@ -163,7 +163,7 @@ def test_unrelated_workloads_do_not_count_as_a_collector():
 
 def test_collector_finding_says_it_can_miss_an_external_agent():
     """The check cannot see a node agent running outside the cluster, so the message must
-    not assert that logs are lost — only that no in-cluster collector was found."""
+    not assert that logs are lost, only that no in-cluster collector was found."""
     platform = build_platform()
     request = ScanRequest(scope=Scope(ScopeLevel.CLUSTER),
                           selector=Selector(rule_ids=["log-no-collector"]),

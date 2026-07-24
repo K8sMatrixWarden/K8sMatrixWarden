@@ -1,14 +1,14 @@
 """
-Threat Matrix renderers — one matrix (core.threat_matrix.ThreatMatrix), three surfaces:
+Threat Matrix renderers, one matrix (core.threat_matrix.ThreatMatrix), three surfaces:
 
-    render_text     — a compact per-tactic text summary (terminal / plain reports)
-    render_markdown — an overview table + per-tactic technique tables (markdown reports)
-    render_html_grid— a self-contained ATT&CK-Navigator-style heatmap FRAGMENT (no <html>
+    render_text    , a compact per-tactic text summary (terminal / plain reports)
+    render_markdown, an overview table + per-tactic technique tables (markdown reports)
+    render_html_grid, a self-contained ATT&CK-Navigator-style heatmap FRAGMENT (no <html>
                       wrapper), reused by both the HTML report and the web dashboard
 
 Cell colour encodes state: a HIT cell is painted by its worst finding severity; a COVERED
 cell (rule exists, nothing found this scan) is neutral-positive; a GAP cell (no rule yet) is
-muted — so the same three-state legend reads identically in every surface.
+muted, so the same three-state legend reads identically in every surface.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def render_text(tm: ThreatMatrix) -> str:
                 continue
             sv = cell.max_severity
             out.append(f"        {sv.emoji if sv else '•'} {cell.technique_name} "
-                       f"({cell.technique_id or '—'}) ×{cell.count}")
+                       f"({cell.technique_id or 'N/A'}) ×{cell.count}")
     out.append("  " + "─" * 66)
     out.append("  legend:  severity emoji = hit · 🟦 = scan rule, none found · "
                "🟣 = runtime-only detection · ▫️ = no detection yet")
@@ -80,13 +80,13 @@ def render_markdown(tm: ThreatMatrix, *, heading_level: int = 2,
     for col in tm.columns:
         sev = col.max_severity
         md.append(f"| **{col.tactic}** | {col.hit_count} / {len(col.cells)} "
-                  f"| {col.finding_count} | {sev.emoji if sev else '—'} |")
+                  f"| {col.finding_count} | {sev.emoji if sev else 'N/A'} |")
     md += ["", f"{h}# Technique Detail", ""]
 
     for col in tm.columns:
         if col.hit_count == 0 and col.finding_count == 0:
             covered = sum(1 for c in col.cells if c.covered)
-            md.append(f"- **{col.tactic}** — no findings "
+            md.append(f"- **{col.tactic}**, no findings "
                       f"({covered}/{len(col.cells)} techniques have coverage)")
             continue
         md += [f"{h}## {col.tactic}", "",
@@ -94,14 +94,14 @@ def render_markdown(tm: ThreatMatrix, *, heading_level: int = 2,
                "|:--:|:--|:--|--:|:--|"]
         for cell in col.cells:
             icon = _md_state_icon(cell)
-            tid = f"[`{cell.technique_id}`]({cell.url()})" if cell.technique_id else "—"
+            tid = f"[`{cell.technique_id}`]({cell.url()})" if cell.technique_id else "N/A"
             res = ", ".join(f"`{r}`" for r in cell.as_dict()["resources"][:3])
             if cell.count > 3:
                 res += f", … (+{cell.count - 3})"
             md.append(f"| {icon} | {cell.technique_name} | {tid} | "
-                      f"{cell.count or '—'} | {res or '—'} |")
+                      f"{cell.count or 'N/A'} | {res or 'N/A'} |")
         md.append("")
-    md += ["> **Legend** — 🔴🟠🟡🟢 hit (painted by worst finding severity) · "
+    md += ["> **Legend**, 🔴🟠🟡🟢 hit (painted by worst finding severity) · "
            "🟦 covered (a scan rule exists, nothing found this scan) · "
            "🟣 runtime-only (no scan rule; the Runtime Agent detects it live) · "
            "▫️ gap (no detection yet).", ""]
@@ -118,14 +118,14 @@ def _md_state_icon(cell: MatrixCell) -> str:
 
 
 # ======================================================================= #
-# HTML GRID (fragment — no <html>/<head>; caller supplies the page + CSS)
+# HTML GRID (fragment, no <html>/<head>; caller supplies the page + CSS)
 # ======================================================================= #
 def render_html_grid(tm: ThreatMatrix, *, coverage_only: bool = False) -> str:
     """Render the heatmap.
 
     `coverage_only=True` is the standalone /matrix page: there is no scan overlaid, so
     every hit-derived number is structurally 0. Reporting "0/9 tactics implicated · 0
-    findings mapped" there is not a result, it is a category error — the page is about
+    findings mapped" there is not a result, it is a category error, the page is about
     *detection coverage*. In that mode the stat tiles and the per-column counter switch to
     the covered/total axis, and the hit legend entries are dropped.
     """
@@ -200,21 +200,21 @@ def _cell_tooltip(cell: MatrixCell) -> str:
         parts.append(f"({cell.technique_id})")
     if cell.hit:
         sev = cell.max_severity
-        parts.append(f"— {cell.count} finding(s), worst {sev.label if sev else '?'}")
+        parts.append(f", {cell.count} finding(s), worst {sev.label if sev else '?'}")
         rules = cell.as_dict()["finding_rule_ids"]
         if rules:
             parts.append("· " + ", ".join(rules[:6]))
     elif cell.covered:
-        parts.append("— scan rule exists, no finding this scan")
+        parts.append(", scan rule exists, no finding this scan")
     elif cell.covered_runtime:
         rt = ", ".join(sorted(set(cell.runtime_rule_ids))[:4])
-        parts.append(f"— no scan rule; detected at runtime by {rt}")
+        parts.append(f", no scan rule; detected at runtime by {rt}")
     else:
-        parts.append("— no detection yet")
+        parts.append(", no detection yet")
     return " ".join(parts)
 
 
-# Self-contained CSS for the grid — injected once by whatever page hosts render_html_grid().
+# Self-contained CSS for the grid, injected once by whatever page hosts render_html_grid().
 THREAT_MATRIX_CSS = """
 /* runtime-only coverage: a distinct hue from both "scan rule" green and "gap" grey */
 :root{--rt:#8250df}

@@ -1,11 +1,11 @@
 """
-Compliance crosswalk engine — maps K8sMatrixWarden's existing checks onto governance
+Compliance crosswalk engine, maps K8sMatrixWarden's existing checks onto governance
 frameworks (PCI DSS, SOC 2, ISO 27001, NIST 800-53) so a security engineer can hand an
 auditor a per-requirement pass/fail/evidence report instead of a technical finding dump.
 
 Design: it invents no new detections. Each framework requirement is crosswalked (in
-taxonomy/compliance_crosswalk.json) to CIS Kubernetes Benchmark v1.8 control ids — which
-the CIS engine already grades — and/or OWASP Kubernetes Top 10 codes, which every finding
+taxonomy/compliance_crosswalk.json) to CIS Kubernetes Benchmark v1.8 control ids, which
+the CIS engine already grades, and/or OWASP Kubernetes Top 10 codes, which every finding
 already self-declares. This engine joins those two sources and, crucially, NEVER reports a
 requirement as passing when it has no affirmative evidence: a requirement whose only signal
 is an OWASP code with no matching finding is `NOT_ASSESSED`, not PASS, because the scanner
@@ -22,11 +22,11 @@ from ..core.models import Finding
 from ..frameworks.cis_catalog import CIS_1_8
 
 # Per-requirement status. Only a failing CIS control (or a finding tagged with a mapped CIS
-# control) FAILs a requirement — a loose OWASP-category match is a related INDICATOR, never a
+# control) FAILs a requirement, a loose OWASP-category match is a related INDICATOR, never a
 # formal control failure. PARTIAL = an assessable CIS control still needs node evidence
 # (kube-bench); MANUAL = mapped controls are human-judgement only; NEEDS_REVIEW = a related
 # finding exists (by OWASP category) but this requirement has no formal automated control
-# here — a lead to review, not a pass or a fail; NOT_ASSESSED = no signal at all (honest gap,
+# here, a lead to review, not a pass or a fail; NOT_ASSESSED = no signal at all (honest gap,
 # never a silent pass).
 PASS, FAIL, PARTIAL, MANUAL, NEEDS_REVIEW, NOT_ASSESSED = (
     "PASS", "FAIL", "PARTIAL", "MANUAL", "NEEDS_REVIEW", "NOT_ASSESSED")
@@ -162,7 +162,7 @@ class ComplianceEngine:
         statuses = {m["status"] for m in mapped}
         # Only a finding tagged with a MAPPED CIS control fails the requirement. A finding
         # that merely shares the OWASP category is a related indicator, not a control failure
-        # — counting it as FAIL produced a 0%-pass-everywhere readout an auditor dismisses.
+        #, counting it as FAIL produced a 0%-pass-everywhere readout an auditor dismisses.
         blocking = [f for f in live if set(f.cis) & set(cis_ids)]
         indicators = [f for f in live
                       if f.owasp and f.owasp in owasp and not (set(f.cis) & set(cis_ids))]
@@ -176,7 +176,7 @@ class ComplianceEngine:
         elif statuses and statuses <= {"MANUAL", "NA"}:
             status = MANUAL
         elif indicators:
-            # A related finding exists but no formal control here — a lead to review, not a
+            # A related finding exists but no formal control here, a lead to review, not a
             # pass and not a formal fail.
             status = NEEDS_REVIEW
         else:
@@ -208,10 +208,10 @@ class ComplianceEngine:
             ok = [m["id"] for m in mapped if m["status"] == PASS]
             return f"CIS control(s) passing: {', '.join(ok)}; no violating findings."
         if status == MANUAL:
-            return "Mapped CIS control(s) require manual review — no automated verdict."
+            return "Mapped CIS control(s) require manual review, no automated verdict."
         if status == NEEDS_REVIEW:
             n = len(blocking)   # here `blocking` is the indicator list passed in by _req
-            return (f"{n} related finding(s) (OWASP {', '.join(owasp)}) — no formal automated "
+            return (f"{n} related finding(s) (OWASP {', '.join(owasp)}), no formal automated "
                     f"control for this requirement here; review as a lead before assessment.")
         return (f"No automated check for this requirement (mapped to OWASP "
                 f"{', '.join(owasp)} only). Requires manual attestation.")
@@ -221,7 +221,7 @@ class ComplianceEngine:
         # This is automated posture evidence for the assessed subset, NOT a pass/fail
         # attestation (formal attestation needs a qualified assessor + out-of-scope controls).
         if counts[FAIL]:
-            return (f"{counts[FAIL]} {short} requirement(s) fail on automated checks — "
+            return (f"{counts[FAIL]} {short} requirement(s) fail on automated checks, "
                     f"{blockers} finding(s) to remediate before assessment.")
         pend = counts[PARTIAL] + counts[MANUAL] + counts[NEEDS_REVIEW] + counts[NOT_ASSESSED]
         if pend:

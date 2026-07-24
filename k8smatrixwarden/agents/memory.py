@@ -1,7 +1,7 @@
 """
-Persistent agent memory (Phase 2 + 3) — plain SQLite, stdlib only.
+Persistent agent memory (Phase 2 + 3), plain SQLite, stdlib only.
 
-Three tables the agent reads/writes across investigations — assets, findings, lessons — plus a
+Three tables the agent reads/writes across investigations, assets, findings, lessons, plus a
 small tool_quality log (Phase 5). No vector DB, no ORM: keyword search is a LIKE scan, which is
 plenty at this scale and keeps the core dependency-free.
 
@@ -188,7 +188,7 @@ class Memory:
             seq = " -> ".join(json.loads(lesson["successful_tool_sequence"] or "[]"))
             note = lesson["lesson"] or lesson["failure_reason"] or ""
             line = f"Prior investigation pattern ({lesson['task']}): {seq}"
-            parts.append(line + (f" — {note}" if note else ""))
+            parts.append(line + (f", {note}" if note else ""))
         if not parts:
             return ""
         return "Relevant prior context (from agent memory):\n" + "\n".join(parts)

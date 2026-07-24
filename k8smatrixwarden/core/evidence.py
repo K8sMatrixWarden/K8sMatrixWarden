@@ -6,8 +6,8 @@ evidence needs, ONCE, constrained to the scan scope, and hands rules a shared, c
 read-only snapshot. This is the efficiency win over per-tactic agents (redesign §3/§4).
 
 Two backends:
-  * MockEvidenceCollector  — loads a JSON fixture (default; zero dependencies).
-  * LiveEvidenceCollector  — reads the K8s API as raw camelCase JSON (matches the fixture
+  * MockEvidenceCollector , loads a JSON fixture (default; zero dependencies).
+  * LiveEvidenceCollector , reads the K8s API as raw camelCase JSON (matches the fixture
                              exactly) via the optional `kubernetes` client.
 
 `Evidence` is the object passed to every rule. Fields are accessed with dotted paths so
@@ -45,8 +45,8 @@ KIND_ALIASES = {
     "ClusterRoleBinding": "clusterrolebindings",
     "MutatingWebhookConfiguration": "mutatingwebhookconfigurations",
     "ValidatingWebhookConfiguration": "validatingwebhookconfigurations",
-    "ComponentConfig": "componentconfig",     # synthetic: control-plane flags
-    "CloudIAM": "cloudiam",                    # synthetic: cloud identity bindings
+    "ComponentConfig": "componentconfig",    # synthetic: control-plane flags
+    "CloudIAM": "cloudiam",                   # synthetic: cloud identity bindings
 }
 
 
@@ -116,14 +116,14 @@ class EvidenceCollector:
         #: silently under-reporting. Empty on the mock backend.
         self.warnings: list[str] = []
         #: True once at least one resource type was read successfully (an empty list from
-        #: a healthy API still counts — the cluster answered). Stays False when every
+        #: a healthy API still counts, the cluster answered). Stays False when every
         #: fetch errored, which is the difference between "clean cluster" and "we could
         #: not read the cluster at all".
         self.fetched_ok = False
 
     @property
     def degraded(self) -> bool:
-        """The scan could not read the cluster — its (empty) result is NOT evidence of a
+        """The scan could not read the cluster, its (empty) result is NOT evidence of a
         clean cluster and must never be rendered as a passing score."""
         return bool(self.warnings) and not self.fetched_ok
 
@@ -138,9 +138,19 @@ class EvidenceCollector:
         raise NotImplementedError
 
     def cluster_label(self) -> str:
-        """Stable identifier for the cluster this collector reads — the key the federation
+        """Stable identifier for the cluster this collector reads, the key the federation
         view groups saved scans by. Overridden per backend."""
         return "target-cluster"
+
+    def collect_runtime_events(self, *, namespace: str = "falco",
+                               since_seconds: int = 3600,
+                               tail_lines: int = 2000) -> list[dict]:
+        """Pull recent Falco alerts from the cluster as raw Falco event dicts.
+
+        Only the live backend can actually read a Falco DaemonSet's logs; every other
+        backend (mock, fixture) has no live stream, so the base returns nothing. This is
+        the pull half of the runtime feed, the push half is `POST /api/runtime`."""
+        return []
 
 
 class MockEvidenceCollector(EvidenceCollector):
@@ -174,8 +184,8 @@ def _api_exception_type() -> tuple:
 
 
 def _is_connection_error(exc: BaseException) -> bool:
-    """True when `exc` is a transport/reachability failure — the cluster is down, the
-    endpoint is wrong, DNS fails, the connection is refused, or a request times out —
+    """True when `exc` is a transport/reachability failure, the cluster is down, the
+    endpoint is wrong, DNS fails, the connection is refused, or a request times out, 
     as opposed to an HTTP response like 403/404. A connection failure means nothing on
     the cluster is scannable (fatal, one clean message); an HTTP error affects only one
     resource type (skip it, keep scanning)."""
@@ -198,7 +208,7 @@ def _http_status(exc: BaseException) -> Optional[int]:
     Duck-typed on `.status` (which is what ApiException exposes) instead of an isinstance
     check, so classification behaves identically whether or not the optional `kubernetes`
     package is importable. A status of 0/None means the client never received a response
-    at all — a transport failure, not an HTTP status."""
+    at all, a transport failure, not an HTTP status."""
     status = getattr(exc, "status", None)
     return status if isinstance(status, int) and status > 0 else None
 
@@ -217,7 +227,7 @@ def _has_credentials(client) -> bool:
     try:
         cfg = client.Configuration.get_default_copy()
     except Exception:
-        return True                       # can't tell — let the preflight decide
+        return True                       # can't tell, let the preflight decide
     return bool((cfg.api_key or {}).get("authorization")
                 or getattr(cfg, "cert_file", None)
                 or getattr(cfg, "username", None))
@@ -257,7 +267,7 @@ def _credential_failure(kubeconfig: Optional[str],
     `kubernetes.config.load_kube_config()` only *logs* an exec-plugin failure and then
     carries on with NO credentials (see `_load_from_exec_plugin`); its `auth-provider`
     loaders can similarly yield nothing for an expired token they cannot refresh. Either
-    way the result is a 401 on every request — which, before this, meant every resource
+    way the result is a 401 on every request, which, before this, meant every resource
     type was skipped as a warning and the scan reported zero findings and an "Excellent"
     rating for a cluster it never read.
 
@@ -275,7 +285,7 @@ def _credential_failure(kubeconfig: Optional[str],
     exec_cfg = dict(user.get("exec") or {})
     command = exec_cfg.get("command")
     if not command:
-        # No exec block — an `auth-provider` (the pre-exec GKE/AKS/OIDC mechanism) is the
+        # No exec block, an `auth-provider` (the pre-exec GKE/AKS/OIDC mechanism) is the
         # other way a kubeconfig silently ends up with no usable token. We can't re-run it
         # the way we can an exec plugin, but we can name it and the command that fixes it.
         provider = ((user.get("auth-provider") or {}).get("name") or "").strip().lower()
@@ -284,9 +294,9 @@ def _credential_failure(kubeconfig: Optional[str],
                                          "re-authenticate with that provider")
             return (f"the kubeconfig authenticates with auth-provider {provider!r}, which "
                     f"returned no usable token (it is missing or expired and could not be "
-                    f"refreshed) — {fix}")
+                    f"refreshed), {fix}")
         return None
-    # Same command the kubernetes client itself would run — no new trust boundary.
+    # Same command the kubernetes client itself would run, no new trust boundary.
     argv = [str(command)] + [str(a) for a in (exec_cfg.get("args") or [])]
     env = dict(os.environ)
     for e in (exec_cfg.get("env") or []):
@@ -314,11 +324,11 @@ def _short_api_error(exc: BaseException) -> str:
     status = _http_status(exc)
     if status is not None:
         if status == 401:
-            return "HTTP 401 Unauthorized — the cluster rejected our credentials"
+            return "HTTP 401 Unauthorized, the cluster rejected our credentials"
         if status == 403:
-            return "HTTP 403 Forbidden — scanner ServiceAccount lacks read RBAC for it"
+            return "HTTP 403 Forbidden, scanner ServiceAccount lacks read RBAC for it"
         if status == 404:
-            return "HTTP 404 — API group/resource not present on this cluster"
+            return "HTTP 404, API group/resource not present on this cluster"
         reason = (getattr(exc, "reason", "") or "").strip()
         return f"HTTP {status} {reason}".strip()
     first = (str(exc).splitlines() or [""])[0][:120]
@@ -350,7 +360,7 @@ class LiveEvidenceCollector(EvidenceCollector):
                 "Install it (`pip install kubernetes`) or use --mock."
             ) from exc
         if kubeconfig or context:
-            # User explicitly pointed us at a kubeconfig/context — a failure here is a
+            # User explicitly pointed us at a kubeconfig/context, a failure here is a
             # real, specific problem (bad path, unknown context) and must not be masked
             # by a confusing in-cluster-config fallback error.
             try:
@@ -393,17 +403,87 @@ class LiveEvidenceCollector(EvidenceCollector):
     def cluster_label(self) -> str:
         return self._active_context or "live-cluster"
 
+    #: Label selectors a Falco DaemonSet is found by, the helm-chart canonical label first,
+    #: then the legacy `app=falco` some older installs still use.
+    _FALCO_SELECTORS = ("app.kubernetes.io/name=falco", "app=falco")
+
+    def collect_runtime_events(self, *, namespace: str = "falco",
+                               since_seconds: int = 3600,
+                               tail_lines: int = 2000) -> list[dict]:
+        """Read recent Falco alerts from the DaemonSet's pod logs (json_output=true) using
+        the same authenticated client the scan already loaded. Best-effort: any failure is
+        recorded as a warning and returns whatever was read, never aborting the scan."""
+        from .falco_feed import parse_falco_log
+
+        core = self._client.CoreV1Api(self._api)
+        items = []
+        for selector in self._FALCO_SELECTORS:
+            try:
+                pods = core.list_namespaced_pod(
+                    namespace, label_selector=selector,
+                    _request_timeout=self._REQUEST_TIMEOUT)
+            except Exception as exc:
+                self.warnings.append(
+                    f"Falco feed: could not list pods in ns/{namespace}: "
+                    f"{_short_api_error(exc)}")
+                return []
+            items = getattr(pods, "items", []) or []
+            if items:
+                break
+        if not items:
+            self.warnings.append(
+                f"Falco feed: no Falco pods in ns/{namespace}, install Falco to see live "
+                f"correlation (the deploy_falco tool prints the helm commands)")
+            return []
+
+        events: list[dict] = []
+        read_any = False
+        for pod in items:
+            log = self._read_falco_pod_log(core, pod.metadata.name, namespace,
+                                           since_seconds, tail_lines)
+            if log is None:
+                continue
+            read_any = True
+            events.extend(parse_falco_log(log))
+        if read_any and not events:
+            self.warnings.append(
+                "Falco feed: Falco is running but produced no JSON events in the window, "
+                "enable JSON output (helm --set falco.json_output=true) and confirm there "
+                "is cluster activity to alert on")
+        return events
+
+    def _read_falco_pod_log(self, core, name: str, namespace: str,
+                            since_seconds: int, tail_lines: int):
+        """Read one Falco pod's log. Falco pods often run several containers
+        (falco, falcosidekick); the alerts are on the 'falco' container, so try it first
+        and fall back to the pod default if that container name isn't present."""
+        last_exc = None
+        for container in ("falco", None):
+            try:
+                return core.read_namespaced_pod_log(
+                    name, namespace, container=container, since_seconds=since_seconds,
+                    tail_lines=tail_lines, timestamps=False,
+                    _request_timeout=self._REQUEST_TIMEOUT)
+            except Exception as exc:
+                last_exc = exc
+                if container == "falco" and _http_status(exc) == 400:
+                    continue  # multi-container pod without a 'falco' container, retry default
+                break
+        self.warnings.append(
+            f"Falco feed: could not read logs for pod/{name}: {_short_api_error(last_exc)}")
+        return None
+
     def _credential_error(self) -> Optional[str]:
         """The exec credential plugin's real failure, resolved at most once. Also covers
-        the case where a *stale* cached token loaded fine but the cluster rejects it —
+        the case where a *stale* cached token loaded fine but the cluster rejects it, 
         re-running the plugin is exactly what surfaces an expired/misconfigured profile."""
         if self._auth_detail is None:
             self._auth_detail = _credential_failure(self._kubeconfig, self._context)
         return self._auth_detail
 
     def _unreachable(self, exc: BaseException) -> RuntimeError:
-        """A clear, actionable error for 'the API server can't be reached' — the common
-        live-scan failure (cluster stopped, wrong endpoint) — instead of a raw traceback."""
+        """A clear, actionable error for 'the API server can't be reached', the common
+        live-scan failure (cluster stopped, wrong endpoint), instead of a raw traceback."""
         ctx = self._context or "(current-context)"
         detail = (str(exc).splitlines() or [""])[0][:200] or type(exc).__name__
         hint_ctx = self._context or "<name>"
@@ -420,20 +500,20 @@ class LiveEvidenceCollector(EvidenceCollector):
         This is fatal on purpose. Treating it as a per-resource warning is what produced
         the empty "0 findings / Excellent" scan of a cluster the tool never read."""
         ctx = self._context or "(current-context)"
-        lines = [f"Kubernetes API authentication failed for context {ctx!r} — the "
+        lines = [f"Kubernetes API authentication failed for context {ctx!r}, the "
                  f"kubeconfig loaded, but no valid credentials could be obtained."]
         if detail:
             lines.append(f"  → {detail}")
         lines += [
             "The kubeconfig's credential plugin could not issue a token. Check the "
             "cloud profile it depends on:",
-            "  * AWS / EKS   — the AWS profile named in the kubeconfig is not configured "
+            "  * AWS / EKS  , the AWS profile named in the kubeconfig is not configured "
             "on this machine.",
             "                  Verify: aws configure list-profiles  ·  "
             "AWS_PROFILE=<name> aws sts get-caller-identity",
-            "  * GCP / GKE   — gcloud auth login, and install gke-gcloud-auth-plugin.",
-            "  * Azure / AKS — az login (kubelogin).",
-            "Refusing to save a scan of a cluster that could not be read — an empty "
+            "  * GCP / GKE  , gcloud auth login, and install gke-gcloud-auth-plugin.",
+            "  * Azure / AKS, az login (kubelogin).",
+            "Refusing to save a scan of a cluster that could not be read, an empty "
             "result would look like a clean cluster.",
             "To scan the bundled sample cluster instead:  add --mock",
         ]
@@ -442,7 +522,7 @@ class LiveEvidenceCollector(EvidenceCollector):
     def _preflight(self) -> None:
         """Probe the API server once up front so an unreachable or unauthenticated
         cluster fails fast with a clear message. A *connection* failure and a 401 are both
-        fatal — neither leaves anything scannable. A 403 on /version is not: some clusters
+        fatal, neither leaves anything scannable. A 403 on /version is not: some clusters
         gate that endpoint while real resources stay readable, so per-resource fetches
         handle their own authorization."""
         try:
@@ -458,7 +538,7 @@ class LiveEvidenceCollector(EvidenceCollector):
 
     #: Objects per page, and a hard page cap. On a large cluster a single unpaginated LIST
     #: can time out or blow memory; paging in bounded chunks (each with its OWN per-request
-    #: timeout) makes a big cluster degrade — read what we can, warn about the rest — instead
+    #: timeout) makes a big cluster degrade, read what we can, warn about the rest, instead
     #: of aborting the whole scan. 500 × 200 = 100k objects before the cap trips.
     _PAGE_LIMIT = 500
     _MAX_PAGES = 200
@@ -468,7 +548,7 @@ class LiveEvidenceCollector(EvidenceCollector):
 
         `_preload_content=False` returns the underlying HTTP response without the client
         trying to deserialize it into a typed model, so this stays compatible across
-        kubernetes-client versions — the older `response_type=` kwarg was removed in v33+
+        kubernetes-client versions, the older `response_type=` kwarg was removed in v33+
         (renamed to `response_types_map`), which otherwise breaks live scanning on a
         modern client even though pyproject only requires `kubernetes>=28`.
 
@@ -498,11 +578,11 @@ class LiveEvidenceCollector(EvidenceCollector):
             cont = (data.get("metadata") or {}).get("continue") or ""
             if not cont:
                 return items
-        # Hit the page cap with a continue token still outstanding — partial, and we say so
+        # Hit the page cap with a continue token still outstanding, partial, and we say so
         # rather than silently under-reporting a very large cluster.
         self.warnings.append(
             f"{path}: read first {len(items)} objects then stopped at the pagination cap "
-            f"({self._MAX_PAGES} pages) — results for this type are partial")
+            f"({self._MAX_PAGES} pages), results for this type are partial")
         return items
 
     _PATHS = {
@@ -542,7 +622,7 @@ class LiveEvidenceCollector(EvidenceCollector):
             items = self._get_json(path)
         except Exception as exc:
             if _is_connection_error(exc):
-                # The cluster went unreachable mid-scan — nothing more is scannable.
+                # The cluster went unreachable mid-scan, nothing more is scannable.
                 raise self._unreachable(exc) from exc
             if _http_status(exc) == 401:
                 # Credentials are missing/expired: no resource type is readable, so this
@@ -572,16 +652,16 @@ class LiveEvidenceCollector(EvidenceCollector):
         except Exception as exc:
             self.warnings.append(
                 f"ComponentConfig: control-plane flags unavailable "
-                f"({_short_api_error(exc)}) — control-plane checks were not evaluated")
+                f"({_short_api_error(exc)}), control-plane checks were not evaluated")
             return []
         config = build_component_config(pods)
-        # No component sections means no control-plane static Pods were visible — the
+        # No component sections means no control-plane static Pods were visible, the
         # normal case on a managed cluster (EKS/GKE/AKS), where the control plane is
         # provider-owned. The flag rules correctly stay silent; say so, so an operator
         # reads "not applicable" rather than assuming those checks passed.
         if not any(k != "version" for k in (config.get("spec") or {})):
             self.warnings.append(
-                "ComponentConfig: no control-plane static Pods visible in kube-system — "
+                "ComponentConfig: no control-plane static Pods visible in kube-system, "
                 "the control plane is provider-managed (EKS/GKE/AKS) or runs outside the "
                 "cluster, so API server / etcd / kubelet flag checks were not applicable")
         return [config]
@@ -642,12 +722,12 @@ def _parse_flags(tokens: list[str]) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Provider detection — which cloud/distro, so callers pick the right CIS profile
+# Provider detection, which cloud/distro, so callers pick the right CIS profile
 # (and, later, the right cloud-IAM API). Core K8s API paths are identical across
 # providers, so scanning itself needs no per-cloud branch; only the managed-control-
 # plane question (CIS sections 1-3) and cloud-IAM evidence do.
 # --------------------------------------------------------------------------- #
-#: A managed-service node label is authoritative for "this is GKE/EKS/AKS" — its
+#: A managed-service node label is authoritative for "this is GKE/EKS/AKS", its
 #: presence means the control plane is provider-owned (CIS profile => NA sections 1-3).
 _MANAGED_NODE_LABELS = {
     "cloud.google.com/gke-nodepool": "gke",
@@ -655,16 +735,16 @@ _MANAGED_NODE_LABELS = {
     "kubernetes.azure.com/cluster": "aks",
 }
 #: providerID scheme names the IaaS. A cloud VM WITHOUT a managed label is
-#: self-managed K8s on that cloud — control plane is still inspectable, so its CIS
+#: self-managed K8s on that cloud, control plane is still inspectable, so its CIS
 #: profile stays 'self-managed'; only `cloud` reflects the IaaS (for cloud-IAM APIs).
 _PROVIDERID_CLOUD = {"gce": "gcp", "aws": "aws", "azure": "azure"}
 
 
 def detect_provider(nodes: list[dict]) -> dict:
     """Best-effort cluster provider from Node objects. Returns:
-        cloud   — 'gcp' | 'aws' | 'azure' | 'local'   (which IaaS; picks cloud-IAM API)
-        managed — True if a managed offering owns the control plane (GKE/EKS/AKS)
-        profile — 'gke' | 'eks' | 'aks' | 'self-managed'   (feed straight to CIS)
+        cloud  , 'gcp' | 'aws' | 'azure' | 'local'   (which IaaS; picks cloud-IAM API)
+        managed, True if a managed offering owns the control plane (GKE/EKS/AKS)
+        profile, 'gke' | 'eks' | 'aks' | 'self-managed'   (feed straight to CIS)
     Managed-service node labels are authoritative for `managed`/`profile`; providerID
     only names the cloud. Empty/kind/k3s nodes => local, self-managed."""
     cloud = "local"

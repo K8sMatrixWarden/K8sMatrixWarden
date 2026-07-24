@@ -4,7 +4,7 @@ Plugin model & loader (§21).
 Every scanner is a plugin that self-declares (rules it owns · evidence it needs · RBAC
 verbs it requires). The loader mints a scoped RoleBinding per plugin from those verbs
 (least-privilege *below* the agent level, §20). Built-in shards register in-process;
-third-party plugins would be sandboxed (WASM/gRPC) — represented here by the manifest's
+third-party plugins would be sandboxed (WASM/gRPC), represented here by the manifest's
 `isolation` field.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ class PluginManifest:
         Shard names use underscores (e.g. `admission_control`), which are NOT valid in
         DNS-1123 object names. RBAC's own validator tolerates them, but hardened clusters
         commonly enforce DNS-1123 on all resources via admission policies (Gatekeeper/
-        Kyverno) and would reject an underscore name on apply — so hyphenate.
+        Kyverno) and would reject an underscore name on apply, so hyphenate.
         """
         return f"k8smatrixwarden-plugin-{self.name.replace('_', '-')}"
 
@@ -89,7 +89,7 @@ class PluginLoader:
         """
         A single, ready-to-`kubectl apply -f` manifest that actually grants the tool the
         least-privilege access it declared (§20/§21): one ServiceAccount + one scoped
-        ClusterRole/ClusterRoleBinding pair *per shard*. Nothing here grants write access —
+        ClusterRole/ClusterRoleBinding pair *per shard*. Nothing here grants write access, 
         every generated rule is get/list/watch only, matching what each shard's rules
         declared they need (no more).
 

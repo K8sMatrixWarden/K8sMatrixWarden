@@ -1,12 +1,12 @@
 """
-Renderers for a ComplianceReport — the auditor-facing view. Markdown and HTML reuse the
+Renderers for a ComplianceReport, the auditor-facing view. Markdown and HTML reuse the
 same GitHub-styled shell + theme toggle as the security report (core.reporting), so a
 per-scan report and its compliance audit look like one product. PDF reuses the fpdf2
 scaffold from core.pdf_report.
 
 Deliberately narrative-first: each framework leads with an attestation sentence
 ("N findings block PCI DSS attestation"), then a per-requirement table of
-status / evidence / blocking findings — what an assessor reads, not a technical dump.
+status / evidence / blocking findings, what an assessor reads, not a technical dump.
 """
 from __future__ import annotations
 
@@ -26,12 +26,12 @@ _ORDER = [FAIL, PARTIAL, NEEDS_REVIEW, MANUAL, NOT_ASSESSED, PASS]
 # ---------------------------------------------------------------- markdown --- #
 def to_markdown(report: ComplianceReport) -> str:
     L = ["# Compliance Audit\n"]
-    L.append(f"Scan `{report.scan_id or '—'}` · cluster `{report.cluster or '—'}` · "
-             f"profile `{report.profile or '—'}` · {report.generated_at or ''}\n")
+    L.append(f"Scan `{report.scan_id or 'N/A'}` · cluster `{report.cluster or 'N/A'}` · "
+             f"profile `{report.profile or 'N/A'}` · {report.generated_at or ''}\n")
     L.append("> Assesses the **Kubernetes-relevant subset** of each framework, derived from "
              "the CIS Kubernetes Benchmark v1.8 and OWASP Kubernetes Top 10. A requirement "
              "shown as *Not assessed* has no automated cluster check and needs manual "
-             "attestation — it is never counted as passing.\n")
+             "attestation, it is never counted as passing.\n")
     for fw in report.frameworks:
         c = fw.counts
         L.append(f"\n## {fw.name}\n")
@@ -46,7 +46,7 @@ def to_markdown(report: ComplianceReport) -> str:
         L.append("|---|---|---|---|")
         for r in sorted(fw.requirements, key=lambda x: _ORDER.index(x.status)):
             bf = "; ".join(f"{b.title} (`{str(b.resource)}`)"
-                           for b in r.blocking_findings[:3]) or "—"
+                           for b in r.blocking_findings[:3]) or "N/A"
             if len(r.blocking_findings) > 3:
                 bf += f" +{len(r.blocking_findings)-3} more"
             L.append(f"| **{_esc(r.id)}** {_esc(r.title)} | "
@@ -69,13 +69,10 @@ def to_html(report: ComplianceReport, *, standalone: bool = True) -> str:
     body = f"""
 {themebar}
 <h1>Compliance Audit</h1>
-<div class='sub'>Scan <code>{_esc(report.scan_id or '—')}</code> · cluster
- <code>{_esc(report.cluster or '—')}</code> · profile <code>{_esc(report.profile or '—')}</code>
+<div class='sub'>Scan <code>{_esc(report.scan_id or 'N/A')}</code> · cluster
+ <code>{_esc(report.cluster or 'N/A')}</code> · profile <code>{_esc(report.profile or 'N/A')}</code>
  · {_esc(report.generated_at or '')}</div>
-<div class='cf-note'>Assesses the <b>Kubernetes-relevant subset</b> of each framework, derived
- from CIS Kubernetes Benchmark v1.8 + OWASP Kubernetes Top 10. A requirement marked
- <b>Not assessed</b> has no automated cluster check and needs manual attestation — it is
- never counted as passing.</div>
+<div class='cf-note'>Covers the Kubernetes-relevant subset of each framework (CIS Benchmark v1.8 and OWASP Kubernetes Top 10). <b>Not assessed</b> means no automated check exists; it needs manual attestation and never counts as a pass.</div>
 <div class='cf-tabs'>{''.join(tabs)}</div>
 {''.join(panels)}
 """
@@ -139,31 +136,31 @@ _CF_CSS = """
 .cf-tab{background:none;border:0;border-bottom:2px solid transparent;padding:.6rem 1rem;
  font:inherit;font-size:.9rem;font-weight:600;color:var(--muted);cursor:pointer;margin-bottom:-1px}
 .cf-tab:hover{color:var(--fg)}.cf-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
-.cf-attest{font-size:1.05rem;font-weight:700;padding:.9rem 1.1rem;border-radius:10px;margin:.5rem 0 1rem}
-.cf-attest.fail{background:rgba(207,34,46,.12);color:var(--crit);border:1px solid var(--crit)}
-.cf-attest.ok{background:rgba(26,127,55,.12);color:var(--low);border:1px solid var(--low)}
-.cf-summary{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem}
-.cf-pill{font-size:.78rem;font-weight:700;padding:.2rem .6rem;border-radius:20px;color:#fff}
+.cf-attest{font-size:.98rem;font-weight:650;padding:.85rem 1.05rem;border-radius:10px;margin:.5rem 0 1rem;line-height:1.5}
+.cf-attest.fail{background:color-mix(in srgb,var(--crit) 8%,var(--card));color:var(--crit);border:1px solid color-mix(in srgb,var(--crit) 32%,var(--bd))}
+.cf-attest.ok{background:color-mix(in srgb,var(--low) 8%,var(--card));color:var(--low);border:1px solid color-mix(in srgb,var(--low) 32%,var(--bd))}
+.cf-summary{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem}
+.cf-pill{font-size:.72rem;font-weight:650;padding:.2rem .55rem;border-radius:6px;color:#fff}
 .cf-pill.low{background:var(--low)}.cf-pill.crit{background:var(--crit)}
 .cf-pill.high{background:var(--high)}.cf-pill.med{background:var(--med)}
 .cf-pill.muted{background:var(--muted)}
 .cf-pct{font-size:.82rem;color:var(--muted);margin-left:auto;font-weight:600}
 .cf-scope{font-size:.8rem;color:var(--muted);font-style:italic;margin-bottom:1rem}
 .cf-table{width:100%;border-collapse:collapse;font-size:.87rem}
-.cf-table th{text-align:left;color:var(--muted);font-size:.73rem;text-transform:uppercase;
- letter-spacing:.05em;padding:.6rem .6rem;border-bottom:2px solid var(--bd)}
+.cf-table th{text-align:left;color:var(--muted);font-size:.66rem;text-transform:uppercase;
+ letter-spacing:.1em;font-family:var(--mono);font-weight:600;padding:.55rem .6rem;border-bottom:1px solid var(--bd)}
 .cf-table td{padding:.7rem .6rem;border-bottom:1px solid var(--bd);vertical-align:top}
-.cf-row.crit{background:rgba(207,34,46,.05)}
+.cf-row.crit{background:color-mix(in srgb,var(--crit) 5%,transparent)}
 .cf-id{max-width:320px}.cf-rt{font-size:.8rem;color:var(--muted);margin-top:.15rem}
 .cf-maps{margin-top:.4rem;display:flex;gap:.3rem;flex-wrap:wrap}
 .cf-chip{font-size:.68rem;padding:.1rem .45rem;border-radius:6px;border:1px solid var(--bd);
  color:var(--muted);background:var(--bg)}
 .cf-chip.ow{border-color:var(--accent);color:var(--accent)}
-.cf-badge{font-size:.78rem;font-weight:700;padding:.2rem .6rem;border-radius:20px;
+.cf-badge{font-size:.7rem;font-weight:650;padding:.2rem .55rem;border-radius:6px;
  white-space:nowrap;color:#fff}
 .cf-badge.low{background:var(--low)}.cf-badge.crit{background:var(--crit)}
 .cf-badge.high{background:var(--high)}.cf-badge.med{background:var(--med)}
-.cf-badge.muted{background:var(--muted)}
+.cf-badge.muted{background:var(--info)}
 .cf-ev{color:var(--fg)}.cf-bf{margin:.5rem 0 0;padding-left:1rem;font-size:.83rem}
 .cf-bf li{margin:.2rem 0;color:var(--muted)}
 .sevdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.4rem;vertical-align:1px}

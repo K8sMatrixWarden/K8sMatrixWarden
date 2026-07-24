@@ -1,4 +1,4 @@
-"""Shard ⑪ — Log Analysis & Audit Trail.
+"""Shard ⑪, Log Analysis & Audit Trail.
 
 Answers one question the other ten shards do not: **if an attacker got in, could you
 tell?** Every other shard asks whether a door is open; this one asks whether anyone is
@@ -6,16 +6,16 @@ writing down who walked through it.
 
 That makes it the scan-surface counterpart to the Runtime Agent. The Runtime Agent
 detects log tampering *as it happens* (`Container log cleared/truncated`, `K8s events
-deleted` — MITRE T1070). This shard detects, at scan time, the posture that makes such
+deleted`, MITRE T1070). This shard detects, at scan time, the posture that makes such
 tampering unrecoverable in the first place: no audit policy, retention too short to cover
 a dwell time, or no log collector shipping anything off the node. A cleared log only
 matters if it was the only copy.
 
-Scope note — the API server's `--audit-log-path` check already lives in
+Scope note, the API server's `--audit-log-path` check already lives in
 `cluster_control_plane` as `apiserver-audit-logging` (CIS 1.2.17). It is intentionally
 left there rather than moved: rule ids are the identity used by saved reports and the
 finding timeline, so renaming one would orphan history. This shard covers what that check
-does *not* — the policy, the retention window, and whether logs leave the node at all.
+does *not*, the policy, the retention window, and whether logs leave the node at all.
 
 Every rule here is scoped to the `log_analysis` module, so `--module log_analysis` (CLI),
 `module:log_analysis` (dashboard selector) and the `log_analysis` MCP selector all
@@ -32,17 +32,17 @@ from .base import DomainShard
 
 NAME = "log_analysis"
 
-#: CIS 1.2.18 — 30 days is the benchmark's floor, and it is also roughly the industry
+#: CIS 1.2.18 to 30 days is the benchmark's floor, and it is also roughly the industry
 #: median attacker dwell time, so a shorter window can expire before an intrusion is even
 #: noticed.
 _MIN_AUDIT_MAXAGE_DAYS = 30
-#: CIS 1.2.19 / 1.2.20 — enough rotated files, and large enough files, that a burst of
+#: CIS 1.2.19 / 1.2.20, enough rotated files, and large enough files, that a burst of
 #: activity cannot silently roll the interesting entries out of retention.
 _MIN_AUDIT_MAXBACKUP = 10
 _MIN_AUDIT_MAXSIZE_MB = 100
 
 #: Substrings identifying a log-shipping agent by workload name or container image.
-#: Deliberately broad — a false *negative* here (we recognise your collector and stay
+#: Deliberately broad, a false *negative* here (we recognise your collector and stay
 #: quiet) is much cheaper than telling an operator their logging is missing when it isn't.
 _LOG_COLLECTORS = (
     "fluentd", "fluent-bit", "fluentbit", "filebeat", "logstash", "vector",
@@ -59,7 +59,7 @@ def _apiserver_flags(ev) -> Optional[dict]:
     None is NOT the same as "the flag is missing". On a managed cluster (EKS/GKE/AKS) the
     control plane is provider-owned and its static Pods are invisible, so ComponentConfig
     comes back with no `apiServer` section. Treating that as "audit logging is off" would
-    invent a finding out of absent evidence — the same mistake as scoring an unread
+    invent a finding out of absent evidence, the same mistake as scoring an unread
     cluster as clean. Every audit-flag rule below therefore no-ops when this returns None.
     """
     items = ev.get("ComponentConfig", all_scopes=True)
@@ -118,7 +118,7 @@ def _audit_retention_short(rule, ev, scope):
     elif maxage < _MIN_AUDIT_MAXAGE_DAYS:
         yield rule.finding(
             _control_plane_ref(),
-            f"audit logs are kept for only {maxage} day(s) — shorter than the "
+            f"audit logs are kept for only {maxage} day(s), shorter than the "
             f"{_MIN_AUDIT_MAXAGE_DAYS}-day floor, so an intrusion can age out before "
             f"it is investigated",
             blast_radius=BR.CLUSTER, exploitability=EX.REMOTE,
@@ -166,11 +166,11 @@ def _no_log_collector(rule, ev, scope):
                 str(c.get("image", "")).lower() for c in Evidence.containers(workload))
             haystack = f"{name} {images}"
             if any(c in haystack for c in _LOG_COLLECTORS):
-                return                        # something ships logs — nothing to report
+                return                        # something ships logs, nothing to report
     yield rule.finding(
         ResourceRef("Cluster", "log-pipeline"),
         "no in-cluster log collector (fluent-bit/fluentd/vector/otel-collector/…) was "
-        "found, so container and audit logs stay on the node that produced them — an "
+        "found, so container and audit logs stay on the node that produced them, an "
         "attacker who clears them leaves no second copy. If logs are shipped by a node "
         "agent outside the cluster, this is expected and can be suppressed.",
         blast_radius=BR.CLUSTER, exploitability=EX.LOCAL,
@@ -185,7 +185,7 @@ class LogAnalysisShard(DomainShard):
     index = "⑪"
 
     def rbac_verbs(self) -> list[dict]:
-        """ComponentConfig is synthetic, so the base class grants nothing for it — but in
+        """ComponentConfig is synthetic, so the base class grants nothing for it, but in
         live mode it is built by reading kube-system static Pods, which needs pods read.
         Same reasoning as cluster_control_plane."""
         return super().rbac_verbs() + [

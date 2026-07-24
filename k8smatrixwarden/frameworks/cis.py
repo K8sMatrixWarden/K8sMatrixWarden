@@ -1,21 +1,21 @@
 """
-CIS Benchmark Engine (§5.9) — full 130-control coverage with API-side mitigation.
+CIS Benchmark Engine (§5.9), full 130-control coverage with API-side mitigation.
 
 Gives EVERY control a status so nothing is missed:
 
-  PASS       — evaluated and compliant
-  FAIL       — evaluated and non-compliant (offending resources attached)
-  MANUAL     — CIS marks it Manual; needs human review
-  NA         — not applicable on this provider profile (managed control plane)
-  NEEDS_NODE — requires on-node file read; supply kube-bench JSON to resolve
+  PASS      , evaluated and compliant
+  FAIL      , evaluated and non-compliant (offending resources attached)
+  MANUAL    , CIS marks it Manual; needs human review
+  NA        , not applicable on this provider profile (managed control plane)
+  NEEDS_NODE, requires on-node file read; supply kube-bench JSON to resolve
 
 Evaluation methods (see cis_catalog):
-  native    — run the mapped domain-shard rules once over cluster evidence (rule fired ⇒ FAIL)
-  builtin   — purpose-built evaluator here
-  component — read a control-plane / kubelet PROCESS FLAG from ComponentConfig evidence
+  native   , run the mapped domain-shard rules once over cluster evidence (rule fired ⇒ FAIL)
+  builtin  , purpose-built evaluator here
+  component, read a control-plane / kubelet PROCESS FLAG from ComponentConfig evidence
               (Mitigation Layer 1/2: parsed from kube-system static-pod specs + kubelet config)
-  kube-bench— node FILE permission read; resolved from kube-bench JSON, else NEEDS_NODE
-  manual    — surfaced for human review
+  kube-bench, node FILE permission read; resolved from kube-bench JSON, else NEEDS_NODE
+  manual   , surfaced for human review
 
 Provider profiles (Mitigation Layer 4): on eks/gke/aks the managed control plane (sections
 1–3) cannot and should not be graded → those controls are marked NA rather than NEEDS_NODE.
@@ -100,7 +100,7 @@ class CISBenchmarkEngine:
 
     # ------------------------------------------------------------------ #
     def _evaluate(self, c: CisControl, fired, ev, cfg_flags, kb, profile) -> ControlResult:
-        # Layer 4 — managed provider: control-plane sections are provider-owned → N/A.
+        # Layer 4, managed provider: control-plane sections are provider-owned → N/A.
         if profile in MANAGED_PROFILES and c.section in CONTROL_PLANE_SECTIONS:
             return ControlResult(c, NA, f"provider-managed control plane ({profile})")
 
@@ -289,7 +289,7 @@ def render_text(report: CISReport, show: str = "fail") -> str:
 
 def render_markdown(report: CISReport) -> str:
     c = report.counts
-    out = [f"# 📋 {report.title} — Compliance Report",
+    out = [f"# 📋 {report.title}, Compliance Report",
            "",
            f"**Profile:** {report.profile}  |  **Controls:** {len(report.results)}  |  "
            f"**Automated pass rate:** {report.pass_pct}%  |  "
@@ -311,7 +311,7 @@ def render_markdown(report: CISReport) -> str:
     if not fails:
         out.append("_None_ ✅")
     for r in fails:
-        tail = (f" — {', '.join(r.resources[:5])}" if r.resources
-                else (f" — {r.detail}" if r.detail else ""))
+        tail = (f", {', '.join(r.resources[:5])}" if r.resources
+                else (f", {r.detail}" if r.detail else ""))
         out.append(f"- ❌ **[{r.control.id}]** {r.control.title}{tail}")
     return "\n".join(out)

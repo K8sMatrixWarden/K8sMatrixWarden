@@ -1,5 +1,5 @@
 """
-Richer tool descriptions (Phase 7). WRAPS build_tools() — never replaces it.
+Richer tool descriptions (Phase 7). WRAPS build_tools(), never replaces it.
 
 The LLM picks tools better with when-to-use guidance than with the bare docstring. Only a few
 high-traffic tools are overridden; everything else keeps its own docstring unchanged.
@@ -20,7 +20,7 @@ TOOL_METADATA = {
         "Chain a scan's hit cells into an Initial-Access -> Impact kill-chain. Use to prioritise "
         "exploitable paths and check reaches_impact.",
     "detect_drift":
-        "Flag runtime behaviour that contradicts a Pod's declared posture — the strongest "
+        "Flag runtime behaviour that contradicts a Pod's declared posture, the strongest "
         "exploitation signal. Use to validate high-severity workload findings.",
 }
 

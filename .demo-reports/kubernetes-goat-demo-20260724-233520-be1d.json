@@ -1,0 +1,3547 @@
+{
+  "scan_id": "kubernetes-goat-demo-20260724-233520-be1d",
+  "name": "Kubernetes Goat demo",
+  "display_name": "Kubernetes Goat demo, 24 Jul 2026, 23:35 IST",
+  "cluster": "mock-cluster",
+  "generated_at": "2026-07-24T23:35:20+05:30",
+  "tool_version": "1.0",
+  "mode": "live",
+  "warnings": [],
+  "evidence_ok": true,
+  "scope": "cluster-wide",
+  "selector": "all-rules",
+  "resolved_rules": [
+    "admission-malicious-webhook",
+    "admission-webhook-failurepolicy",
+    "admission-sidecar-injection",
+    "cronjob-suspicious",
+    "as-sa-fanout",
+    "iam-overpermissive",
+    "iam-node-role-broad",
+    "iam-managed-identity-reachable",
+    "apiserver-anonymous-auth",
+    "apiserver-insecure-port",
+    "apiserver-audit-logging",
+    "etcd-encryption-missing",
+    "etcd-client-cert-auth",
+    "kubelet-anonymous-auth",
+    "kubelet-read-only-port",
+    "kubelet-authz-always-allow",
+    "deprecated-k8s-version",
+    "compliance-psa-not-restricted",
+    "img-pull-policy",
+    "img-not-signed",
+    "img-typosquat",
+    "img-kubeconfig-embedded",
+    "log-audit-policy-missing",
+    "log-audit-retention-short",
+    "log-audit-rotation-weak",
+    "log-no-collector",
+    "net-nodeport-service",
+    "net-lb-no-source-range",
+    "net-dashboard-exposed",
+    "net-ingress-no-tls",
+    "net-no-networkpolicy",
+    "net-metadata-api-open",
+    "rbac-wildcard-verbs",
+    "rbac-wildcard-resources",
+    "rbac-cluster-admin-default-sa",
+    "rbac-bind-escalate-verbs",
+    "rbac-secret-read-broad",
+    "rbac-can-delete-events",
+    "rbac-coredns-configmap-write",
+    "sec-env-var-secrets",
+    "sec-configmap-credentials",
+    "sec-mounted-cloud-creds",
+    "sec-etcd-not-encrypted",
+    "workload-privileged-container",
+    "workload-run-as-root",
+    "workload-allow-priv-escalation",
+    "workload-writable-root-fs",
+    "workload-dangerous-caps",
+    "workload-caps-not-dropped",
+    "workload-host-pid",
+    "workload-host-network",
+    "workload-host-ipc",
+    "workload-docker-socket",
+    "workload-hostpath-root",
+    "workload-hostpath-writable",
+    "workload-missing-limits",
+    "workload-no-seccomp",
+    "workload-sa-token-automount",
+    "workload-latest-tag",
+    "workload-sshd-present"
+  ],
+  "risk": {
+    "cluster_risk": 9.7,
+    "security_score": 3,
+    "rating": "Critical"
+  },
+  "counts": {
+    "CRITICAL": 16,
+    "HIGH": 43,
+    "MEDIUM": 25,
+    "LOW": 1,
+    "INFO": 0
+  },
+  "by_tactic": {
+    "Persistence": 9,
+    "Lateral Movement": 14,
+    "Privilege Escalation": 25,
+    "Credential Access": 16,
+    "Initial Access": 11,
+    "Execution": 3,
+    "Discovery": 10,
+    "Defense Evasion": 11,
+    "Impact": 4
+  },
+  "by_shard": {
+    "workload_pod_security": 37,
+    "cloud_iam": 4,
+    "rbac_identity": 10,
+    "image_supply_chain": 2,
+    "attack_surface": 1,
+    "admission_control": 4,
+    "cluster_control_plane": 8,
+    "compliance": 2,
+    "network_security": 9,
+    "log_analysis": 4,
+    "secrets": 4
+  },
+  "findings": [
+    {
+      "rule_id": "workload-hostpath-writable",
+      "title": "Writable hostPath mount",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mounts a writable hostPath '/var/run/docker.sock' (persistence / lateral movement vector)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Writable hostPath mount"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "Writable volume mounts on host"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.12"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "volume": "dockersock",
+        "path": "/var/run/docker.sock"
+      },
+      "score": 17.5
+    },
+    {
+      "rule_id": "iam-overpermissive",
+      "title": "Over-permissive workload identity",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "CloudIAM",
+        "name": "shared-sa",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "workload identity for SA 'shared-sa' is over-permissive (binding: arn:aws:iam::111:role/shared)",
+      "owning_shard": "cloud_iam",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "cloud_iam",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "binding": {
+          "kind": "WorkloadIdentity",
+          "serviceAccount": "shared-sa",
+          "namespace": "production",
+          "role": "arn:aws:iam::111:role/shared",
+          "actions": [
+            "s3:*"
+          ]
+        }
+      },
+      "score": 52.5
+    },
+    {
+      "rule_id": "iam-overpermissive",
+      "title": "Over-permissive workload identity",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "CloudIAM",
+        "name": "?",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "workload identity for SA 'None' is over-permissive (binding: eks-node-role)",
+      "owning_shard": "cloud_iam",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "cloud_iam",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "binding": {
+          "kind": "NodeInstanceRole",
+          "role": "eks-node-role",
+          "actions": [
+            "AdministratorAccess"
+          ]
+        }
+      },
+      "score": 52.5
+    },
+    {
+      "rule_id": "workload-hostpath-root",
+      "title": "Sensitive hostPath mount",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mounts sensitive hostPath '/', full/host-critical filesystem access",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        },
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1611",
+          "technique_name": "hostPath mount"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.12"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "volume": "hostroot",
+        "path": "/"
+      },
+      "score": 45.0
+    },
+    {
+      "rule_id": "rbac-secret-read-broad",
+      "title": "Broad secret read access",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "super-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "ClusterRole can read secrets cluster-wide (get/list on secrets)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.007",
+          "technique_name": "Container API Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "rbac-secret-read-broad",
+      "title": "Broad secret read access",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "secret-reader",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "ClusterRole can read secrets cluster-wide (get/list on secrets)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.007",
+          "technique_name": "Container API Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "img-pull-policy",
+      "title": "Stale-image pull policy",
+      "severity": "LOW",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "ReplicaSet",
+        "owner_name": "payment-api-7d9f8c9d76",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' may run a stale cached image (IfNotPresent + :latest)",
+      "owning_shard": "image_supply_chain",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1525",
+          "technique_name": "Implant Internal Image"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "image",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "image": "nginx:latest"
+      },
+      "score": 1.0
+    },
+    {
+      "rule_id": "as-sa-fanout",
+      "title": "ServiceAccount fan-out",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "ServiceAccount",
+        "name": "shared-sa",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "ServiceAccount 'shared-sa' is reused by 3 workloads across 2 namespaces (production, staging), wide lateral-movement blast radius",
+      "owning_shard": "attack_surface",
+      "mitre": [
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K02",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "pods": 3,
+        "namespaces": [
+          "production",
+          "staging"
+        ]
+      },
+      "score": 24.0
+    },
+    {
+      "rule_id": "workload-docker-socket",
+      "title": "Docker socket mounted",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mounts the Docker socket (/var/run/docker.sock), container escape",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1611",
+          "technique_name": "Escape to Host"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [
+        "Pod Security"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "volume": "dockersock",
+        "path": "/var/run/docker.sock"
+      },
+      "score": 30.0
+    },
+    {
+      "rule_id": "workload-host-ipc",
+      "title": "Host IPC namespace shared",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "workload shares host hostIPC namespace",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Disable namespacing (host PID/IPC/net)"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.4"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "hostIPC": true
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "admission-sidecar-injection",
+      "title": "Unrecognized sidecar injection",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "MutatingWebhookConfiguration",
+        "name": "evil-webhook",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mutating webhook 'inject.evil.io' injects sidecars (verify it is a trusted mesh/agent)",
+      "owning_shard": "admission_control",
+      "mitre": [
+        {
+          "tactic": "Execution",
+          "technique_id": "T1610",
+          "technique_name": "Sidecar injection"
+        }
+      ],
+      "owasp": "K04",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "webhook": "inject.evil.io"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-host-network",
+      "title": "Host network shared",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "workload shares host hostNetwork namespace",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Disable namespacing (host PID/IPC/net)"
+        },
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1046",
+          "technique_name": "Network Service Discovery"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.5"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "hostNetwork": true
+      },
+      "score": 17.5
+    },
+    {
+      "rule_id": "workload-host-network",
+      "title": "Host network shared",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "workload shares host hostNetwork namespace",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Disable namespacing (host PID/IPC/net)"
+        },
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1046",
+          "technique_name": "Network Service Discovery"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.5"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "hostNetwork": true
+      },
+      "score": 17.5
+    },
+    {
+      "rule_id": "rbac-bind-escalate-verbs",
+      "title": "bind/escalate/impersonate verbs",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "binder",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role can bind, escalate , privilege-escalation primitive",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K02",
+      "cis": [
+        "5.1.8"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "verbs": [
+          "bind",
+          "escalate"
+        ]
+      },
+      "score": 30.0
+    },
+    {
+      "rule_id": "etcd-encryption-missing",
+      "title": "etcd encryption not configured",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "no --encryption-provider-config (secrets stored plaintext)",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552",
+          "technique_name": "Unsecured Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "1.2.28"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.apiServer.encryptionProvider": ""
+      },
+      "score": 63.0
+    },
+    {
+      "rule_id": "compliance-psa-not-restricted",
+      "title": "PSA not enforcing 'restricted'",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "production",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'production' does not enforce Pod Security Standard 'restricted' (current: none)",
+      "owning_shard": "compliance",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K04",
+      "cis": [
+        "5.2.1"
+      ],
+      "nsa_cisa": [
+        "Pod Security",
+        "Policy Enforcement"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "production",
+        "enforce": null
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "compliance-psa-not-restricted",
+      "title": "PSA not enforcing 'restricted'",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "staging",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'staging' does not enforce Pod Security Standard 'restricted' (current: privileged)",
+      "owning_shard": "compliance",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K04",
+      "cis": [
+        "5.2.1"
+      ],
+      "nsa_cisa": [
+        "Pod Security",
+        "Policy Enforcement"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "staging",
+        "enforce": "privileged"
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "deprecated-k8s-version",
+      "title": "Deprecated/EOL Kubernetes version",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "version",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "cluster runs an EOL/CVE-affected version (v1.24.0)",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Container and Resource Discovery"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.version": "v1.24.0"
+      },
+      "score": 63.0
+    },
+    {
+      "rule_id": "workload-host-pid",
+      "title": "Host PID namespace shared",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "workload shares host hostPID namespace",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Disable namespacing (host PID/IPC/net)"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.3"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "hostPID": true
+      },
+      "score": 20.0
+    },
+    {
+      "rule_id": "rbac-cluster-admin-default-sa",
+      "title": "cluster-admin on default SA",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ClusterRoleBinding",
+        "name": "default-admin",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "cluster-admin bound to default ServiceAccount (kube-system/default)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K02",
+      "cis": [
+        "5.1.1"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "subject": {
+          "kind": "ServiceAccount",
+          "name": "default",
+          "namespace": "kube-system"
+        }
+      },
+      "score": 60.0
+    },
+    {
+      "rule_id": "kubelet-anonymous-auth",
+      "title": "Kubelet anonymous auth enabled",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "kubelet",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "kubelet --anonymous-auth=true",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Access Kubelet API"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [
+        "4.2.1"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.kubelet.anonymousAuth": true
+      },
+      "score": 90.0
+    },
+    {
+      "rule_id": "workload-caps-not-dropped",
+      "title": "Capabilities not dropped (ALL)",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' does not drop ALL capabilities",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.9"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app",
+        "dropped": []
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-caps-not-dropped",
+      "title": "Capabilities not dropped (ALL)",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' does not drop ALL capabilities",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.9"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis",
+        "dropped": []
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-caps-not-dropped",
+      "title": "Capabilities not dropped (ALL)",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' does not drop ALL capabilities",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.9"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node",
+        "dropped": []
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "rbac-wildcard-resources",
+      "title": "Wildcard resources in role",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "super-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role grants wildcard resources (resources: ['*'])",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K02",
+      "cis": [
+        "5.1.3"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      },
+      "score": 30.0
+    },
+    {
+      "rule_id": "workload-dangerous-caps",
+      "title": "Dangerous capabilities added",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' adds dangerous capabilities: NET_RAW, SYS_ADMIN",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "ARP poisoning / IP spoofing"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.8",
+        "5.2.9"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app",
+        "capabilities": [
+          "NET_RAW",
+          "SYS_ADMIN"
+        ]
+      },
+      "score": 8.75
+    },
+    {
+      "rule_id": "workload-dangerous-caps",
+      "title": "Dangerous capabilities added",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' adds dangerous capabilities: NET_ADMIN",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "ARP poisoning / IP spoofing"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.8",
+        "5.2.9"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node",
+        "capabilities": [
+          "NET_ADMIN"
+        ]
+      },
+      "score": 8.75
+    },
+    {
+      "rule_id": "cronjob-suspicious",
+      "title": "Suspicious CronJob",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "CronJob",
+        "name": "backup-cron",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "CronJob 'backup-cron' looks suspicious (schedule='* * * * *', images=['curlimages/curl:latest'])",
+      "owning_shard": "admission_control",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1053.003",
+          "technique_name": "Scheduled Task/Job: Cron"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "schedule": "* * * * *",
+        "images": [
+          "curlimages/curl:latest"
+        ]
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "iam-managed-identity-reachable",
+      "title": "Managed identity reachable",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "ServiceAccount",
+        "name": "shared-sa",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "ServiceAccount is bound to a cloud managed identity; ensure metadata API egress is restricted and the identity is least-privilege",
+      "owning_shard": "cloud_iam",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.005",
+          "technique_name": "Cloud Instance Metadata API"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "cloud_iam",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "annotations": {
+          "eks.amazonaws.com/role-arn": "arn:aws:iam::111:role/shared"
+        }
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "rbac-wildcard-verbs",
+      "title": "Wildcard verbs in role",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "super-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role grants wildcard verbs (verbs: ['*'])",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K02",
+      "cis": [
+        "5.1.3"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      },
+      "score": 30.0
+    },
+    {
+      "rule_id": "kubelet-authz-always-allow",
+      "title": "Kubelet AlwaysAllow authz",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "kubelet",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "kubelet --authorization-mode=AlwaysAllow",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Access Kubelet API"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [
+        "4.2.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.kubelet.authorizationMode": "AlwaysAllow"
+      },
+      "score": 90.0
+    },
+    {
+      "rule_id": "workload-writable-root-fs",
+      "title": "Writable root filesystem",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' has a writable root filesystem (readOnlyRootFilesystem not true)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-writable-root-fs",
+      "title": "Writable root filesystem",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' has a writable root filesystem (readOnlyRootFilesystem not true)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-writable-root-fs",
+      "title": "Writable root filesystem",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' has a writable root filesystem (readOnlyRootFilesystem not true)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "net-metadata-api-open",
+      "title": "Metadata API not blocked",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "production",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'production' has no egress policy blocking the cloud metadata API (169.254.169.254)",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.005",
+          "technique_name": "Cloud Instance Metadata API"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1552.005",
+          "technique_name": "Cloud Instance Metadata API"
+        },
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1552.005",
+          "technique_name": "Instance Metadata API"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "production"
+      },
+      "score": 42.0
+    },
+    {
+      "rule_id": "net-metadata-api-open",
+      "title": "Metadata API not blocked",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "staging",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'staging' has no egress policy blocking the cloud metadata API (169.254.169.254)",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.005",
+          "technique_name": "Cloud Instance Metadata API"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1552.005",
+          "technique_name": "Cloud Instance Metadata API"
+        },
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1552.005",
+          "technique_name": "Instance Metadata API"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Adjacent",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "staging"
+      },
+      "score": 42.0
+    },
+    {
+      "rule_id": "net-lb-no-source-range",
+      "title": "LoadBalancer without source range",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Service",
+        "name": "lb-public",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "LoadBalancer has no loadBalancerSourceRanges (open to the internet)",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1133",
+          "technique_name": "External Remote Services"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "type": "LoadBalancer"
+      },
+      "score": 42.0
+    },
+    {
+      "rule_id": "admission-webhook-failurepolicy",
+      "title": "Webhook failurePolicy=Ignore",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "MutatingWebhookConfiguration",
+        "name": "evil-webhook",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "webhook 'inject.evil.io' has failurePolicy=Ignore (security control can be bypassed by breaking it)",
+      "owning_shard": "admission_control",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1562",
+          "technique_name": "Impair Defenses"
+        }
+      ],
+      "owasp": "K04",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "webhook": "inject.evil.io"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "etcd-client-cert-auth",
+      "title": "etcd client cert auth disabled",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "etcd",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "etcd --client-cert-auth is not true",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Container and Resource Discovery"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [
+        "2.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.etcd.clientCertAuth": false
+      },
+      "score": 90.0
+    },
+    {
+      "rule_id": "workload-run-as-root",
+      "title": "Container runs as root",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' may run as root (runAsNonRoot not enforced)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.7"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app",
+        "runAsUser": 0
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-run-as-root",
+      "title": "Container runs as root",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' may run as root (runAsNonRoot not enforced)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.7"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis",
+        "runAsUser": null
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-run-as-root",
+      "title": "Container runs as root",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' may run as root (runAsNonRoot not enforced)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.7"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node",
+        "runAsUser": null
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "net-no-networkpolicy",
+      "title": "Namespace without NetworkPolicy",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "production",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'production' has no NetworkPolicy (flat network)",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "Cluster internal networking"
+        }
+      ],
+      "owasp": "K05",
+      "cis": [
+        "5.3.2"
+      ],
+      "nsa_cisa": [
+        "Network Policy"
+      ],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "production"
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "net-no-networkpolicy",
+      "title": "Namespace without NetworkPolicy",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Namespace",
+        "name": "staging",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "namespace 'staging' has no NetworkPolicy (flat network)",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1610",
+          "technique_name": "Cluster internal networking"
+        }
+      ],
+      "owasp": "K05",
+      "cis": [
+        "5.3.2"
+      ],
+      "nsa_cisa": [
+        "Network Policy"
+      ],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Namespace",
+      "evidence": {
+        "namespace": "staging"
+      },
+      "score": 14.0
+    },
+    {
+      "rule_id": "net-nodeport-service",
+      "title": "NodePort service exposed",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Service",
+        "name": "api-nodeport",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "NodePort service exposes ports [31000]",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1133",
+          "technique_name": "External Remote Services"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Pod",
+      "evidence": {
+        "nodePorts": [
+          31000
+        ]
+      },
+      "score": 12.0
+    },
+    {
+      "rule_id": "net-nodeport-service",
+      "title": "NodePort service exposed",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Service",
+        "name": "kubernetes-dashboard",
+        "namespace": "kubernetes-dashboard",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "NodePort service exposes ports [30443]",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1133",
+          "technique_name": "External Remote Services"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Pod",
+      "evidence": {
+        "nodePorts": [
+          30443
+        ]
+      },
+      "score": 12.0
+    },
+    {
+      "rule_id": "apiserver-audit-logging",
+      "title": "API audit logging disabled",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "API server has no --audit-log-path (audit logging off)",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1562",
+          "technique_name": "Impair Defenses"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [
+        "1.2.17"
+      ],
+      "nsa_cisa": [
+        "Audit Logging"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.apiServer.auditLogPath": ""
+      },
+      "score": 63.0
+    },
+    {
+      "rule_id": "workload-privileged-container",
+      "title": "Privileged container",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' runs privileged (full host access)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        },
+        {
+          "tactic": "Execution",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.2"
+      ],
+      "nsa_cisa": [
+        "Pod Security"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "container": "app",
+        "privileged": true
+      },
+      "score": 37.5
+    },
+    {
+      "rule_id": "workload-privileged-container",
+      "title": "Privileged container",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' runs privileged (full host access)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        },
+        {
+          "tactic": "Execution",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.2"
+      ],
+      "nsa_cisa": [
+        "Pod Security"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "container": "aws-node",
+        "privileged": true
+      },
+      "score": 37.5
+    },
+    {
+      "rule_id": "net-ingress-no-tls",
+      "title": "Ingress without TLS",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Ingress",
+        "name": "web-ingress",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "Ingress serves traffic without TLS",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1133",
+          "technique_name": "External Remote Services"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Pod",
+      "evidence": {},
+      "score": 21.0
+    },
+    {
+      "rule_id": "log-no-collector",
+      "title": "No log collector shipping logs off-node",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Cluster",
+        "name": "log-pipeline",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "no in-cluster log collector (fluent-bit/fluentd/vector/otel-collector/\u2026) was found, so container and audit logs stay on the node that produced them, an attacker who clears them leaves no second copy. If logs are shipped by a node agent outside the cluster, this is expected and can be suppressed.",
+      "owning_shard": "log_analysis",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1070",
+          "technique_name": "Indicator Removal"
+        },
+        {
+          "tactic": "Impact",
+          "technique_id": "T1485",
+          "technique_name": "Data Destruction"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [],
+      "nsa_cisa": [
+        "Audit Logging",
+        "Log Aggregation"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "searched_kinds": [
+          "DaemonSet",
+          "Deployment"
+        ],
+        "known_collectors": [
+          "fluentd",
+          "fluent-bit",
+          "fluentbit",
+          "filebeat",
+          "logstash",
+          "vector",
+          "promtail",
+          "loki",
+          "otel-collector",
+          "opentelemetry-collector",
+          "otelcol",
+          "datadog-agent",
+          "splunk",
+          "newrelic",
+          "cloudwatch-agent",
+          "aws-for-fluent-bit",
+          "ama-logs",
+          "omsagent",
+          "stackdriver",
+          "logging-agent",
+          "sumologic",
+          "elastic-agent"
+        ]
+      },
+      "score": 15.0
+    },
+    {
+      "rule_id": "net-dashboard-exposed",
+      "title": "Kubernetes dashboard exposed",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "Service",
+        "name": "kubernetes-dashboard",
+        "namespace": "kubernetes-dashboard",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "Kubernetes dashboard is externally exposed",
+      "owning_shard": "network_security",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Access Kubernetes dashboard"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "network",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {},
+      "score": 90.0
+    },
+    {
+      "rule_id": "sec-etcd-not-encrypted",
+      "title": "etcd not encrypted",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "etcd",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "etcd encryption at rest is not enabled, Secrets stored in plaintext",
+      "owning_shard": "secrets",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552",
+          "technique_name": "Unsecured Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "1.2.28"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {},
+      "score": 30.0
+    },
+    {
+      "rule_id": "log-audit-rotation-weak",
+      "title": "Audit log rotation discards history",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "audit-log rotation discards history too aggressively: --audit-log-maxbackup=unset (recommended >= 10); --audit-log-maxsize=unset (recommended >= 100 MB)",
+      "owning_shard": "log_analysis",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1070",
+          "technique_name": "Indicator Removal"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [
+        "1.2.19",
+        "1.2.20"
+      ],
+      "nsa_cisa": [
+        "Audit Logging"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "audit-log-maxbackup": null,
+        "audit-log-maxsize": null
+      },
+      "score": 36.0
+    },
+    {
+      "rule_id": "apiserver-anonymous-auth",
+      "title": "API server anonymous auth enabled",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "API server has --anonymous-auth=true",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1078",
+          "technique_name": "Valid Accounts"
+        }
+      ],
+      "owasp": "K09",
+      "cis": [
+        "1.2.1"
+      ],
+      "nsa_cisa": [
+        "Authentication"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.apiServer.anonymousAuth": true
+      },
+      "score": 90.0
+    },
+    {
+      "rule_id": "iam-node-role-broad",
+      "title": "Broad node instance role",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "CloudIAM",
+        "name": "eks-node-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "node instance role is broader than the pods running on it require",
+      "owning_shard": "cloud_iam",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        },
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1078.004",
+          "technique_name": "Cloud Accounts"
+        }
+      ],
+      "owasp": "K08",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "cloud_iam",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "binding": {
+          "kind": "NodeInstanceRole",
+          "role": "eks-node-role",
+          "actions": [
+            "AdministratorAccess"
+          ]
+        }
+      },
+      "score": 26.25
+    },
+    {
+      "rule_id": "rbac-can-delete-events",
+      "title": "Can delete Kubernetes events",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "super-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role can delete events (defense evasion / covering tracks)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1070",
+          "technique_name": "Indicator Removal"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "rbac-can-delete-events",
+      "title": "Can delete Kubernetes events",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "cm-writer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role can delete events (defense evasion / covering tracks)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1070",
+          "technique_name": "Indicator Removal"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "events"
+          ],
+          "verbs": [
+            "update",
+            "patch",
+            "delete"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "sec-mounted-cloud-creds",
+      "title": "Mounted cloud credentials",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mounts a cloud credential path (/root/.aws/credentials), service principal / managed identity exposure",
+      "owning_shard": "secrets",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552",
+          "technique_name": "Unsecured Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "mountPath": "/root/.aws/credentials"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "sec-configmap-credentials",
+      "title": "Credentials in ConfigMap",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ConfigMap",
+        "name": "app-config",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "ConfigMap key 'admin_password' looks like a hardcoded credential",
+      "owning_shard": "secrets",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552",
+          "technique_name": "Unsecured Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "key": "admin_password"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "log-audit-retention-short",
+      "title": "Audit log retention below 30 days",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "API server has no --audit-log-maxage, so audit-log retention is undefined",
+      "owning_shard": "log_analysis",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1070",
+          "technique_name": "Indicator Removal"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [
+        "1.2.18"
+      ],
+      "nsa_cisa": [
+        "Audit Logging"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "audit-log-maxage": null,
+        "recommended_days": 30
+      },
+      "score": 36.0
+    },
+    {
+      "rule_id": "sec-env-var-secrets",
+      "title": "Secret exposed as env var",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "ReplicaSet",
+        "owner_name": "payment-api-7d9f8c9d76",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' injects a Secret via env var 'DB_PASSWORD' (exposed in logs/crash dumps)",
+      "owning_shard": "secrets",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1552.007",
+          "technique_name": "Container API Credentials"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.4.1"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "env": "DB_PASSWORD"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-allow-priv-escalation",
+      "title": "Privilege escalation allowed",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' allows privilege escalation (allowPrivilegeEscalation not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1548",
+          "technique_name": "Abuse Elevation Control"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-allow-priv-escalation",
+      "title": "Privilege escalation allowed",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' allows privilege escalation (allowPrivilegeEscalation not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1548",
+          "technique_name": "Abuse Elevation Control"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "workload-allow-priv-escalation",
+      "title": "Privilege escalation allowed",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' allows privilege escalation (allowPrivilegeEscalation not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Privilege Escalation",
+          "technique_id": "T1548",
+          "technique_name": "Abuse Elevation Control"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.2.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node"
+      },
+      "score": 7.0
+    },
+    {
+      "rule_id": "img-not-signed",
+      "title": "Image not signed",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "ReplicaSet",
+        "owner_name": "payment-api-7d9f8c9d76",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "image 'nginx:latest' has no cosign/notary signature annotation",
+      "owning_shard": "image_supply_chain",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1525",
+          "technique_name": "Implant Internal Image"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "image",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "image": "nginx:latest"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "kubelet-read-only-port",
+      "title": "Kubelet read-only port open",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "kubelet",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "kubelet read-only port 10255 is open",
+      "owning_shard": "cluster_control_plane",
+      "mitre": [
+        {
+          "tactic": "Discovery",
+          "technique_id": "T1613",
+          "technique_name": "Access Kubelet API"
+        }
+      ],
+      "owasp": "K06",
+      "cis": [
+        "4.2.4"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "spec.kubelet.readOnlyPort": 10255
+      },
+      "score": 63.0
+    },
+    {
+      "rule_id": "admission-malicious-webhook",
+      "title": "Suspicious mutating webhook",
+      "severity": "CRITICAL",
+      "resource": {
+        "kind": "MutatingWebhookConfiguration",
+        "name": "evil-webhook",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "mutating webhook 'inject.evil.io' targets an external URL (https://attacker.example.com/mutate) with cluster-wide scope",
+      "owning_shard": "admission_control",
+      "mitre": [
+        {
+          "tactic": "Persistence",
+          "technique_id": "T1554",
+          "technique_name": "Compromise Host Software Binary"
+        },
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1554",
+          "technique_name": "Malicious admission controller"
+        }
+      ],
+      "owasp": "K04",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "url": "https://attacker.example.com/mutate"
+      },
+      "score": 37.5
+    },
+    {
+      "rule_id": "rbac-coredns-configmap-write",
+      "title": "Can write ConfigMaps (CoreDNS risk)",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "super-role",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role can modify ConfigMaps (potential CoreDNS poisoning if kube-system CoreDNS CM is writable)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1557",
+          "technique_name": "Adversary-in-the-Middle"
+        }
+      ],
+      "owasp": "K05",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            "*"
+          ],
+          "resources": [
+            "*"
+          ],
+          "verbs": [
+            "*"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "rbac-coredns-configmap-write",
+      "title": "Can write ConfigMaps (CoreDNS risk)",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ClusterRole",
+        "name": "cm-writer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "role can modify ConfigMaps (potential CoreDNS poisoning if kube-system CoreDNS CM is writable)",
+      "owning_shard": "rbac_identity",
+      "mitre": [
+        {
+          "tactic": "Lateral Movement",
+          "technique_id": "T1557",
+          "technique_name": "Adversary-in-the-Middle"
+        }
+      ],
+      "owasp": "K05",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "rbac",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "rule": {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps",
+            "events"
+          ],
+          "verbs": [
+            "update",
+            "patch",
+            "delete"
+          ]
+        }
+      },
+      "score": 21.0
+    },
+    {
+      "rule_id": "log-audit-policy-missing",
+      "title": "Audit policy file not configured",
+      "severity": "HIGH",
+      "resource": {
+        "kind": "ControlPlane",
+        "name": "apiServer",
+        "namespace": null,
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "API server has no --audit-policy-file, so no audit events are recorded even if --audit-log-path is set",
+      "owning_shard": "log_analysis",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1562",
+          "technique_name": "Impair Defenses"
+        }
+      ],
+      "owasp": "K10",
+      "cis": [
+        "3.2.1"
+      ],
+      "nsa_cisa": [
+        "Audit Logging"
+      ],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Remote",
+      "blast_radius": "Cluster-wide",
+      "evidence": {
+        "audit-policy-file": null,
+        "audit-log-path": null
+      },
+      "score": 63.0
+    },
+    {
+      "rule_id": "workload-missing-limits",
+      "title": "Missing resource limits",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' has no resource limits (DoS amplification)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Impact",
+          "technique_id": "T1499",
+          "technique_name": "Endpoint Denial of Service"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-missing-limits",
+      "title": "Missing resource limits",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' has no resource limits (DoS amplification)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Impact",
+          "technique_id": "T1499",
+          "technique_name": "Endpoint Denial of Service"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-missing-limits",
+      "title": "Missing resource limits",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' has no resource limits (DoS amplification)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Impact",
+          "technique_id": "T1499",
+          "technique_name": "Endpoint Denial of Service"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-no-seccomp",
+      "title": "No seccomp profile",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' has no seccomp profile",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.7.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-no-seccomp",
+      "title": "No seccomp profile",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' has no seccomp profile",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.7.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-no-seccomp",
+      "title": "No seccomp profile",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "container 'aws-node' has no seccomp profile",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Defense Evasion",
+          "technique_id": "T1610",
+          "technique_name": "Deploy Container"
+        }
+      ],
+      "owasp": "K01",
+      "cis": [
+        "5.7.2"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "aws-node"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-sa-token-automount",
+      "title": "SA token auto-mounted",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "service-account token is auto-mounted (automountServiceAccountToken not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1528",
+          "technique_name": "Access container service account"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "automount": null
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-sa-token-automount",
+      "title": "SA token auto-mounted",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "service-account token is auto-mounted (automountServiceAccountToken not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1528",
+          "technique_name": "Access container service account"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "automount": null
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-sa-token-automount",
+      "title": "SA token auto-mounted",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "nignx-web",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "service-account token is auto-mounted (automountServiceAccountToken not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1528",
+          "technique_name": "Access container service account"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "automount": null
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-sa-token-automount",
+      "title": "SA token auto-mounted",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "aws-node-64w2k",
+        "namespace": "kube-system",
+        "owner_kind": "DaemonSet",
+        "owner_name": "aws-node",
+        "labels": {
+          "k8s-app": "aws-node"
+        },
+        "annotations": {}
+      },
+      "message": "service-account token is auto-mounted (automountServiceAccountToken not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1528",
+          "technique_name": "Access container service account"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "automount": null
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-sa-token-automount",
+      "title": "SA token auto-mounted",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "ReplicaSet",
+        "name": "payment-api-7d9f8c9d76",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "service-account token is auto-mounted (automountServiceAccountToken not false)",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Credential Access",
+          "technique_id": "T1528",
+          "technique_name": "Access container service account"
+        }
+      ],
+      "owasp": "K03",
+      "cis": [
+        "5.1.6"
+      ],
+      "nsa_cisa": [],
+      "detection_method": "static_config",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "automount": null
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-latest-tag",
+      "title": "Mutable :latest image tag",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "payment-api",
+        "namespace": "production",
+        "owner_kind": "Deployment",
+        "owner_name": "payment-api",
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'app' uses a mutable/unpinned image tag: nginx:latest",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1525",
+          "technique_name": "Implant Internal Image"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "image",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "app",
+        "image": "nginx:latest"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-latest-tag",
+      "title": "Mutable :latest image tag",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "cache-redis",
+        "namespace": "staging",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'redis' uses a mutable/unpinned image tag: redis:latest",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1525",
+          "technique_name": "Implant Internal Image"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "image",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "redis",
+        "image": "redis:latest"
+      },
+      "score": 4.0
+    },
+    {
+      "rule_id": "workload-latest-tag",
+      "title": "Mutable :latest image tag",
+      "severity": "MEDIUM",
+      "resource": {
+        "kind": "Pod",
+        "name": "nignx-web",
+        "namespace": "production",
+        "owner_kind": null,
+        "owner_name": null,
+        "labels": {},
+        "annotations": {}
+      },
+      "message": "container 'web' uses a mutable/unpinned image tag: nignx:latest",
+      "owning_shard": "workload_pod_security",
+      "mitre": [
+        {
+          "tactic": "Initial Access",
+          "technique_id": "T1525",
+          "technique_name": "Implant Internal Image"
+        }
+      ],
+      "owasp": "K07",
+      "cis": [],
+      "nsa_cisa": [],
+      "detection_method": "image",
+      "surface": "scan",
+      "exploitability": "Local",
+      "blast_radius": "Pod",
+      "evidence": {
+        "container": "web",
+        "image": "nignx:latest"
+      },
+      "score": 4.0
+    }
+  ],
+  "runtime": {
+    "source": "falco-logs",
+    "collected_at": "2026-07-24T23:35:20+05:30",
+    "falco_namespace": "falco",
+    "since_seconds": 3600,
+    "events_seen": 2,
+    "correlation": {
+      "total_alerts": 2,
+      "correlated": 2,
+      "confirmed_exploitation": 2,
+      "runtime_only": 0,
+      "correlations": [
+        {
+          "tactic": "Privilege Escalation",
+          "confidence": "confirmed",
+          "verdict": "static weakness on this resource is being actively exploited",
+          "severity": "CRITICAL",
+          "runtime": {
+            "rule_id": "rt-container-escape",
+            "title": "Container escape indicator",
+            "severity": "CRITICAL",
+            "source": "falco",
+            "event": {
+              "source": "falco",
+              "proc": "nsenter",
+              "namespace": "production",
+              "pod": "payment-api",
+              "uid": 0
+            }
+          },
+          "static_findings": [
+            {
+              "rule_id": "workload-hostpath-root",
+              "title": "Sensitive hostPath mount",
+              "severity": "CRITICAL",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            },
+            {
+              "rule_id": "workload-docker-socket",
+              "title": "Docker socket mounted",
+              "severity": "CRITICAL",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            },
+            {
+              "rule_id": "workload-host-ipc",
+              "title": "Host IPC namespace shared",
+              "severity": "HIGH",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            },
+            {
+              "rule_id": "workload-host-network",
+              "title": "Host network shared",
+              "severity": "HIGH",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            },
+            {
+              "rule_id": "workload-host-pid",
+              "title": "Host PID namespace shared",
+              "severity": "CRITICAL",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            }
+          ]
+        },
+        {
+          "tactic": "Credential Access",
+          "confidence": "confirmed",
+          "verdict": "static weakness on this resource is being actively exploited",
+          "severity": "CRITICAL",
+          "runtime": {
+            "rule_id": "rt-metadata-api",
+            "title": "Metadata API access from container",
+            "severity": "CRITICAL",
+            "source": "falco",
+            "event": {
+              "source": "falco",
+              "proc": "curl",
+              "namespace": "production",
+              "pod": "payment-api",
+              "connect": "169.254.169.254:80"
+            }
+          },
+          "static_findings": [
+            {
+              "rule_id": "sec-env-var-secrets",
+              "title": "Secret exposed as env var",
+              "severity": "HIGH",
+              "resource": "Pod/payment-api (production)",
+              "shard": "secrets"
+            },
+            {
+              "rule_id": "workload-sa-token-automount",
+              "title": "SA token auto-mounted",
+              "severity": "MEDIUM",
+              "resource": "Pod/payment-api (production)",
+              "shard": "workload_pod_security"
+            }
+          ]
+        }
+      ]
+    },
+    "drift": {
+      "pods_checked": 1,
+      "events_seen": 2,
+      "drift_count": 1,
+      "drift": [
+        {
+          "pod": "payment-api",
+          "namespace": "production",
+          "policy": "runAsNonRoot",
+          "declared": "runAsNonRoot: true",
+          "observed": "process running as uid 0",
+          "tactic": "Privilege Escalation",
+          "severity": "CRITICAL",
+          "verdict": "policy bypass, pod declares 'runAsNonRoot: true' but runtime shows process running as uid 0",
+          "event": {
+            "source": "falco",
+            "proc": "nsenter",
+            "namespace": "production",
+            "pod": "payment-api",
+            "uid": 0
+          }
+        }
+      ]
+    }
+  }
+}

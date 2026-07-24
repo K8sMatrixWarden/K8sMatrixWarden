@@ -7,13 +7,13 @@ Sourced verbatim from kube-bench's `cfg/cis-1.8/*.yaml`. Section totals:
 Evaluation method per control (`ev`), chosen so whatever the K8s API can prove is proven
 from the API, and only genuinely node-local reads are delegated:
 
-  native     — mapped domain-shard rule(s): rule fired ⇒ FAIL, else PASS.
-  builtin    — purpose-built evaluator in cis.py.
-  component  — control-plane / kubelet PROCESS FLAG, read from the ComponentConfig evidence
+  native    , mapped domain-shard rule(s): rule fired ⇒ FAIL, else PASS.
+  builtin   , purpose-built evaluator in cis.py.
+  component , control-plane / kubelet PROCESS FLAG, read from the ComponentConfig evidence
                (built live by parsing kube-system static-pod specs + kubelet config, §mitigation
                Layer 1/2). Each carries a `check = (component, flag, op, value)` predicate.
-  kube-bench — node FILE permission/ownership read; requires on-node access → kube-bench JSON.
-  manual     — CIS-designated manual review.
+  kube-bench, node FILE permission/ownership read; requires on-node access → kube-bench JSON.
+  manual    , CIS-designated manual review.
 
 Mitigation split (see §5.9.2): 25 native + 2 builtin + 38 component = 65 evaluated from the
 API; 31 kube-bench (true node-file reads); 34 manual.
@@ -42,7 +42,7 @@ SECTION_NAMES = {
     "1": "Control Plane Components", "2": "etcd", "3": "Control Plane Configuration",
     "4": "Worker Nodes", "5": "Policies",
 }
-# Sections that live on the (possibly managed) control plane — marked N/A on managed profiles.
+# Sections that live on the (possibly managed) control plane, marked N/A on managed profiles.
 CONTROL_PLANE_SECTIONS = {"1", "2", "3"}
 
 

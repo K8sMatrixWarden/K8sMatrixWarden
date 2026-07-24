@@ -87,9 +87,9 @@ _API_GROUPS = {
 # ----------------------------------------------------------------------- #
 def ref(resource: dict, kind: str = None):
     """Build a ResourceRef, generically capturing labels/annotations and the resource's
-    *direct* owner (one ownerReferences hop — e.g. a DaemonSet/StatefulSet-owned Pod).
+    *direct* owner (one ownerReferences hop, e.g. a DaemonSet/StatefulSet-owned Pod).
     Resolving a further hop (ReplicaSet->Deployment, Job->CronJob) needs Evidence to look
-    up the intermediate object, which this shared, evidence-free helper doesn't have —
+    up the intermediate object, which this shared, evidence-free helper doesn't have, 
     see workload_pod_security.py's own `ref(ev, res)` wrapper for that."""
     from ..core.models import ResourceRef
     meta = resource.get("metadata", {}) or {}

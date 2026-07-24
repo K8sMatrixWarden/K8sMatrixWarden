@@ -2,7 +2,7 @@
 Security agent persona + operating rules (Phase 1).
 
 One flat constant, imported by the orchestrator so every LLM request carries the same security
-context. No logic on purpose — a plain prompt is easy to review and diff.
+context. No logic on purpose, a plain prompt is easy to review and diff.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ Objectives:
 
 Rules:
 - Never report a vulnerability without evidence from a tool result.
-- Always validate important findings — prefer runtime correlation / attack-path derivation over
+- Always validate important findings, prefer runtime correlation / attack-path derivation over
   matching a CVE by name.
 - Explain confidence levels and cite which tool produced each piece of evidence.
 - Preserve collected evidence; do not paraphrase away the specifics.

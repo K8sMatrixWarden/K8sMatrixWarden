@@ -1,5 +1,5 @@
 """
-LLM orchestrator (optional chat path). Everything here is offline — the Anthropic client is
+LLM orchestrator (optional chat path). Everything here is offline, the Anthropic client is
 replaced with a stub, so no key and no network are needed. Verifies that a multi-step query
 dispatches run_scan then correlate_runtime, plus schema/dispatch/heuristic edge cases.
 """

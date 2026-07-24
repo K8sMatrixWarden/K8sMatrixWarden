@@ -1,5 +1,5 @@
 """
-Evidence critic (Phase 4). LLM client is a stub — no network.
+Evidence critic (Phase 4). LLM client is a stub, no network.
 Covers: detects missing evidence, approves supported findings, fails open on garbage / API error.
 """
 import os

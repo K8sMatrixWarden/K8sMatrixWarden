@@ -3,12 +3,12 @@ Core domain model for the K8sMatrixWarden (v1.0).
 
 Everything in the platform is expressed in terms of the types defined here:
 
-    Rule       — the atomic technique-level check, self-declaring its taxonomy tags (§5.1)
-    Finding    — one detected issue against one resource, carrying the rule's tags (§6.1)
-    Scope      — WHAT resources a scan touches       (cluster→pod→image)            (§4.3)
-    Selector   — WHICH rules a scan runs             (tactic/technique/module/…)    (§4.3)
-    ScanRequest— the single object every entry point compiles to                     (§4.3)
-    Evidence   — the shared, scope-constrained snapshot fed to rules                 (§6.1)
+    Rule      , the atomic technique-level check, self-declaring its taxonomy tags (§5.1)
+    Finding   , one detected issue against one resource, carrying the rule's tags (§6.1)
+    Scope     , WHAT resources a scan touches       (cluster→pod→image)            (§4.3)
+    Selector  , WHICH rules a scan runs             (tactic/technique/module/…)    (§4.3)
+    ScanRequest, the single object every entry point compiles to                     (§4.3)
+    Evidence  , the shared, scope-constrained snapshot fed to rules                 (§6.1)
 
 Only the standard library is used so the engine runs with zero third-party installs.
 """
@@ -55,9 +55,9 @@ class DetectionMethod(Enum):
     """How a rule gathers evidence, and therefore WHEN it can fire (§1, §8).
 
     Two detection *surfaces*:
-      • scan    — point-in-time analysis of a config/RBAC/image/network/cloud snapshot
+      • scan   , point-in-time analysis of a config/RBAC/image/network/cloud snapshot
                   (the Scanner Agent; a finding is true "as of this scan")
-      • runtime — continuous observation of a live event stream, i.e. audit events or
+      • runtime, continuous observation of a live event stream, i.e. audit events or
                   syscall/behavioural telemetry (the Runtime Agent DaemonSet; a finding
                   means "this is happening / just happened")
     """
@@ -151,7 +151,7 @@ class MitreTag:
 
 
 # --------------------------------------------------------------------------- #
-# Scope — WHAT to scan
+# Scope, WHAT to scan
 # --------------------------------------------------------------------------- #
 class ScopeLevel(Enum):
     CLUSTER = "cluster"
@@ -228,7 +228,7 @@ def _all_containers(resource: dict) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Selector — WHICH rules to run
+# Selector, WHICH rules to run
 # --------------------------------------------------------------------------- #
 @dataclass
 class Selector:
@@ -287,7 +287,7 @@ class ResourceRef:
     #: controller was found (a standalone resource). Purely descriptive context.
     owner_kind: Optional[str] = None
     owner_name: Optional[str] = None
-    #: Labels/annotations of the resolved owner (or the resource's own) — descriptive
+    #: Labels/annotations of the resolved owner (or the resource's own), descriptive
     #: context, e.g. surfacing Helm/ArgoCD/Flux management in a report.
     labels: dict = field(default_factory=dict)
     annotations: dict = field(default_factory=dict)
@@ -329,7 +329,7 @@ class Finding:
 
     @property
     def surface(self) -> str:
-        """'scan' or 'runtime' — whether this finding came from point-in-time config
+        """'scan' or 'runtime', whether this finding came from point-in-time config
         analysis or live event/behaviour observation (§8). Falls back to 'scan' when the
         detection method is unknown (a bare/hand-built Finding)."""
         return self.detection_method.surface if self.detection_method else "scan"
@@ -393,7 +393,7 @@ class Finding:
 
 
 # --------------------------------------------------------------------------- #
-# Rule — the atomic check
+# Rule, the atomic check
 # --------------------------------------------------------------------------- #
 # A check function receives (rule, evidence, scope) and returns Findings.
 CheckFn = Callable[["Rule", "Evidence", Scope], Iterable[Finding]]
@@ -437,7 +437,7 @@ class Rule:
     @property
     def surface(self) -> str:
         """'scan' (point-in-time, Scanner Agent) or 'runtime' (live stream, Runtime
-        Agent) — derived from the rule's detection_method (§8)."""
+        Agent), derived from the rule's detection_method (§8)."""
         return self.detection_method.surface
 
     def finding(self, resource: ResourceRef, message: str, *,

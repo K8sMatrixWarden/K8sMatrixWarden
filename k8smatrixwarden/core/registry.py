@@ -1,9 +1,9 @@
 """
 Registries (§6.1).
 
-  ScannerRegistry  — catalog of domain-shard plugins (name, version, resource types,
+  ScannerRegistry , catalog of domain-shard plugins (name, version, resource types,
                      RBAC verbs). Feeds least-privilege RoleBinding generation.
-  RuleRegistry     — catalog of every Rule with its metadata; the single store the
+  RuleRegistry    , catalog of every Rule with its metadata; the single store the
                      MITREMappingEngine indexes and the Detection Engine executes from.
 
 These are deliberately dumb stores; all taxonomy querying lives in the mapping engine.

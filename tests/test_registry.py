@@ -40,18 +40,18 @@ def test_every_tactic_has_coverage():
 def test_scoped_roles_generated_per_plugin():
     p = build_platform()
     roles = p.loader.scoped_roles()
-    # the invariant is one scoped role per shard — derived, so a new shard can't drift
+    # the invariant is one scoped role per shard, derived, so a new shard can't drift
     assert len(roles) == len(p.registry.shard_names())
     assert all(r["kind"] == "ClusterRole" for r in roles)
 
 
 def test_every_shard_has_nonempty_rbac_needs():
-    # A shard with an empty role can never actually run live — every shard must declare
+    # A shard with an empty role can never actually run live, every shard must declare
     # at least one real K8s permission (incl. synthetic-evidence shards like
     # cluster_control_plane, which needs `pods` to recover control-plane flags live).
     p = build_platform()
     for name, verbs in p.registry.rbac_verbs().items():
-        assert verbs, f"shard {name!r} has no RBAC verbs — it cannot function live"
+        assert verbs, f"shard {name!r} has no RBAC verbs, it cannot function live"
 
 
 def test_deployment_manifest_binds_every_shard():
@@ -91,7 +91,7 @@ def test_deployment_manifest_no_create_namespace():
 
 
 def test_generated_object_names_are_dns_1123_safe():
-    # Shard names use underscores; generated K8s object names must NOT — a hardened
+    # Shard names use underscores; generated K8s object names must NOT, a hardened
     # cluster (Gatekeeper/Kyverno enforcing DNS-1123) would reject them on apply.
     import re
     dns1123 = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -133,7 +133,7 @@ def _control_plane_rule_ids(component_config):
 
 
 def test_managed_control_plane_produces_no_flag_findings():
-    # ComponentConfig exists but carries no component sections — the managed-cluster shape
+    # ComponentConfig exists but carries no component sections, the managed-cluster shape
     assert _control_plane_rule_ids(
         [{"kind": "ComponentConfig", "spec": {"version": None}}]) == []
 

@@ -1,4 +1,4 @@
-"""Shard ③ — RBAC & Identity (§5.5)."""
+"""Shard ③, RBAC & Identity (§5.5)."""
 from __future__ import annotations
 
 from ..core.evidence import Evidence
@@ -11,7 +11,7 @@ NAME = "rbac_identity"
 
 # Default RBAC that Kubernetes ships on every cluster (cluster-admin, admin, edit, view,
 # and the whole system:* set) is wildcard/broad BY DESIGN. Flagging it fires CRITICALs on
-# every cluster's first run and — because the same kind+name recurs everywhere — manufactures
+# every cluster's first run and, because the same kind+name recurs everywhere, manufactures
 # false cross-cluster "shared identity" edges in the federation view. Skip these built-ins
 # in the role-DEFINITION scanners; a suspicious BINDING of them is still caught separately.
 _DEFAULT_CLUSTERROLES = {"cluster-admin", "admin", "edit", "view"}
@@ -87,7 +87,7 @@ def _bind_escalate(rule, ev, scope):
             if verbs & {"bind", "escalate", "impersonate"}:
                 yield rule.finding(
                     ref(cr), f"role can {', '.join(sorted(verbs & {'bind','escalate','impersonate'}))} "
-                    f"— privilege-escalation primitive",
+                    f", privilege-escalation primitive",
                     blast_radius=_blast(cr), evidence={"verbs": sorted(verbs)})
                 break
 

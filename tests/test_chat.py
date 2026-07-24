@@ -1,4 +1,4 @@
-"""Interactive Chat interface — scripted turns (§3.1, §7.4)."""
+"""Interactive Chat interface, scripted turns (§3.1, §7.4)."""
 import os
 import sys
 

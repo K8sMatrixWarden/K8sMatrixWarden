@@ -1,4 +1,4 @@
-"""Shard ⑩ — Cloud IAM & Workload Identity (NEW, §5.12).
+"""Shard ⑩, Cloud IAM & Workload Identity (NEW, §5.12).
 
 Reads a synthetic 'CloudIAM' evidence bucket (IRSA / Workload Identity / AAD Pod Identity
 bindings). Live mode would populate this from the cloud provider IAM API via a scoped,

@@ -72,7 +72,7 @@ def _finding(tactic, ns="production", name="payment-api"):
 
 
 def test_confirmed_only_when_event_pod_matches_the_finding_resource():
-    # the runtime event NAMES the pod the finding is on (payment-api) — resource-level link.
+    # the runtime event NAMES the pod the finding is on (payment-api), resource-level link.
     findings = [_finding(Tactic.PRIVILEGE_ESCALATION, ns="production", name="payment-api")]
     alerts = RuntimeAgent().evaluate_stream([
         {"source": "audit", "verb": "create", "resource": "clusterrolebindings",
@@ -92,7 +92,7 @@ def test_confirmed_matches_workload_owned_pod_name():
 
 
 def test_namespace_match_without_pod_is_corroborated_not_confirmed():
-    # same tactic + namespace but the event names no matching pod — NOT proof of exploitation.
+    # same tactic + namespace but the event names no matching pod, NOT proof of exploitation.
     findings = [_finding(Tactic.PRIVILEGE_ESCALATION, ns="production", name="payment-api")]
     alerts = RuntimeAgent().evaluate_stream([
         {"source": "audit", "verb": "create", "resource": "clusterrolebindings",

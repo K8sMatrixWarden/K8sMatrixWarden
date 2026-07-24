@@ -2,7 +2,7 @@
 Zero-dependency test runner (the target env has no pytest).
 
 Discovers `test_*` functions in this directory and runs them. If real pytest is installed,
-`python -m pytest tests/` works too — this runner injects a minimal `pytest.raises` shim
+`python -m pytest tests/` works too, this runner injects a minimal `pytest.raises` shim
 only when pytest is absent, so the test files stay pytest-native.
 """
 import contextlib
@@ -24,7 +24,7 @@ except ImportError:
     shim = types.ModuleType("pytest")
 
     class _Info:
-        """Mimics pytest's ExceptionInfo enough for `with pytest.raises(X) as e:` —
+        """Mimics pytest's ExceptionInfo enough for `with pytest.raises(X) as e:`, 
         `e.value` is the caught exception."""
         value = None
 
@@ -64,7 +64,7 @@ def main() -> int:
             except Exception as exc:
                 failed += 1
                 failures.append((modname, name, exc))
-                print(f"  FAIL  {modname}::{name}  — {exc}")
+                print(f"  FAIL  {modname}::{name} , {exc}")
     print(f"\n{passed} passed, {failed} failed")
     if failures:
         print("\n--- failure detail ---")

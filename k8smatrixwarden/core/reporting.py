@@ -1,5 +1,5 @@
 """
-Reporting Engine (§18.2) — rich, multi-format, audit-grade security reports.
+Reporting Engine (§18.2), rich, multi-format, audit-grade security reports.
 
 Renders a ScanResult in seven formats, each designed to be genuinely useful rather than a
 flat dump. Every finding, in every format, carries the same report-grade sections
@@ -7,17 +7,17 @@ flat dump. Every finding, in every format, carries the same report-grade section
 layer): Summary, Standards & Benchmark Mapping (with reference links), MITRE ATT&CK
 Mapping (with reference links), Impact, and Validation/reproduction steps.
 
-  terminal  — rich panels + per-severity tables (falls back to `text` with no `rich`)
-  text      — grouped, sectioned plain-text (zero dependency)
-  markdown  — the flagship: frontmatter, verdict, risk gauge, coverage dashboards,
+  terminal , rich panels + per-severity tables (falls back to `text` with no `rich`)
+  text     , grouped, sectioned plain-text (zero dependency)
+  markdown , the flagship: frontmatter, verdict, risk gauge, coverage dashboards,
               full per-finding report cards, an appendix
-  json      — full structured data + a summary block + the same per-finding context
-  sarif     — SARIF 2.1 with security-severity, tags, rich help.markdown, fingerprints
-  html      — self-contained, responsive, dark/light card report with the same sections
-  pdf       — a print/share-ready audit document (title page, executive summary,
+  json     , full structured data + a summary block + the same per-finding context
+  sarif    , SARIF 2.1 with security-severity, tags, rich help.markdown, fingerprints
+  html     , self-contained, responsive, dark/light card report with the same sections
+  pdf      , a print/share-ready audit document (title page, executive summary,
               coverage, full per-finding write-ups); requires the optional `pdf` extra
-              (`pip install -e ".[pdf]"`) — see core/pdf_report.py. Returns `bytes`, not
-              `str` — the only format that does; callers must branch on this.
+              (`pip install -e ".[pdf]"`), see core/pdf_report.py. Returns `bytes`, not
+              `str`, the only format that does; callers must branch on this.
 
 Tag-based filtering stays first-class because tags are finding metadata (§18.2).
 """
@@ -62,7 +62,7 @@ _SEV_DISPLAY = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]
 
 class ReportingEngine:
     def __init__(self, registry=None):
-        #: optional RuleRegistry — supplies the threat matrix's *coverage* layer (which
+        #: optional RuleRegistry, supplies the threat matrix's *coverage* layer (which
         #: techniques have a rule at all, beyond what this scan hit). Set by bootstrap so
         #: `platform.reporting` renders the full 3-state matrix; a bare ReportingEngine()
         #: still works (findings-only matrix). See core/threat_matrix.py.
@@ -70,11 +70,13 @@ class ReportingEngine:
 
     def render(self, result: ScanResult, fmt: str = "terminal"):
         """Render in the requested format. Every format returns `str` EXCEPT `pdf`,
-        which returns raw `bytes` — callers must check the format and write/handle it
+        which returns raw `bytes`, callers must check the format and write/handle it
         accordingly (binary file mode, base64-encode for a JSON/text transport, etc.)."""
         fmt = (fmt or "terminal").lower()
         if fmt == "pdf":
             return self.pdf(result)
+        if fmt in ("xlsx", "excel"):
+            return self.xlsx(result)
         return {
             "terminal": self.terminal, "text": self.text,
             "markdown": self.markdown, "md": self.markdown,
@@ -82,11 +84,18 @@ class ReportingEngine:
         }.get(fmt, self.terminal)(result)
 
     # ================================================================== #
-    # PDF (requires the optional `pdf` extra — fpdf2)
+    # PDF (requires the optional `pdf` extra, fpdf2)
     # ================================================================== #
     def pdf(self, result: ScanResult) -> bytes:
         from .pdf_report import render_pdf
         return render_pdf(result)
+
+    # ================================================================== #
+    # XLSX (requires the optional `excel` extra, openpyxl)
+    # ================================================================== #
+    def xlsx(self, result: ScanResult) -> bytes:
+        from .excel_report import render_xlsx
+        return render_xlsx(result)
 
     # ================================================================== #
     # TERMINAL (rich)
@@ -95,7 +104,7 @@ class ReportingEngine:
         if not _RICH:
             return self.text(result)
         # A plain `Console(record=True)` still writes every `console.print(...)` straight to
-        # the real stdout while *also* recording it — so callers that print the returned
+        # the real stdout while *also* recording it, so callers that print the returned
         # string (cli cmd_scan does) would emit the whole report twice. Render into an
         # in-memory sink instead: this stays a pure string-builder like every other
         # renderer, so the single caller-side print emits it exactly once.
@@ -153,7 +162,7 @@ class ReportingEngine:
         c = result.counts
         total = result.total()
         rule = "═" * 78
-        # Left-aligned banner (no right border) — emoji render 2-wide and would break a
+        # Left-aligned banner (no right border), emoji render 2-wide and would break a
         # right border's alignment, so we deliberately avoid one.
         out = [
             rule,
@@ -189,7 +198,7 @@ class ReportingEngine:
                     + "─" * (55 - len(sev.label))]
             for i, f in enumerate(group, 1):
                 amp = "  ⚡ multi-tactic" if len(f.tactics) > 1 else ""
-                out.append(f"\n  {i}. {f.title} — {f.resource}{amp}")
+                out.append(f"\n  {i}. {f.title}, {f.resource}{amp}")
                 out.append(f"     rule   : {f.rule_id}  [{f.owning_shard}]")
                 out.append(f"     mitre  : {_mitre_long(f) or '-'}")
                 out.append(f"     owasp  : {_owasp_label(f.owasp)}   "
@@ -222,7 +231,7 @@ class ReportingEngine:
         md: list[str] = []
 
         # ---- frontmatter ------------------------------------------------ #
-        # scan name is free user input — escape quotes so the YAML frontmatter stays valid
+        # scan name is free user input, escape quotes so the YAML frontmatter stays valid
         _yaml_name = str(result.name).replace("\\", "\\\\").replace('"', '\\"')
         md += [
             "---",
@@ -340,7 +349,7 @@ class ReportingEngine:
                    "| ID | Category | Findings |", "|:--|:--|--:|"]
             for code in sorted(owasp):
                 md.append(f"| [`{code}`]({owasp_url(code)}) | "
-                          f"{_owasp_names().get(code, '—')} | {owasp[code]} |")
+                          f"{_owasp_names().get(code, 'N/A')} | {owasp[code]} |")
             md.append("")
         md += ["[↑ top](#top)", "", "---", ""]
 
@@ -351,7 +360,7 @@ class ReportingEngine:
                 "## ⚡ Attack-Path Amplified Findings",
                 "",
                 "These single issues each enable **multiple** MITRE tactics, so an attacker "
-                "can chain them — they are scored higher and should be fixed first.",
+                "can chain them, they are scored higher and should be fixed first.",
                 "",
                 "| Finding | Resource | Tactics enabled |",
                 "|:--|:--|:--|",
@@ -370,7 +379,7 @@ class ReportingEngine:
             if not group:
                 continue
             md += [f"<a id=\"sev-{sev.label.lower()}\"></a>",
-                   f"### {sev.emoji} {sev.label} — {len(group)} finding(s)", ""]
+                   f"### {sev.emoji} {sev.label}, {len(group)} finding(s)", ""]
             for i, f in enumerate(group, 1):
                 md += _finding_card(f, i)
         md += ["[↑ top](#top)", "", "---", ""]
@@ -402,7 +411,7 @@ class ReportingEngine:
             "</details>",
             "",
             "---",
-            f"<sub>Generated by 🛡️ k8smatrixwarden {result.tool_version} — "
+            f"<sub>Generated by 🛡️ k8smatrixwarden {result.tool_version}, "
             f"MITRE ATT&CK-aligned Kubernetes security scanner.</sub>",
         ]
         return "\n".join(md)
@@ -425,18 +434,18 @@ class ReportingEngine:
                                          if len(f.tactics) > 1 and f.severity.weight),
             "owasp": _by_owasp(result.findings),
         }
-        # Full Kubernetes Threat Matrix projection (§12) — same structure the HTML/web
+        # Full Kubernetes Threat Matrix projection (§12), same structure the HTML/web
         # heatmap and the MCP build_threat_matrix tool return, so a JSON/API consumer gets
         # the adversary-behaviour map, not just a flat finding list.
         from .threat_matrix import attack_paths, build_threat_matrix
         _tm = build_threat_matrix(result, self.registry)
         doc["threat_matrix"] = _tm.as_dict()
-        # Kill-chain exploit path derived from the matrix's hit cells (§12) — which
+        # Kill-chain exploit path derived from the matrix's hit cells (§12), which
         # tactics an attacker can actually string together in this cluster.
         doc["attack_path"] = attack_paths(_tm)
         # attach the full report-grade context to each finding: summary, standards &
         # benchmark mapping (with links), MITRE mapping (with links), impact, and
-        # validation steps — the same data every other renderer (markdown/html/sarif/pdf)
+        # validation steps, the same data every other renderer (markdown/html/sarif/pdf)
         # sources from build_finding_context(), so a JSON/API consumer never sees less
         # than a human-facing report does.
         from .finding_context import build_finding_context
@@ -508,7 +517,7 @@ class ReportingEngine:
             "runs": [{
                 "tool": {"driver": {
                     "name": "k8smatrixwarden",
-                    "fullName": "k8smatrixwarden — MITRE ATT&CK-aligned Kubernetes scanner",
+                    "fullName": "k8smatrixwarden, MITRE ATT&CK-aligned Kubernetes scanner",
                     "version": result.tool_version,
                     "informationUri": "https://owasp.org/www-project-kubernetes-top-ten/",
                     "rules": list(rules.values()),
@@ -543,7 +552,7 @@ class ReportingEngine:
 
             # Chips: the technique / standard IDs are themselves clickable, each deep-linking
             # to its authoritative reference (MITRE per-technique page, OWASP Top 10, CIS
-            # benchmark) — so a reader can jump straight from the ID to its source.
+            # benchmark), so a reader can jump straight from the ID to its source.
             mitre_tags = " ".join(
                 f"<a class='tag mitre' href='{_esc(m.url)}' target='_blank' rel='noopener' "
                 f"title='View {_esc(m.technique_id)} on MITRE ATT&amp;CK'>{_esc(m.tactic)} · "
@@ -564,12 +573,12 @@ class ReportingEngine:
             std_rows = "".join(
                 f"<tr><td>{_esc(s.framework)}</td>"
                 f"<td><a href='{_esc(s.url)}' target='_blank' rel='noopener'>{_esc(s.control)}</a>"
-                f" — {_esc(s.title)}</td>"
+                f", {_esc(s.title)}</td>"
                 f"<td><a href='{_esc(s.url)}' target='_blank' rel='noopener'>Reference</a></td></tr>"
                 for s in ctx.standards) or "<tr><td colspan='3' class='muted'>No named " \
                 "standard or benchmark maps to this finding.</td></tr>"
 
-            validation_html = ("<details><summary>Validation — how to reproduce</summary>"
+            validation_html = ("<details><summary>Validation, how to reproduce</summary>"
                                f"<pre class='cmd'>{_esc(chr(10).join(ctx.validation_steps))}"
                                "</pre></details>")
 
@@ -633,7 +642,7 @@ def _display_findings(findings: list[Finding]) -> list[Finding]:
 
 
 def _finding_card(f: Finding, i: int) -> list[str]:
-    """A full, report-grade finding write-up — the seven sections a professional scan
+    """A full, report-grade finding write-up, the seven sections a professional scan
     report is expected to carry: Summary, Standards & Benchmark Mapping, MITRE ATT&CK
     Mapping, Impact, Validation (how to reproduce), and Evidence. All content beyond the
     raw Finding fields comes from build_finding_context(), the single place this and every
@@ -672,7 +681,7 @@ def _finding_card(f: Finding, i: int) -> list[str]:
     if ctx.standards:
         out += ["| Framework | Control | Reference |", "|:--|:--|:--|"]
         for s in ctx.standards:
-            out.append(f"| {s.framework} | [{s.control}]({s.url}) — {s.title} | "
+            out.append(f"| {s.framework} | [{s.control}]({s.url}), {s.title} | "
                        f"[Reference]({s.url}) |")
         out.append("")
     else:
@@ -693,7 +702,7 @@ def _finding_card(f: Finding, i: int) -> list[str]:
     out += ["##### 💥 Impact", "", ctx.impact, ""]
 
     # ---- validation / reproduction --------------------------------------- #
-    out += ["##### ✅ Validation — How to Reproduce / Verify", "",
+    out += ["##### ✅ Validation, How to Reproduce / Verify", "",
             "Run this to confirm the finding, and again after any change to confirm it "
             "cleared:", "", "```bash"]
     out += ctx.validation_steps
@@ -709,14 +718,14 @@ def _finding_card(f: Finding, i: int) -> list[str]:
 
 # -- OWASP names (lazy cached) ------------------------------------------ #
 # The OWASP category names and their direct per-ID owasp.org links live in
-# finding_context (one loader, one taxonomy file) — re-exported here because the pdf
+# finding_context (one loader, one taxonomy file), re-exported here because the pdf
 # renderer and the markdown summary both import them from this module.
 from .finding_context import _owasp_names, owasp_url  # noqa: E402
 
 
 def _owasp_label(code: Optional[str]) -> str:
     if not code:
-        return "—"
+        return "N/A"
     name = _owasp_names().get(code)
     return f"`{code}` {name}" if name else f"`{code}`"
 
@@ -763,7 +772,7 @@ def _attack_path_md(tm) -> str:
              "`" + a["chain"].replace(" -> ", "` → `") + "`", ""]
     for i, s in enumerate(a["steps"], 1):
         techs = ", ".join(t["technique_name"] for t in s["techniques"][:4])
-        lines.append(f"{i}. **{s['tactic']}** ({s['worst_severity']}) — {techs}")
+        lines.append(f"{i}. **{s['tactic']}** ({s['worst_severity']}), {techs}")
     return "\n".join(lines + [""])
 
 
@@ -797,7 +806,7 @@ def _verdict(rating: str) -> str:
 
 #: Shown wherever a rating would be, when the collector could not read the cluster.
 UNSCANNED_VERDICT = (
-    "Posture is UNKNOWN — the scan could not read this cluster, so it inspected nothing. "
+    "Posture is UNKNOWN, the scan could not read this cluster, so it inspected nothing. "
     "The zero findings below mean 'nothing was looked at', not 'nothing is wrong'. "
     "Fix the access problem listed under Scan warnings and re-run.")
 
@@ -809,7 +818,7 @@ def warning_banner_html(result: ScanResult) -> str:
     if not warns:
         return ""
     cls = "danger" if not result.evidence_ok else "warn"
-    head = ("🛑 Scan incomplete — this cluster was not read"
+    head = ("🛑 Scan incomplete, this cluster was not read"
             if not result.evidence_ok else "⚠️ Partial coverage")
     items = "".join(f"<li>{_esc(w)}</li>" for w in warns)
     return (f"<div class='callout {cls}'><strong>{head}</strong>"
@@ -830,10 +839,10 @@ def scan_warning_lines(result: ScanResult) -> list[str]:
     scan read the cluster cleanly. Single source for every renderer and the dashboard."""
     out: list[str] = []
     if not result.evidence_ok:
-        out.append("This scan could not read the cluster — no resource type could be "
+        out.append("This scan could not read the cluster, no resource type could be "
                    "collected. Results are NOT evidence of a secure cluster.")
     elif result.warnings:
-        out.append("This scan ran with partial coverage — some resource types could not "
+        out.append("This scan ran with partial coverage, some resource types could not "
                    "be read, so findings on them are missing.")
     out += list(result.warnings)
     return out
@@ -864,12 +873,12 @@ def _wrap_ids(ids: list[str], per_line: int = 4) -> list[str]:
 # -- SARIF helpers -------------------------------------------------------- #
 def _sarif_help_md(ctx) -> str:
     """GitHub Code Scanning (and most other SARIF viewers) render `help.markdown` in
-    preference to `help.text` when both are present — give it the same substance as the
+    preference to `help.text` when both are present, give it the same substance as the
     markdown/html reports rather than the one-line `help.text` fallback."""
     lines = [f"**Impact:** {ctx.impact}", ""]
     if ctx.standards:
         lines.append("**Standards & Benchmark Mapping:**")
-        lines += [f"- {s.framework} — {s.control}: [{s.title}]({s.url})" for s in ctx.standards]
+        lines += [f"- {s.framework}, {s.control}: [{s.title}]({s.url})" for s in ctx.standards]
         lines.append("")
     if ctx.validation_steps:
         lines += ["**Validation:**", "```bash", *ctx.validation_steps, "```"]
@@ -920,20 +929,26 @@ def _esc(s) -> str:
 
 # -- HTML template -------------------------------------------------------- #
 _HTML_CSS = """
-:root{--bg:#ffffff;--fg:#1f2328;--muted:#57606a;--card:#f6f8fa;--bd:#d0d7de;
- --crit:#cf222e;--high:#bc4c00;--med:#9a6700;--low:#1a7f37;--accent:#0969da}
-/* Dark palette, applied by the OS preference OR by the in-page theme toggle. The
-   explicit data-theme attribute is listed after the media query so a user's click always
-   beats the OS default, in both directions. */
-@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;
- --card:#161b22;--bd:#30363d;--crit:#f85149;--high:#f0883e;--med:#d29922;--low:#3fb950;
- --accent:#58a6ff}}
-:root[data-theme=light]{--bg:#ffffff;--fg:#1f2328;--muted:#57606a;--card:#f6f8fa;
- --bd:#d0d7de;--crit:#cf222e;--high:#bc4c00;--med:#9a6700;--low:#1a7f37;--accent:#0969da}
-:root[data-theme=dark]{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;--card:#161b22;
- --bd:#30363d;--crit:#f85149;--high:#f0883e;--med:#d29922;--low:#3fb950;--accent:#58a6ff}
-*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;
- background:var(--bg);color:var(--fg);line-height:1.5}
+/* Design tokens. --bg = page canvas (soft neutral), --card = raised surface (white),
+   --sunken = inset fill (code chips, tracks, inputs). Light is the default; the dark
+   palette applies via the OS preference OR the in-page toggle (data-theme, listed after
+   the media query so a click always wins). */
+:root{--bg:#f5f6f8;--fg:#0f172a;--muted:#5b6675;--card:#ffffff;--bd:#e5e8ec;--sunken:#f1f3f6;
+ --crit:#d92d20;--high:#e04f16;--med:#c07600;--low:#12894a;--info:#6b7482;--accent:#0e7490;
+ --ring:rgba(14,116,144,.3);--shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0a0e16;--fg:#e7ecf3;--muted:#94a1b5;
+ --card:#131a25;--bd:#232c3b;--sunken:#1b2230;--crit:#ff6a5e;--high:#ff9a4d;--med:#e2b53f;
+ --low:#43cf7f;--info:#8b97a9;--accent:#22d3ee;--ring:rgba(34,211,238,.32);
+ --shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px rgba(0,0,0,.4)}}
+:root[data-theme=light]{--bg:#f5f6f8;--fg:#0f172a;--muted:#5b6675;--card:#ffffff;--bd:#e5e8ec;
+ --sunken:#f1f3f6;--crit:#d92d20;--high:#e04f16;--med:#c07600;--low:#12894a;--info:#6b7482;
+ --accent:#0e7490;--ring:rgba(14,116,144,.3);--shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)}
+:root[data-theme=dark]{--bg:#0a0e16;--fg:#e7ecf3;--muted:#94a1b5;--card:#131a25;--bd:#232c3b;
+ --sunken:#1b2230;--crit:#ff6a5e;--high:#ff9a4d;--med:#e2b53f;--low:#43cf7f;--info:#8b97a9;
+ --accent:#22d3ee;--ring:rgba(34,211,238,.32);--shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px rgba(0,0,0,.4)}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+ background:var(--bg);color:var(--fg);line-height:1.55;-webkit-font-smoothing:antialiased;
+ text-rendering:optimizeLegibility;font-feature-settings:'cv02','cv03','cv04','tnum'}
 /* Use the viewport instead of a narrow column: the matrix grid, findings tables and
    attack map are all wide, dense surfaces that were being squeezed by a 1000px cap. */
 .wrap{max-width:1720px;margin:0 auto;padding:1.5rem 2rem}
@@ -1022,7 +1037,7 @@ window.addEventListener('hashchange',focusHash);
 """
 
 # Light/dark toggle. Every colour in every surface already comes from a CSS variable, so
-# flipping `data-theme` on <html> re-themes the whole page — no per-element work. The
+# flipping `data-theme` on <html> re-themes the whole page, no per-element work. The
 # choice is remembered in localStorage; with nothing stored the OS preference still wins.
 THEME_BUTTON = ("<button class='themebtn' type='button' onclick='toggleTheme()' "
                 "title='Switch between light and dark'>◐ Theme</button>")
@@ -1037,7 +1052,10 @@ THEME_JS = """
   document.querySelectorAll('.themebtn').forEach(function(b){
    b.textContent=(d==='dark'?'☀ Light':'☾ Dark');});
  }
- try{var s=localStorage.getItem(KEY); if(s) root.setAttribute('data-theme',s);}catch(e){}
+ // Light is the product default: with nothing stored, pin light explicitly so it wins
+ // over a dark OS preference. A saved choice (either way) always takes precedence.
+ try{var s=localStorage.getItem(KEY); root.setAttribute('data-theme',s||'light');}
+ catch(e){root.setAttribute('data-theme','light');}
  window.toggleTheme=function(){
   var d=root.getAttribute('data-theme')||(osDark()?'dark':'light');
   d=(d==='dark')?'light':'dark';
@@ -1071,5 +1089,5 @@ _HTML_TMPL = """<!doctype html><html><head><meta charset="utf-8">
 <h2>Findings</h2>
 <div class="filters">{filters}</div>
 {cards}
-<footer>Generated by k8smatrixwarden — MITRE ATT&amp;CK-aligned Kubernetes security scanner.</footer>
+<footer>Generated by k8smatrixwarden, MITRE ATT&amp;CK-aligned Kubernetes security scanner.</footer>
 </div><script>{js}</script></body></html>"""

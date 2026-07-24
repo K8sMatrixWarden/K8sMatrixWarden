@@ -1,6 +1,6 @@
-"""PDF report generation (core/pdf_report.py) — requires the optional `pdf` extra
+"""PDF report generation (core/pdf_report.py), requires the optional `pdf` extra
 (fpdf2). Tests degrade gracefully (no-op pass) when it isn't installed, consistent with
-the project's zero-required-dependency philosophy — the same way nothing here hard-fails
+the project's zero-required-dependency philosophy, the same way nothing here hard-fails
 if `rich`/`kubernetes`/`mcp` aren't installed either."""
 import os
 import sys
@@ -55,7 +55,7 @@ def test_render_pdf_handles_zero_findings():
 
 
 def test_render_pdf_all_56_rules_no_exceptions():
-    """Every finding a full mock scan can produce must render without error — the
+    """Every finding a full mock scan can produce must render without error, the
     strongest guard against a KB entry containing something the PDF core fonts choke on
     (Unicode, unbalanced markup, etc.)."""
     if not _FPDF:
@@ -86,7 +86,7 @@ def test_reporting_engine_other_formats_still_return_str():
 
 def test_render_pdf_without_fpdf2_raises_clear_runtime_error():
     """Simulates the extra not being installed (the standard `sys.modules[name] = None`
-    trick forces the next `import fpdf` to raise ImportError) — must surface an
+    trick forces the next `import fpdf` to raise ImportError), must surface an
     actionable RuntimeError, not a raw traceback, matching the same graceful-degradation
     contract as the `live`/`mcp` extras elsewhere in the codebase."""
     import k8smatrixwarden.core.pdf_report as pdf_report_mod

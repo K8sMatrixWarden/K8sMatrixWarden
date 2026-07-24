@@ -1,4 +1,4 @@
-"""CIS Kubernetes Benchmark v1.8 engine — full 130-control coverage (§5.9) + mitigation."""
+"""CIS Kubernetes Benchmark v1.8 engine, full 130-control coverage (§5.9) + mitigation."""
 import json
 import os
 import sys

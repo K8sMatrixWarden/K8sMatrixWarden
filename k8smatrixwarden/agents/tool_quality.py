@@ -1,5 +1,5 @@
 """
-Tool-result quality heuristic (Phase 5). No LLM — cheap structural checks.
+Tool-result quality heuristic (Phase 5). No LLM, cheap structural checks.
 
 Scores 0..1 and names missing information, so the orchestrator (and future tool selection) can
 tell a rich result from a thin one. Persist via Memory.save_tool_quality.

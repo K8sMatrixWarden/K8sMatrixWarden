@@ -163,7 +163,7 @@ class RuntimeAgent:
         ]
 
     def catalog(self) -> list[dict]:
-        """The runtime detection catalog — every rule tagged surface='runtime', with its
+        """The runtime detection catalog, every rule tagged surface='runtime', with its
         source (falco | audit | drift) and MITRE mapping. The counterpart to the Scanner
         registry's scan-surface rules; lets a caller enumerate 'what is detected at
         runtime vs. at scan time' (§8)."""

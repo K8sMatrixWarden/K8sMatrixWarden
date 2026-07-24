@@ -1,9 +1,9 @@
 """
-Report Store (§16.4) — persists scan results so they can be listed and re-downloaded
+Report Store (§16.4), persists scan results so they can be listed and re-downloaded
 later in any format.
 
 A scan result is saved as `<dir>/<scan_id>.json` (its `as_dict()` form). `download` loads a
-stored result and re-renders it via the ReportingEngine into whatever format is asked for —
+stored result and re-renders it via the ReportingEngine into whatever format is asked for, 
 so you scan once and can export markdown / json / html / sarif afterwards, to any filename.
 
 Pure stdlib; the store is just a directory of JSON files (default `./k8smatrixwarden-reports`).
@@ -23,13 +23,13 @@ from .results import ScanResult
 
 # Guards the timeline read-modify-write: the web server is threaded, so two concurrent
 # saves could otherwise interleave and lose an update. ponytail: in-process lock; a second
-# PROCESS scanning the same store concurrently is out of scope (rare — note the ceiling).
+# PROCESS scanning the same store concurrently is out of scope (rare, note the ceiling).
 _TIMELINE_LOCK = threading.Lock()
 
 
 def _atomic_write_json(path: str, obj) -> None:
-    """Write JSON durably: serialise to a temp file in the same dir, then os.replace() —
-    an atomic rename on POSIX/Windows — so a crash mid-write can never leave a half-written
+    """Write JSON durably: serialise to a temp file in the same dir, then os.replace(), 
+    an atomic rename on POSIX/Windows, so a crash mid-write can never leave a half-written
     (unparseable) report or timeline index behind."""
     tmp = f"{path}.{os.getpid()}.tmp"
     try:
@@ -39,7 +39,7 @@ def _atomic_write_json(path: str, obj) -> None:
             os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
-        # serialise failed mid-write — drop the partial temp so no stray file is left.
+        # serialise failed mid-write, drop the partial temp so no stray file is left.
         try:
             os.remove(tmp)
         except OSError:
@@ -53,7 +53,7 @@ def default_reports_dir() -> str:
     CLI or an MCP/LLM client shows up in the web dashboard's scan history without every
     process having to be launched from the same folder. Resolution order:
       1. $K8SMATRIXWARDEN_REPORTS_DIR, if set (point it at an absolute path)
-      2. ~/.k8smatrixwarden/reports  — per-user, cwd-independent default
+      2. ~/.k8smatrixwarden/reports , per-user, cwd-independent default
 
     A relative "k8smatrixwarden-reports" used to be the default; because a relative path
     resolves against each process's cwd, a CLI/MCP scan silently landed in a different
@@ -72,9 +72,9 @@ DEFAULT_DIR = default_reports_dir()
 _TIMELINE_FILE = "_timeline.json"
 
 #: A scan id is `<name>-YYYYMMDD-HHMMSS-xxxx` (or `scan-…` when unnamed, or a synthetic id
-#: like `coverage`) — see core/results.py::_scan_id. Anything with a
+#: like `coverage`), see core/results.py::_scan_id. Anything with a
 #: path separator, `..`, or other filesystem-significant character is rejected before it is
-#: ever joined into a path — otherwise a caller-supplied id (a web route param, an
+#: ever joined into a path, otherwise a caller-supplied id (a web route param, an
 #: LLM-provided argument) could traverse out of the store dir and read arbitrary `*.json`.
 _SAFE_SCAN_ID = re.compile(r"[A-Za-z0-9._-]+")
 
@@ -225,11 +225,11 @@ class ReportStore:
 
 def _fallback_display_name(name: str, scan_id: str, generated_at: str) -> str:
     """Reconstruct a report's display name for reports saved before `display_name` was
-    persisted, so old scans still list with a "<name/id> — <date> <time>" label."""
+    persisted, so old scans still list with a "<name/id>, <date> <time>" label."""
     from .timeutil import format_ist
     head = name or scan_id
     when = format_ist(generated_at)
-    return f"{head} — {when}" if when != "—" else head
+    return f"{head}, {when}" if when != "N/A" else head
 
 
 def _parse_ts(s: str) -> Optional[_dt.datetime]:

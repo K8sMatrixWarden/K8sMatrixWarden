@@ -6,7 +6,7 @@ into the real per-user store (`~/.k8smatrixwarden/reports`), point the shared st
 throwaway temp directory for the whole session.
 
 This must run before any `k8smatrixwarden` import, because `report_store.DEFAULT_DIR` is
-resolved once at import time. It does — `run_tests.py` imports `tests.<module>`, which
+resolved once at import time. It does, `run_tests.py` imports `tests.<module>`, which
 loads this package `__init__` first, and pytest loads it before collecting the test
 modules that import the package.
 """

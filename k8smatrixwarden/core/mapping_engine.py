@@ -4,7 +4,7 @@ MITRE Mapping Engine (§6).
 The cross-cutting index over the Rule Registry. It is the ONLY component that turns a
 Selector into a concrete set of rule ids, so there is exactly one resolution path for
 every scan type (§7.2). It also validates each rule's technique ids against a vendored,
-versioned ATT&CK-for-Containers taxonomy (§6.2 — CI-style guard).
+versioned ATT&CK-for-Containers taxonomy (§6.2, CI-style guard).
 
 Indexes built once at startup:
     tactic       -> [rule_id]
@@ -107,7 +107,7 @@ class MITREMappingEngine:
         return problems
 
     # ------------------------------------------------------------------ #
-    # Resolution — the single choke point (§7.2)
+    # Resolution, the single choke point (§7.2)
     # ------------------------------------------------------------------ #
     def resolve(self, selector: Selector) -> list[str]:
         """

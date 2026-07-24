@@ -40,7 +40,7 @@ def _raise(exc):
 
 
 def _collector():
-    """A LiveEvidenceCollector with no kube config and no preflight — built via __new__
+    """A LiveEvidenceCollector with no kube config and no preflight, built via __new__
     so we can unit-test _fetch/collect against a stubbed API with no real cluster."""
     coll = LiveEvidenceCollector.__new__(LiveEvidenceCollector)
     EvidenceCollector.__init__(coll)
@@ -61,7 +61,7 @@ def test_connection_error_classifier_true_for_transport_failures():
 
 
 def test_connection_error_classifier_false_for_http_responses():
-    # A 403/404 IS an HTTP response — the cluster is reachable, just guarded/missing.
+    # A 403/404 IS an HTTP response, the cluster is reachable, just guarded/missing.
     assert not _is_connection_error(_FakeApiException(403, "Forbidden"))
     assert not _is_connection_error(_FakeApiException(404, "Not Found"))
 
@@ -237,7 +237,7 @@ def _exec_user(command, args):
 
 def test_exec_plugin_failure_detected_for_every_cloud():
     """EKS / GKE / AKS: whatever the command is, a missing binary is reported as the
-    reason authentication failed — with the exact argv the kubeconfig declares."""
+    reason authentication failed, with the exact argv the kubeconfig declares."""
     cases = [
         ("aws", ["eks", "get-token", "--cluster-name", "prod", "--profile", "prod-admin"]),
         ("gke-gcloud-auth-plugin", []),

@@ -1,4 +1,4 @@
-"""Finding Context (core/finding_context.py) — the shared report-grade content layer
+"""Finding Context (core/finding_context.py), the shared report-grade content layer
 every renderer (markdown/html/json/sarif/pdf) sources Summary/Standards/MITRE/Impact/
 Validation from."""
 import os
@@ -96,7 +96,7 @@ def test_build_finding_context_never_leaves_unsubstituted_templates():
 
 
 def test_build_finding_context_falls_back_for_unknown_rule_id():
-    # a rule id genuinely absent from the KB must still produce non-empty content —
+    # a rule id genuinely absent from the KB must still produce non-empty content, 
     # never a blank report section.
     f = _finding(rule_id="not-a-real-rule-id", mitre=[
         MitreTag(Tactic.DISCOVERY, "T1613", "Container and Resource Discovery")])

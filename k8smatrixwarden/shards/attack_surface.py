@@ -1,4 +1,4 @@
-"""Shard ⑧ — Attack Surface Mapper (§5.10).
+"""Shard ⑧, Attack Surface Mapper (§5.10).
 
 Cross-cutting analyses that don't belong to a single other shard: ServiceAccount fan-out
 (same SA reused across many pods/namespaces → lateral-movement blast radius) and an
@@ -35,7 +35,7 @@ def _sa_fanout(rule, ev, scope):
             yield rule.finding(
                 ResourceRef("ServiceAccount", sa),
                 f"ServiceAccount '{sa}' is reused by {pods_per_sa[sa]} workloads across "
-                f"{len(namespaces)} namespaces ({', '.join(sorted(namespaces))}) — wide "
+                f"{len(namespaces)} namespaces ({', '.join(sorted(namespaces))}), wide "
                 f"lateral-movement blast radius",
                 blast_radius=BR.CLUSTER, exploitability=EX.ADJACENT,
                 evidence={"pods": pods_per_sa[sa], "namespaces": sorted(namespaces)})

@@ -1,5 +1,5 @@
 """
-IST time helpers — K8sMatrixWarden reports every timestamp in Indian Standard Time
+IST time helpers, K8sMatrixWarden reports every timestamp in Indian Standard Time
 (Asia/Kolkata, UTC+05:30).
 
 Timestamps are emitted as ISO-8601 with the explicit `+05:30` offset so they stay
@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as _dt
 import re as _re
 
-#: Indian Standard Time — fixed UTC+05:30 (India observes no DST).
+#: Indian Standard Time, fixed UTC+05:30 (India observes no DST).
 IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30), name="IST")
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -43,7 +43,7 @@ def format_ist(ts: str) -> str:
     Returns the input unchanged if it does not look like an ISO timestamp.
     """
     if not ts:
-        return "—"
+        return "N/A"
     m = _ISO_RE.match(str(ts))
     if not m:
         return str(ts)

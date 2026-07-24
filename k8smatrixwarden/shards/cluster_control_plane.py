@@ -1,4 +1,4 @@
-"""Shard ① — Cluster & Control Plane (§5.3).
+"""Shard ①, Cluster & Control Plane (§5.3).
 
 Control-plane flags are modeled as a synthetic 'ComponentConfig' resource so the same
 rule code works in mock mode and (where exposed) live mode.
@@ -25,7 +25,7 @@ def _flag_rule(path, bad_predicate, message):
     (EKS/GKE/AKS) the control plane is provider-owned and its kube-system static Pods are
     invisible, so ComponentConfig arrives with no `apiServer`/`etcd`/`kubelet` section at
     all. `Evidence.dig` then returns None for every flag, and a predicate like
-    ``lambda v: not v`` reads that as "the flag is off" — inventing a Critical finding out
+    ``lambda v: not v`` reads that as "the flag is off", inventing a Critical finding out
     of evidence that was never available. Absence of evidence is not evidence of absence:
     when the section is missing the rule stays silent, and the collector records one
     warning explaining that these checks were not applicable (see
@@ -58,10 +58,10 @@ class ClusterControlPlaneShard(DomainShard):
 
     def rbac_verbs(self) -> list[dict]:
         """
-        Rules declare 'ComponentConfig' as their evidence need — a synthetic kind with no
+        Rules declare 'ComponentConfig' as their evidence need, a synthetic kind with no
         real API resource, so the base implementation grants nothing for it. But in LIVE
         mode, ComponentConfig is actually built by reading kube-system static Pods
-        (core/evidence.py::build_component_config, the control-plane flag mitigation) — so
+        (core/evidence.py::build_component_config, the control-plane flag mitigation), so
         this shard genuinely needs get/list/watch on pods to function live. Declare that
         explicitly rather than relying on another shard happening to grant it too.
         """

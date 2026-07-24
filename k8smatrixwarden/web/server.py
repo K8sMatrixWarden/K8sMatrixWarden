@@ -2,7 +2,7 @@
 Thin stdlib `http.server` shell over WebApp (web/app.py).
 
 `serve()` builds the platform once, wraps a WebApp, and dispatches every request to
-`WebApp.route(...)`. No third-party web framework — the same zero-dependency stance the rest
+`WebApp.route(...)`. No third-party web framework, the same zero-dependency stance the rest
 of the tool takes, so `k8smatrixwarden web` runs on a bare Python install.
 """
 from __future__ import annotations
@@ -55,8 +55,8 @@ def make_handler(app: WebApp):
 def is_loopback(host: str) -> bool:
     """True only when this bind address can be reached from this machine alone.
 
-    Conservative by construction: anything unrecognised — a hostname, or `""`/`0.0.0.0`
-    (which bind every interface) — is treated as remote-reachable."""
+    Conservative by construction: anything unrecognised, a hostname, or `""`/`0.0.0.0`
+    (which bind every interface), is treated as remote-reachable."""
     h = (host or "").strip().strip("[]").lower()
     if h == "localhost":
         return True
@@ -87,14 +87,14 @@ def serve(host: str = "127.0.0.1", port: int = 8080,
     print(f"    reports dir: {reports_dir}   ·   scanning: "
           f"{'enabled' if allow_scan else 'disabled'}   ·   Ctrl-C to stop")
     if not local:
-        print(f"    WARNING: bound to {host} — reachable beyond this machine, and the "
+        print(f"    WARNING: bound to {host}, reachable beyond this machine, and the "
               f"dashboard has NO authentication.\n"
               f"             Anyone who can reach it can read every saved report"
               + ("" if not allow_scan else " and start scans") + ".")
         if allow_client_kubeconfig:
             print("    WARNING: --allow-remote-kubeconfig is on. A kubeconfig in a request "
                   "body executes its\n"
-                  "             credential plugin as this user — that is remote code "
+                  "             credential plugin as this user, that is remote code "
                   "execution unless you have\n"
                   "             put your own authentication in front of this port.")
         else:

@@ -1,5 +1,5 @@
 """
-K8s Security MCP Server — the 5 knowledge datasets (§10).
+K8s Security MCP Server, the 5 knowledge datasets (§10).
 
   1. kubectl Security Commands
   2. Scanning Tool Commands

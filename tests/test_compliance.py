@@ -1,4 +1,4 @@
-"""Compliance crosswalk engine — framework mapping onto CIS + OWASP, and its renderers."""
+"""Compliance crosswalk engine, framework mapping onto CIS + OWASP, and its renderers."""
 import json
 import os
 import sys
@@ -57,7 +57,7 @@ def test_every_requirement_maps_to_at_least_one_control_or_owasp():
     for spec in load_crosswalk()["frameworks"].values():
         for req in spec["requirements"]:
             assert req.get("cis") or req.get("owasp"), \
-                f"{req['id']} maps to nothing — it would always be NOT_ASSESSED"
+                f"{req['id']} maps to nothing, it would always be NOT_ASSESSED"
 
 
 # ---- status precedence --------------------------------------------------- #

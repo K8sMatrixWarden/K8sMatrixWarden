@@ -1,4 +1,4 @@
-"""Selector resolution — the single choke point (§7.2, §7.3)."""
+"""Selector resolution, the single choke point (§7.2, §7.3)."""
 import os
 import sys
 
@@ -58,7 +58,7 @@ def test_framework_slice():
 
 def test_union_semantics_dedup():
     p = _p()
-    # secrets module ∪ Credential Access tactic — overlapping, must dedupe.
+    # secrets module ∪ Credential Access tactic, overlapping, must dedupe.
     ids = p.mapping.resolve(Selector(modules=["secrets"],
                                      tactics=["Credential Access"]))
     assert len(ids) == len(set(ids))

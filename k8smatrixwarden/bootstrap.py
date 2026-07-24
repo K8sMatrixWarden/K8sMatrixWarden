@@ -1,5 +1,5 @@
 """
-Platform bootstrap — wires the whole Scanner Agent together (§3.4, §6).
+Platform bootstrap, wires the whole Scanner Agent together (§3.4, §6).
 
 Builds, once: the Scanner Registry (via the Plugin Loader), the Rule Registry, the MITRE
 Mapping Engine (indexed + validated against the vendored taxonomy), the Detection Engine,

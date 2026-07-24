@@ -1,35 +1,35 @@
 """
-Threat Matrix (§3.3, §12) — projects a scan's findings onto the Kubernetes Threat Matrix.
+Threat Matrix (§3.3, §12), projects a scan's findings onto the Kubernetes Threat Matrix.
 
 This is the "one matrix per scan" view: the 9 tactics of the Microsoft/Redguard Kubernetes
 Threat Matrix (https://kubernetes-threat-matrix.redguard.ch/) laid out as columns, each with
 its techniques as cells, and every cell painted by orthogonal states that already live in
 the platform:
 
-    reference — the technique exists in the Redguard matrix (the full attacker playbook)
-    covered   — a scan Rule can detect it (from the registry)
-    runtime   — no scan rule, but a Runtime Agent detection covers it (Falco/audit/drift)
-    hit       — this scan actually produced a finding on it (from the ScanResult)
+    reference, the technique exists in the Redguard matrix (the full attacker playbook)
+    covered  , a scan Rule can detect it (from the registry)
+    runtime  , no scan rule, but a Runtime Agent detection covers it (Falco/audit/drift)
+    hit      , this scan actually produced a finding on it (from the ScanResult)
 
 `runtime` is a distinct state, not folded into `covered`, because the two answer different
 questions: a scan rule says "the configuration allows this", a runtime detection says "this
 is happening right now". Several Redguard techniques (a shell spawned in a container, a
 miner starting) are structurally invisible to a config snapshot and can ONLY be covered at
-runtime — showing them as flat gaps understated real coverage.
+runtime, showing them as flat gaps understated real coverage.
 
 Keying prefers an exact Redguard technique NAME, then falls back to the canonical
 ATT&CK-for-Containers id (the mapping contract, §6.2). Name-first matters because the
 Redguard matrix is finer-grained than ATT&CK: "Access the K8s API server", "Access Kubelet
 API" and "Access Kubernetes dashboard" are three distinct techniques all carrying the
 single id T1613, so id-first matching collapsed them into one cell and painted the other
-two as gaps even where rules existed. Redguard techniques with no stable id — or whose id
-already appears in the same tactic — are name-keyed cells, so a technique with no rule
+two as gaps even where rules existed. Redguard techniques with no stable id, or whose id
+already appears in the same tactic, are name-keyed cells, so a technique with no rule
 renders as an un-covered cell rather than being silently dropped. Nothing here re-derives
 severity or scoring; it reads the Findings the Scanner already produced.
 
 The output is a plain, JSON-serialisable structure (`ThreatMatrix.as_dict()`), so it is
 equally consumable by the markdown/HTML reporters, the web dashboard heatmap, and the MCP
-`build_threat_matrix` tool — one matrix, many surfaces.
+`build_threat_matrix` tool, one matrix, many surfaces.
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ TACTIC_ORDER: list[Tactic] = [
 # canonical ATT&CK-for-Containers technique is unambiguous AND not already used earlier in
 # the same tactic (a duplicate id in one column is dropped to None so the two distinct
 # Redguard techniques stay as separate cells). Techniques with no stable ATT&CK id keep
-# None — they are real attacker behaviours the matrix must still show, just not id-keyed.
+# None, they are real attacker behaviours the matrix must still show, just not id-keyed.
 REDGUARD_TECHNIQUES: dict[str, list[tuple[str, Optional[str]]]] = {
     "Initial Access": [
         ("Using cloud credentials", "T1078.004"),
@@ -170,7 +170,7 @@ class MatrixCell:
 
         Ordered by how much this scan actually knows: a finding beats a scan rule that
         found nothing, which beats runtime-only coverage (nothing to see in a config
-        snapshot — it is caught live), which beats no coverage at all."""
+        snapshot, it is caught live), which beats no coverage at all."""
         if self.hit:
             return "hit"
         if self.covered:
@@ -263,7 +263,7 @@ class ThreatMatrix:
 
     @property
     def techniques_runtime_only(self) -> int:
-        """Techniques with NO scan rule but a Runtime Agent detection — real coverage the
+        """Techniques with NO scan rule but a Runtime Agent detection, real coverage the
         scanner cannot provide, which would otherwise render as a flat coverage gap."""
         return sum(1 for col in self.columns for c in col.cells
                    if c.covered_runtime and not c.covered)
@@ -271,7 +271,7 @@ class ThreatMatrix:
     @property
     def tactics_covered(self) -> int:
         """Tactics with at least one technique the platform has a rule for. Independent of
-        any scan — this is what the standalone /matrix coverage page reports on."""
+        any scan, this is what the standalone /matrix coverage page reports on."""
         return sum(1 for col in self.columns
                    if any(c.covered for c in col.cells))
 
@@ -283,7 +283,7 @@ class ThreatMatrix:
     @property
     def finding_count(self) -> int:
         """DISTINCT findings mapped onto the matrix. A multi-tactic finding appears in one
-        cell per tactic it enables, so summing column counts would over-count it — dedupe
+        cell per tactic it enables, so summing column counts would over-count it, dedupe
         by finding identity here so the headline number matches reality (it is ≤ the
         scan's total, since findings with no MITRE tag don't appear on the matrix)."""
         seen = set()
@@ -325,8 +325,8 @@ def _pct(n: int, total: int) -> float:
 
 
 def _default_runtime_catalog() -> list[dict]:
-    """The Runtime Agent's detection catalog, loaded by default so every surface — CLI,
-    report, dashboard, MCP — reports the same coverage. A caller that genuinely wants a
+    """The Runtime Agent's detection catalog, loaded by default so every surface, CLI,
+    report, dashboard, MCP, reports the same coverage. A caller that genuinely wants a
     scan-only matrix passes an explicit empty list rather than relying on the default.
 
     Imported lazily: the Runtime Agent is a peer subsystem, and a matrix should still
@@ -345,7 +345,7 @@ def attack_paths(matrix: ThreatMatrix) -> dict:
     An attacker's realistic path through THIS cluster is, per tactic they have a foothold
     in (a hit cell), the technique(s) actually available and the resources exposing them.
 
-    ponytail: kill-chain-order chaining — the ATT&CK-navigator convention, not a per-finding
+    ponytail: kill-chain-order chaining, the ATT&CK-navigator convention, not a per-finding
     causal graph. It answers "which tactics can an attacker actually string together here,
     and does the chain reach Impact". Upgrade to true edge inference (this pod's
     ServiceAccount can reach that binding) when a single-target path matters more than the
@@ -389,7 +389,7 @@ def build_threat_matrix(result: ScanResult,
                         runtime_catalog: Optional[list[dict]] = None) -> ThreatMatrix:
     """Project a ScanResult onto the Kubernetes Threat Matrix.
 
-    `registry` (optional) supplies the *coverage* layer — which techniques the platform
+    `registry` (optional) supplies the *coverage* layer, which techniques the platform
     has any rule for, independent of whether this scan hit them. Pass
     `platform.registry.rules` for the full three-state (gap/covered/hit) matrix; omit it
     to render a findings-only matrix (every non-empty cell is simply `hit`).
@@ -447,7 +447,7 @@ def build_threat_matrix(result: ScanResult,
             return idx[tech_id]
         if not create:
             return None
-        # A covered/hit technique the Redguard reference list didn't enumerate — add it so
+        # A covered/hit technique the Redguard reference list didn't enumerate, add it so
         # the platform's real coverage is never hidden behind an incomplete reference list.
         key = tech_id or f"name:{_norm(tech_name)}"
         cell = MatrixCell(tactic=tactic_val, technique_name=tech_name,
@@ -458,7 +458,7 @@ def build_threat_matrix(result: ScanResult,
         nidx[_norm(tech_name)] = cell
         return cell
 
-    # 2) Coverage layer — every registered rule marks its technique cells "covered".
+    # 2) Coverage layer, every registered rule marks its technique cells "covered".
     if registry is not None:
         for rule in registry.all():
             for m in rule.mitre:
@@ -468,12 +468,12 @@ def build_threat_matrix(result: ScanResult,
                 cell.covered = True
                 cell.rule_ids.append(rule.id)
                 # Keep the Redguard display name for a reference cell (this IS the
-                # Kubernetes Threat Matrix the user asked for — "CoreDNS poisoning" reads
+                # Kubernetes Threat Matrix the user asked for, "CoreDNS poisoning" reads
                 # better than the raw ATT&CK "Adversary-in-the-Middle"); the canonical
                 # ATT&CK technique is still reachable via technique_id / its URL.
                 cell.technique_id = cell.technique_id or m.technique_id
 
-    # 3) Runtime layer — Runtime Agent detections (Falco/audit/drift). A technique the
+    # 3) Runtime layer, Runtime Agent detections (Falco/audit/drift). A technique the
     #    scanner structurally cannot see in a config snapshot (a shell being spawned, a
     #    miner starting) is still covered by the platform, just on the other surface.
     #    Pass `RuntimeAgent().catalog()`; omit it for a scan-only view.
@@ -483,7 +483,7 @@ def build_threat_matrix(result: ScanResult,
         if cell is not None:
             cell.runtime_rule_ids.append(det.get("id", ""))
 
-    # 4) Hit layer — this scan's findings light up their cells.
+    # 4) Hit layer, this scan's findings light up their cells.
     for f in result.findings:
         if f.severity.weight == 0:            # skip INFO / engine-error findings
             continue

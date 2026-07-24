@@ -1,4 +1,4 @@
-"""Shard ⑤ — Image & Supply Chain (§5.7).
+"""Shard ⑤, Image & Supply Chain (§5.7).
 
 CVE scanning is delegated to an external adapter (Trivy) when available; the native rules
 here cover config/provenance signals that don't require pulling the image.

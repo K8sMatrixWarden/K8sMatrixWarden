@@ -1,5 +1,5 @@
 """
-Agent memory (Phase 2/3/5). SQLite is :memory: — no files, no network.
+Agent memory (Phase 2/3/5). SQLite is :memory:, no files, no network.
 Covers: finding saved, asset history, service merge, relevant-only injection, keyword search,
 tool-quality persistence, asset extraction.
 """

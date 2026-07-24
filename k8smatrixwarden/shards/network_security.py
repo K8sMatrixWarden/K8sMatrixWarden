@@ -1,4 +1,4 @@
-"""Shard ④ — Network Security (§5.6)."""
+"""Shard ④, Network Security (§5.6)."""
 from __future__ import annotations
 
 from ..core.evidence import Evidence

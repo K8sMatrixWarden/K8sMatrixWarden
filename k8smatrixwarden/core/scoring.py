@@ -1,14 +1,14 @@
 """
-Risk Scoring Engine (§18.1) — attack-path aware.
+Risk Scoring Engine (§18.1), attack-path aware.
 
     finding_score = severity_weight × exploitability × blast_radius × path_multiplier
     path_multiplier = 1 + 0.25 × (distinct_tactics_on_finding − 1)     # attack-path bonus
-    cluster_risk (0–10) = 10 × raw / (raw + K),  raw = Σ finding_score
+    cluster_risk (0–10) = 10 × raw / (raw + K), raw = Σ finding_score
     security_score (0–100) = round((1 − cluster_risk/10) × 100)
 
 The saturating normalization `raw/(raw+K)` replaces the spec's literal `/max_possible`
 (undefined for an arbitrary cluster). It is monotonic, bounded, deterministic, and lets a
-handful of criticals dominate — matching the rating bands below. See the "Risk Scoring Math"
+handful of criticals dominate, matching the rating bands below. See the "Risk Scoring Math"
 section of K8sMatrixWarden-doc.html.
 """
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """
-Scan × Runtime correlation (§8) — the "is this static weakness being exploited RIGHT NOW"
+Scan × Runtime correlation (§8), the "is this static weakness being exploited RIGHT NOW"
 layer that no plain scanner has.
 
 A Scanner finding says "this config is weak" (point-in-time). A Runtime alert says "this
@@ -9,17 +9,17 @@ is an attacker acting on?*
 
 Join key is the MITRE tactic both sides already carry (the mapping contract, §6.2): a
 runtime alert tagged Privilege Escalation lines up with the scan findings tagged Privilege
-Escalation. Confidence is tiered by how tightly the two sides actually match — because
+Escalation. Confidence is tiered by how tightly the two sides actually match, because
 "confirmed exploitation" is a strong claim it is reserved for a RESOURCE-level match:
 
-  confirmed    — the runtime event names a pod that IS (or belongs to) the exact resource a
+  confirmed   , the runtime event names a pod that IS (or belongs to) the exact resource a
                  static finding is on, same namespace. This is the only tier that says
                  "this specific weakness is being acted on".
-  corroborated — same tactic (and often same namespace) but no resource-level link. The
+  corroborated, same tactic (and often same namespace) but no resource-level link. The
                  behaviour aligns with a known weakness class here, but we cannot prove it
-                 is THIS finding — do not report it as exploited.
-  runtime-only — a runtime alert with NO matching static finding (novel behaviour the scan
-                 never predicted — often the most interesting).
+                 is THIS finding, do not report it as exploited.
+  runtime-only, a runtime alert with NO matching static finding (novel behaviour the scan
+                 never predicted, often the most interesting).
 
 A tactic+namespace coincidence is NOT proof of exploitation, so it is corroborated, never
 confirmed.
@@ -85,15 +85,15 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
         ns_scoped = [f for f in statics if ns and f.resource.namespace == ns]
         if not statics:
             conf, verdict, matched = ("runtime-only",
-                "unexpected runtime behaviour — no matching static weakness", [])
+                "unexpected runtime behaviour, no matching static weakness", [])
         elif resource_hit:
             conf, verdict, matched = ("confirmed",
                 "static weakness on this resource is being actively exploited", resource_hit)
         else:
-            # same tactic (± namespace) but no resource-level link — aligns, not proven.
+            # same tactic (± namespace) but no resource-level link, aligns, not proven.
             conf, verdict, matched = ("corroborated",
                 "runtime behaviour aligns with a known static weakness (no resource-level "
-                "link — not proof this finding is exploited)", ns_scoped or statics)
+                "link, not proof this finding is exploited)", ns_scoped or statics)
         sev = max([a.severity] + [f.severity for f in matched],
                   key=lambda s: s.order)
         correlations.append({
@@ -118,7 +118,7 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Drift detection — declared config vs observed runtime behaviour
+# Drift detection, declared config vs observed runtime behaviour
 # --------------------------------------------------------------------------- #
 #: Paths a readOnlyRootFilesystem pod is still allowed to write (mounted rw by design).
 _WRITABLE_PREFIXES = ("/tmp", "/var/tmp", "/dev", "/proc", "/run", "/var/run")
@@ -152,7 +152,7 @@ def _declared_posture(pod: dict) -> dict:
 
 
 def detect_drift(pods: list[dict], events: list[dict]) -> dict:
-    """Flag runtime behaviour that contradicts a Pod's declared security posture — the
+    """Flag runtime behaviour that contradicts a Pod's declared security posture, the
     strongest signal there is, because it means a control the operator THINKS is in place
     is not (either a container escape, or the policy never actually applied). Needs events
     that name their pod (Falco k8s.pod.name enrichment); un-attributable events are skipped.
@@ -188,7 +188,7 @@ def detect_drift(pods: list[dict], events: list[dict]) -> dict:
                 "pod": name, "namespace": ns, "policy": policy,
                 "declared": declared, "observed": observed, "tactic": tactic,
                 "severity": "CRITICAL",
-                "verdict": f"policy bypass — pod declares {declared!r} but runtime shows "
+                "verdict": f"policy bypass, pod declares {declared!r} but runtime shows "
                            f"{observed}", "event": e})
     return {"pods_checked": len(by_pod), "events_seen": len(events),
             "drift_count": len(findings), "drift": findings}

@@ -5,7 +5,7 @@ A conversational REPL over the Orchestrator. It goes well beyond fixed prompts:
 
   * understands varied phrasing / synonyms / typos (via the Orchestrator's synonym engine
     plus fuzzy 'did you mean' fallback);
-  * has SESSION MEMORY — after a scan you can ask follow-ups ("show criticals",
+  * has SESSION MEMORY, after a scan you can ask follow-ups ("show criticals",
     "details <rule>", "export markdown");
   * answers informational questions ("what can you do", "list tactics", "explain
     persistence", "what is workload_pod_security");
@@ -27,7 +27,7 @@ from ..bootstrap import Platform
 from ..core.models import ScanMode, Scope, ScopeLevel, Severity
 
 BANNER = r"""
-  🛡️  k8smatrixwarden chat — MITRE ATT&CK-aligned Kubernetes security assistant
+  🛡️  k8smatrixwarden chat, MITRE ATT&CK-aligned Kubernetes security assistant
 
   Just ask in plain English. For example:
     • scan production for persistence          • any leaked secrets?
@@ -62,23 +62,23 @@ HELP = """  Commands & things you can say:
 """
 
 TACTIC_DESC = {
-    "Initial Access": "How an attacker first gets into the cluster — exposed services, "
+    "Initial Access": "How an attacker first gets into the cluster, exposed services, "
                       "compromised images, a stolen kubeconfig, cloud credentials.",
-    "Execution": "Running malicious code inside a container — exec-ing in, RCE via an app, "
+    "Execution": "Running malicious code inside a container, exec-ing in, RCE via an app, "
                  "SSH servers, injected sidecars.",
-    "Persistence": "Keeping a foothold across restarts — backdoor containers, CronJobs, "
+    "Persistence": "Keeping a foothold across restarts, backdoor containers, CronJobs, "
                    "malicious admission webhooks, writable hostPath mounts.",
-    "Privilege Escalation": "Gaining higher privileges — privileged containers, "
+    "Privilege Escalation": "Gaining higher privileges, privileged containers, "
                             "cluster-admin bindings, hostPath, container escape to the host.",
-    "Defense Evasion": "Avoiding detection — clearing container logs, deleting K8s events, "
+    "Defense Evasion": "Avoiding detection, clearing container logs, deleting K8s events, "
                        "impersonating system component names, proxying.",
-    "Credential Access": "Stealing secrets and tokens — listing K8s Secrets, service-account "
+    "Credential Access": "Stealing secrets and tokens, listing K8s Secrets, service-account "
                          "tokens, mounted cloud credentials, the metadata API.",
-    "Discovery": "Mapping the cluster — the API server, kubelet, network scanning, the "
+    "Discovery": "Mapping the cluster, the API server, kubelet, network scanning, the "
                  "dashboard, the instance metadata API.",
-    "Lateral Movement": "Moving between pods / namespaces / cloud — flat networks, reused "
+    "Lateral Movement": "Moving between pods / namespaces / cloud, flat networks, reused "
                         "service accounts, CoreDNS poisoning, cloud IAM.",
-    "Impact": "Doing damage — data destruction, resource hijacking (cryptomining), denial "
+    "Impact": "Doing damage, data destruction, resource hijacking (cryptomining), denial "
               "of service.",
 }
 
@@ -135,7 +135,7 @@ class ChatSession:
 
         # 2) meta / conversational
         if low in ("exit", "quit", ":q", "q", "bye"):
-            return TurnResult("Bye — stay secure. 🛡️", quit=True)
+            return TurnResult("Bye, stay secure. 🛡️", quit=True)
         if low in ("help", "?", "commands", "/help"):
             return TurnResult(HELP)
         if _any(low, r"what can you do|capabilities|what do you do|who are you|"
@@ -225,7 +225,7 @@ class ChatSession:
             return TurnResult(summary + "\n\n" + self._run_cis())
 
         # An empty selector resolves to ALL rules (a full scan). Only do that when the user
-        # clearly asked to scan everything / a whole scope — otherwise a garbage target
+        # clearly asked to scan everything / a whole scope, otherwise a garbage target
         # ("scan the frobnicator") would silently become a full cluster scan.
         if (interp.request.selector.is_empty()
                 and interp.request.scope.level == ScopeLevel.CLUSTER
@@ -295,7 +295,7 @@ class ChatSession:
 
     def _need_scan(self) -> Optional[str]:
         if self.last_result is None:
-            return ("I don't have any results yet. Run a scan first — e.g. "
+            return ("I don't have any results yet. Run a scan first, e.g. "
                     "“scan the cluster” or “is my cluster secure?”")
         return None
 
@@ -312,7 +312,7 @@ class ChatSession:
         lines = [f"{sev.emoji} {len(group)} {sev_label} finding(s):", ""]
         for i, f in enumerate(group, 1):
             amp = " ⚡" if len(f.tactics) > 1 else ""
-            lines.append(f"  {i}. {f.title} — {f.resource}{amp}")
+            lines.append(f"  {i}. {f.title}, {f.resource}{amp}")
             lines.append(f"     {f.rule_id} · {_mini_mitre(f)} · {f.message}")
         lines.append(f"\n💬 “details {group[0].rule_id}” · “export markdown”")
         return "\n".join(lines)
@@ -325,7 +325,7 @@ class ChatSession:
         top = _display_findings(self.last_result.findings)[:n]
         lines = [f"Top {len(top)} findings by risk:", ""]
         for i, f in enumerate(top, 1):
-            lines.append(f"  {i}. {f.severity.emoji} {f.title} — {f.resource} "
+            lines.append(f"  {i}. {f.severity.emoji} {f.title}, {f.resource} "
                          f"(score {round(f.score, 1)})")
         return "\n".join(lines)
 
@@ -386,7 +386,7 @@ class ChatSession:
     def _capabilities(self) -> str:
         return (
             "I'm a Kubernetes security assistant. I can:\n"
-            "  • scan your cluster — by namespace/pod/image, by MITRE tactic, by technique, "
+            "  • scan your cluster, by namespace/pod/image, by MITRE tactic, by technique, "
             "or by domain (RBAC, network, secrets, images, …)\n"
             "  • run the full CIS Kubernetes Benchmark (130 controls)\n"
             "  • map the attack surface\n"
@@ -400,21 +400,21 @@ class ChatSession:
         cov = self.platform.coverage()
         lines = ["The 9 MITRE ATT&CK tactics I scan for (rules per tactic):", ""]
         for t, desc in TACTIC_DESC.items():
-            lines.append(f"  • {t} ({cov.get(t, 0)} rules) — {desc}")
+            lines.append(f"  • {t} ({cov.get(t, 0)} rules), {desc}")
         lines.append("\nSay e.g. “scan for persistence”.")
         return "\n".join(lines)
 
     def _list_modules(self) -> str:
-        lines = ["Security domains (shards) — say “scan <domain>”:", ""]
+        lines = ["Security domains (shards), say “scan <domain>”:", ""]
         for name in self.platform.registry.shard_names():
             shard = self.platform.registry.get_shard(name)
             n = len(self.platform.registry.rules.by_shard(name))
-            lines.append(f"  • {name}  ({n} rules) — {getattr(shard, 'title', name)}")
+            lines.append(f"  • {name}  ({n} rules), {getattr(shard, 'title', name)}")
         return "\n".join(lines)
 
     def _list_aliases(self) -> str:
         aliases = self.platform.mapping.known_terms()["aliases"]
-        lines = ["Named techniques / outcomes — say “scan only <name>”:", ""]
+        lines = ["Named techniques / outcomes, say “scan only <name>”:", ""]
         for a in aliases:
             lines.append(f"  • {a}")
         return "\n".join(lines)
@@ -431,12 +431,12 @@ class ChatSession:
                 shard = self.platform.registry.get_shard(name)
                 rules = self.platform.registry.rules.by_shard(name)
                 sample = ", ".join(r.id for r in rules[:5])
-                return (f"🧩 {name} — {getattr(shard, 'title', name)} ({len(rules)} rules)\n"
+                return (f"🧩 {name}, {getattr(shard, 'title', name)} ({len(rules)} rules)\n"
                         f"  e.g. {sample}\n  Say “scan {name}”.")
         # a rule id?
         rule = self.platform.registry.rules.get(term)
         if rule:
-            return (f"📏 {rule.id} — {rule.title}  [{rule.severity.label}]\n"
+            return (f"📏 {rule.id}, {rule.title}  [{rule.severity.label}]\n"
                     f"  domain : {rule.owning_shard}\n"
                     f"  mitre  : "
                     + " · ".join(f"{m.tactic.value}/{m.technique_id}" for m in rule.mitre)
@@ -557,7 +557,7 @@ def run_chat(platform: Platform, *, mock: bool = True, fixture: Optional[str] = 
         try:
             text = input_fn("k8smatrixwarden› ")
         except (EOFError, KeyboardInterrupt):
-            print_fn("\nBye — stay secure. 🛡️")
+            print_fn("\nBye, stay secure. 🛡️")
             return 0
         turn = session.handle_turn(text)
         if turn.output:

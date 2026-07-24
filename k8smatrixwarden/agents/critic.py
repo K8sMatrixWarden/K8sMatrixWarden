@@ -1,11 +1,11 @@
 """
 Evidence critic (Phase 4 + Upgrade 1/3). One LLM call reviewing the draft assessment.
 
-Returns a richer verdict — approved, confidence, missing_evidence, recommended_tools, reason —
+Returns a richer verdict, approved, confidence, missing_evidence, recommended_tools, reason, 
 plus the original Phase-4 aliases (issues, recommended_actions) so older callers keep working.
 
 Two hard rules baked in here:
-  * Fail-open: any parse/format/API problem returns approved=True — a flaky critic can only ADD
+  * Fail-open: any parse/format/API problem returns approved=True, a flaky critic can only ADD
     scrutiny, never block the REPL or drop an answer.
   * Low confidence never approves: confidence < 0.5 forces approved=False (Upgrade 3), so a
     self-assured-but-shaky verdict still triggers another evidence round.
@@ -37,7 +37,7 @@ def review(query: str, draft: str, *, client, model: str, evidence: str = "") ->
             model=model, max_tokens=1024,
             messages=[{"role": "user", "content": content}])
     except Exception:
-        return dict(_DEFAULT)  # fail-open — never let the critic break the run
+        return dict(_DEFAULT)  # fail-open, never let the critic break the run
     return _parse(_text(resp))
 
 
@@ -59,7 +59,7 @@ def _parse(text: str) -> dict:
     missing = list(d.get("missing_evidence", d.get("issues", [])))
     tools = list(d.get("recommended_tools", d.get("recommended_actions", [])))
     confidence = float(d.get("confidence", 1.0 if approved else 0.0))
-    if confidence < 0.5:                     # Upgrade 3 — low confidence never approves
+    if confidence < 0.5:                     # Upgrade 3, low confidence never approves
         approved = False
     return {"approved": approved, "confidence": confidence,
             "missing_evidence": missing, "recommended_tools": tools,

@@ -1,4 +1,4 @@
-"""Multi-cluster federation blast radius — cluster_name plumbing + shared-identity join."""
+"""Multi-cluster federation blast radius, cluster_name plumbing + shared-identity join."""
 import os
 import sys
 import tempfile
@@ -79,7 +79,7 @@ def test_non_identity_kinds_are_ignored():
 
 
 def test_builtin_default_identities_are_not_shared_paths():
-    # cluster-admin / system:* / default SA exist in every cluster by design — excluding them
+    # cluster-admin / system:* / default SA exist in every cluster by design, excluding them
     # is what stops the federation view manufacturing false cross-cluster edges.
     for kind, name in [("ClusterRole", "cluster-admin"), ("ClusterRole", "system:node"),
                        ("ServiceAccount", "default"), ("ConfigMap", "kube-root-ca.crt")]:

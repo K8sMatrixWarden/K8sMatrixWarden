@@ -1,5 +1,5 @@
 """
-kube-bench adapter (§22) — normalizes `kube-bench --json` output into a
+kube-bench adapter (§22), normalizes `kube-bench --json` output into a
 {control_id: status} map that the CIS engine uses to resolve node/file/process controls.
 
 Run on a node/cluster:  kube-bench run --benchmark cis-1.8 --json > kb.json

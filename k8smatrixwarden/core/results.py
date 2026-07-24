@@ -23,7 +23,7 @@ def slugify_name(name: str) -> str:
 
 def _scan_id(name: str = "") -> str:
     """Build a scan id of the form ``<name>-YYYYMMDD-HHMMSS-<hash>`` so the id itself
-    carries the (optional) scan name, the date, and the time — the report naming format
+    carries the (optional) scan name, the date, and the time, the report naming format
     surfaced everywhere (files on disk, download filenames, dashboard history). Falls back
     to the ``scan`` prefix when no name is given, preserving the historic ``scan-…`` shape.
     The 4-char hash keeps ids unique even for two scans started in the same second."""
@@ -54,13 +54,19 @@ class ScanResult:
     tool_version: str = "1.0"
     mode: str = "mock"
     #: Non-fatal collection problems (resource types the scanner's RBAC could not read,
-    #: API groups absent on this cluster). Carried on the result — not just printed once —
+    #: API groups absent on this cluster). Carried on the result, not just printed once, 
     #: so every surface can show that coverage was partial.
     warnings: list[str] = field(default_factory=list)
     #: False when the collector could not read the cluster at all. Such a result has zero
     #: findings because nothing was inspected, NOT because the cluster is clean, and every
     #: surface must say so instead of rendering a passing score.
     evidence_ok: bool = True
+    #: Optional runtime block baked in at scan time from the live Falco feed:
+    #: {"correlation": {...}, "drift": {...}, "events_seen": int, "collected_at": str,
+    #: "source": "falco-logs"}. None when the scan pulled no runtime feed (mock scans, or a
+    #: live scan with --no-runtime / no Falco). Lets the dashboard show the runtime
+    #: correlation without a manual paste. See core/correlation.py + agents/runtime.py.
+    runtime: Optional[dict] = None
 
     def __post_init__(self):
         if not self.scan_id:
@@ -69,10 +75,10 @@ class ScanResult:
     @property
     def display_name(self) -> str:
         """Report name as shown to humans: the scan name (if any) followed by its date and
-        time, e.g. "Prod nightly — 19 Jul 2026, 01:13 IST". Falls back to the scan id when
+        time, e.g. "Prod nightly, 19 Jul 2026, 01:13 IST". Falls back to the scan id when
         the scan was never named."""
         when = format_ist(self.generated_at)
-        return f"{self.name} — {when}" if self.name else f"{self.scan_id} — {when}"
+        return f"{self.name}, {when}" if self.name else f"{self.scan_id}, {when}"
 
     def total(self) -> int:
         return sum(v for k, v in self.counts.items() if k != "INFO")
@@ -100,11 +106,14 @@ class ScanResult:
             "by_tactic": self.by_tactic,
             "by_shard": self.by_shard,
             "findings": [f.as_dict() for f in self.findings],
+            # Only present when a live scan pulled a Falco feed, kept out of the dict
+            # otherwise so existing reports/round-trips are byte-for-byte unchanged.
+            **({"runtime": self.runtime} if self.runtime else {}),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ScanResult":
-        """Reconstruct a ScanResult from as_dict() — used by the report store so a stored
+        """Reconstruct a ScanResult from as_dict(), used by the report store so a stored
         scan can be re-rendered into any format later."""
         rk = d.get("risk", {}) or {}
         rating = rk.get("rating", "Fair")
@@ -130,7 +139,8 @@ class ScanResult:
             tool_version=str(d.get("tool_version", "1.0")),
             mode=d.get("mode", "mock"),
             warnings=list(d.get("warnings", []) or []),
-            evidence_ok=bool(d.get("evidence_ok", True)))
+            evidence_ok=bool(d.get("evidence_ok", True)),
+            runtime=d.get("runtime") or None)
 
 
 _RATING_EMOJI = {"Excellent": "🟢", "Good": "🟢", "Fair": "🟡", "Poor": "🟠",
@@ -139,7 +149,7 @@ _RATING_EMOJI = {"Excellent": "🟢", "Good": "🟢", "Fair": "🟡", "Poor": "�
 
 @dataclass
 class _Descr:
-    """A stand-in for Scope/Selector when replaying a stored report — reporting only
+    """A stand-in for Scope/Selector when replaying a stored report, reporting only
     ever calls .describe() on them."""
     _text: str
 

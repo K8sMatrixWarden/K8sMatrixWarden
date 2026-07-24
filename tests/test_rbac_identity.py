@@ -1,4 +1,4 @@
-"""RBAC shard — built-in default roles are not flagged, blast radius follows role kind."""
+"""RBAC shard, built-in default roles are not flagged, blast radius follows role kind."""
 import os
 import sys
 

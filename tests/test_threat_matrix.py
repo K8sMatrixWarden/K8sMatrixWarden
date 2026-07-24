@@ -1,4 +1,4 @@
-"""Kubernetes Threat Matrix projection (§12) — build, coverage, and rendering."""
+"""Kubernetes Threat Matrix projection (§12), build, coverage, and rendering."""
 import os
 import sys
 
@@ -66,7 +66,7 @@ def test_cell_state_and_severity_reflect_findings():
 
 
 def test_tactic_slice_hits_that_tactic_and_its_attack_paths():
-    """A Persistence scan lights up Persistence — and, correctly, any *other* tactic a
+    """A Persistence scan lights up Persistence, and, correctly, any *other* tactic a
     multi-tactic finding (e.g. a writable hostPath = Persistence + PrivEsc + Lateral) also
     enables. That attack-path spread is the point of the matrix, not a bug."""
     p, result = _scan(selector=Selector(tactics=["Persistence"]))
@@ -114,7 +114,7 @@ def test_renderers_produce_nonempty_output():
 
 def test_duplicate_id_in_tactic_keeps_distinct_cells():
     """Lateral Movement lists T1078.004 and T1552 once each, but ARP/CoreDNS share no id
-    with them — verify no reference technique is silently collapsed away."""
+    with them, verify no reference technique is silently collapsed away."""
     p, result = _scan()
     tm = build_threat_matrix(result, p.registry.rules)
     lm = next(c for c in tm.columns if c.tactic == "Lateral Movement")

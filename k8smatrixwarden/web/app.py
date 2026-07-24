@@ -1,13 +1,13 @@
 """
-WebApp — the dashboard's routing + logic, deliberately socket-free so it is unit-testable.
+WebApp, the dashboard's routing + logic, deliberately socket-free so it is unit-testable.
 
 `WebApp.route(method, path, query, body)` returns a `Response`; `server.py` is a thin
 `http.server` shell that just calls it. Every HTML surface reuses the same ReportingEngine,
-ReportStore, and threat-matrix builder the CLI/MCP use — the dashboard is a *view* over the
+ReportStore, and threat-matrix builder the CLI/MCP use, the dashboard is a *view* over the
 one engine, it never re-implements scanning or reporting.
 
 Read-mostly by design: the only state-changing route is `POST /api/scan`, which runs a
-read-only scan and saves the result. The tool detects and reports only — it never mutates
+read-only scan and saves the result. The tool detects and reports only, it never mutates
 the cluster from any surface.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from ..core.threat_matrix import build_threat_matrix
 from . import pages
 
 _VALID_FORMATS = {"json", "markdown", "md", "sarif", "html", "text", "terminal"}
-_VENDOR_ASSETS = {"cytoscape.min.js"}  # allow-list — no arbitrary file reads via /vendor/<name>
+_VENDOR_ASSETS = {"cytoscape.min.js"}  # allow-list, no arbitrary file reads via /vendor/<name>
 
 
 @dataclass
@@ -63,7 +63,7 @@ class WebApp:
         #: Whether `POST /api/scan` may accept a kubeconfig from the request body.
         #:
         #: Loading a kubeconfig EXECUTES its credential plugin (`aws eks get-token`,
-        #: `gke-gcloud-auth-plugin`, `kubelogin`, …) — that is how cloud auth works, and
+        #: `gke-gcloud-auth-plugin`, `kubelogin`, …), that is how cloud auth works, and
         #: the `kubernetes` client does it too. So a caller who can supply a kubeconfig
         #: can run an arbitrary command as the server's user. That is fine when the only
         #: possible caller is the operator on loopback, and it is remote code execution
@@ -110,8 +110,12 @@ class WebApp:
                 return _json(self._dashboard_data(q.get("scan_id")))
             if method == "GET" and path == "/api/timeline":
                 return _json(self.store.timeline())
+            if method == "GET" and path == "/api/finding":
+                return self._api_finding(q)
             if method == "POST" and path == "/api/scan":
                 return self._api_scan(body)
+            if method == "POST" and path == "/api/runtime/refresh":
+                return self._api_runtime_refresh(body)
             if method == "POST" and path == "/api/runtime":
                 return self._api_runtime(body)
             # /report/<id>  and  /report/<id>/matrix
@@ -139,14 +143,14 @@ class WebApp:
     # HTML pages
     # ------------------------------------------------------------------ #
     def _dashboard(self) -> Response:
-        # The dashboard is now a client-side app that fetches /api/dashboard — this
+        # The dashboard is now a client-side app that fetches /api/dashboard, this
         # just serves the shell. All rendering (KPIs, findings table, matrix heatmap,
         # attack path, runtime) happens in the browser from that one JSON payload.
         return _html(pages.dashboard_page(has_scan=bool(self.store.list())))
 
     def _vendor_asset(self, name: str) -> Response:
         # Third-party browser JS the dashboard needs (e.g. the Attack Path graph),
-        # vendored and served locally — no CDN, so the dashboard stays self-contained.
+        # vendored and served locally, no CDN, so the dashboard stays self-contained.
         if name not in _VENDOR_ASSETS or "/" in name or "\\" in name:
             raise _NotFound(f"no such asset: {name}")
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", name)
@@ -157,7 +161,7 @@ class WebApp:
         """Everything the dashboard needs, in one payload: the selected (or latest) scan +
         findings + threat matrix + attack path + runtime readiness + risk trend + history.
 
-        `scan_id` lets the dashboard render any saved report, not just the newest one — the
+        `scan_id` lets the dashboard render any saved report, not just the newest one, the
         report selector posts the chosen id here. Falls back to the latest scan when the id
         is missing/unknown so a stale selection never 404s the whole dashboard."""
         reports = self.store.list()
@@ -196,7 +200,7 @@ class WebApp:
                      "cluster_risk": latest.risk.cluster_risk,
                      "security_score": latest.risk.security_score,
                      "counts": latest.counts, "total": latest.total(),
-                     # Scan health — every dashboard view that shows a score or a finding
+                     # Scan health, every dashboard view that shows a score or a finding
                      # count reads these so an unread cluster is never painted as clean.
                      "evidence_ok": latest.evidence_ok,
                      "warnings": scan_warning_lines(latest)},
@@ -205,6 +209,10 @@ class WebApp:
             "attack_path": attack_paths(matrix),
             "runtime": {"armed": len(catalog), "by_tactic": runtime_by_tactic,
                         "exposed_tactics": exposed},
+            # Runtime correlation baked into the scan at --live time from the Falco feed
+            # (correlation + drift). None for mock scans or a live scan with no Falco, the
+            # Runtime tab then shows the manual paste box instead. See cmd_scan.
+            "runtime_correlation": latest.runtime,
             "trend": [[r.generated_at, r.risk_score] for r in reversed(reports)],
             "timeline": self.store.timeline(),
             "history": [{"scan_id": r.scan_id, "name": r.name,
@@ -234,7 +242,7 @@ class WebApp:
         events = normalize_events(raw)
         result = self.store.resolve(scan_id)
         if result is None:
-            return _json({"error": "no saved scan to correlate against — scan first"}, 400)
+            return _json({"error": "no saved scan to correlate against, scan first"}, 400)
         alerts = RuntimeAgent().evaluate_stream(events)
         # drift needs live pod specs; reuse the scan's mode (mock/live) via a fresh fetch
         mock = result.mode != "live"
@@ -246,6 +254,53 @@ class WebApp:
         return _json({"correlation": correlate(result.findings, alerts),
                       "drift": detect_drift(pods, events)})
 
+    def _api_finding(self, q: dict) -> Response:
+        """Full report-grade context for one finding (summary, impact, verification
+        steps), so the dashboard's inline detail can show the same depth as the report
+        without loading the whole page. Identifies the finding by its stable anchor, the
+        same slug the report cards and the dashboard JS already share."""
+        from ..core.reporting import finding_anchor
+        from ..core.finding_context import build_finding_context
+        result = self.store.resolve(q.get("scan_id"))
+        if result is None:
+            return _json({"error": "no such scan"}, 404)
+        anchor = q.get("anchor") or ""
+        f = next((x for x in result.findings
+                  if finding_anchor(x.rule_id, x.resource.kind, x.resource.name,
+                                    x.resource.namespace) == anchor), None)
+        if f is None:
+            return _json({"error": "finding not found"}, 404)
+        ctx = build_finding_context(f)
+        return _json({"summary": ctx.summary, "impact": ctx.impact,
+                      "validation": ctx.validation_steps})
+
+    def _api_runtime_refresh(self, body: bytes) -> Response:
+        """Live-pull Falco events from the cluster, re-correlate against the current scan,
+        persist and return the fresh runtime block. Needs the dashboard to have cluster
+        access (in-cluster config or a kubeconfig). The streaming POST /api/runtime path
+        (falcosidekick push) is unaffected."""
+        from ..core.falco_feed import build_runtime_feed
+        try:
+            data = json.loads(body or b"{}")
+        except Exception as exc:
+            return _json({"error": f"invalid JSON body: {exc}"}, 400)
+        result = self.store.resolve(data.get("scan_id") if isinstance(data, dict) else None)
+        if result is None:
+            return _json({"error": "no saved scan to correlate against, scan first"}, 400)
+        ns = (result.runtime or {}).get("falco_namespace") or "falco"
+        try:
+            collector = self.p.make_collector(mock=False)
+            feed = build_runtime_feed(collector, result.findings,
+                                      Scope(ScopeLevel.CLUSTER), namespace=ns)
+        except RuntimeError as exc:
+            return _json({"error": f"live Falco pull needs cluster access: {exc}"}, 400)
+        if feed is None:
+            return _json({"runtime": None, "message": "no Falco events found",
+                          "warnings": getattr(collector, "warnings", [])})
+        result.runtime = feed
+        self.store.save(result)
+        return _json({"runtime": feed})
+
     def _report_html(self, scan_id: str) -> Response:
         result = self._load(scan_id)
         return _html(self.p.reporting.render(result, "html"))
@@ -256,7 +311,7 @@ class WebApp:
         return _html(pages.matrix_page(tm, result=result))
 
     def _coverage_matrix(self) -> Response:
-        """The global 'what can the tool detect' matrix — every registered rule's coverage,
+        """The global 'what can the tool detect' matrix, every registered rule's coverage,
         no findings. Distinct from a scan matrix, which overlays this scan's hits."""
         empty = _empty_result(self.p)
         tm = build_threat_matrix(empty, self.p.registry.rules)
@@ -275,12 +330,28 @@ class WebApp:
                        "total_findings": r.total, "scope": r.scope}
                       for r in self.store.list(limit=limit)])
 
+    #: Binary export formats and their MIME types. These render to bytes (not str) and
+    #: need the optional extra (`fpdf2` for pdf, `openpyxl` for xlsx); a missing dependency
+    #: surfaces as a clean 400 rather than a 500.
+    _BINARY_FORMATS = {
+        "pdf": "application/pdf",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+
     def _api_report(self, scan_id: str, q: dict) -> Response:
         result = self._load(scan_id)
         fmt = (q.get("format") or "json").lower()
+        if fmt == "excel":
+            fmt = "xlsx"
+        if fmt in self._BINARY_FORMATS:
+            try:
+                data = self.p.reporting.render(result, fmt)
+            except RuntimeError as exc:      # optional dependency not installed
+                return _json({"error": str(exc)}, 400)
+            return Response(200, self._BINARY_FORMATS[fmt], data)
         if fmt not in _VALID_FORMATS:
-            return _json({"error": f"unknown format {fmt!r} — valid: "
-                          f"{', '.join(sorted(_VALID_FORMATS))}"}, 400)
+            valid = sorted(_VALID_FORMATS | set(self._BINARY_FORMATS))
+            return _json({"error": f"unknown format {fmt!r}, valid: {', '.join(valid)}"}, 400)
         content = self.p.reporting.render(result, fmt)
         if fmt == "json":
             return Response(200, "application/json; charset=utf-8",
@@ -294,7 +365,7 @@ class WebApp:
         return _json(build_threat_matrix(result, self.p.registry.rules).as_dict())
 
     # ------------------------------------------------------------------ #
-    # Compliance audit — a standalone page like /matrix. Audits the mock target by
+    # Compliance audit, a standalone page like /matrix. Audits the mock target by
     # default; a live audit needs a kubeconfig context, so it runs from the CLI/MCP where
     # the target is explicit (the web live-scan path is separately kubeconfig-gated).
     # ------------------------------------------------------------------ #
@@ -316,7 +387,7 @@ class WebApp:
 
         store = self.store
         if not store.list():
-            # empty store — nothing scanned yet; run a mock audit so the page is not blank.
+            # empty store, nothing scanned yet; run a mock audit so the page is not blank.
             return run_audit(self.p, mock=True, profile="auto", frameworks=frameworks), True
         result = self._load(q.get("scan_id"))       # selected scan, else latest
         rep = ComplianceEngine().evaluate(
@@ -326,7 +397,7 @@ class WebApp:
         return rep, False
 
     _CIS_NOTE = ("<div class='cf-note' style='border-left-color:var(--high)'>Derived from "
-                 "the findings of scan <b>{sid}</b> — a requirement fails when a finding maps "
+                 "the findings of scan <b>{sid}</b>. A requirement fails when a finding maps "
                  "to one of its CIS controls. CIS <b>pass</b> states are not shown here "
                  "(nothing re-ran the 130-control benchmark against this saved scan); run "
                  "<code>k8smatrixwarden compliance</code> for the full CIS-backed audit.</div>")
@@ -342,7 +413,7 @@ class WebApp:
                 return Response(200, "application/pdf", cr.to_pdf(report))
             except RuntimeError as exc:
                 return _json({"error": str(exc)}, 400)
-        note = "" if is_mock else self._CIS_NOTE.format(sid=_esc(report.scan_id or "—"))
+        note = "" if is_mock else self._CIS_NOTE.format(sid=_esc(report.scan_id or "N/A"))
         body = (pages._topbar("compliance")
                 + cr.to_html(report, standalone=False).replace("</h1>", "</h1>" + note, 1))
         return _html(pages.layout("K8sMatrixWarden · Compliance Audit", body))
@@ -351,7 +422,7 @@ class WebApp:
         return _json(self._run_compliance(q)[0].as_dict())
 
     # ------------------------------------------------------------------ #
-    # Federation blast radius — correlates the newest saved scan of each cluster in the
+    # Federation blast radius, correlates the newest saved scan of each cluster in the
     # store. Populate it by scanning each cluster (its own context) via /api/scan.
     # ------------------------------------------------------------------ #
     def _build_federation(self):
@@ -382,7 +453,7 @@ class WebApp:
         scan_name = (data.get("scan_name") or "").strip()
 
         # kubeconfig may arrive as a server-side path (`kubeconfig`) OR as the file's
-        # contents uploaded from the browser file-picker (`kubeconfig_content`) — the
+        # contents uploaded from the browser file-picker (`kubeconfig_content`), the
         # browser can't reveal a real filesystem path, so a picked file is sent by value
         # and materialised into a short-lived temp file here.
         try:
@@ -433,7 +504,7 @@ class WebApp:
         path plus the same path as the second element so the caller unlinks it afterward.
 
         Raises PermissionError when the request supplies either form and this server is
-        not configured to accept one — see `allow_client_kubeconfig`. Both forms are gated,
+        not configured to accept one, see `allow_client_kubeconfig`. Both forms are gated,
         not just the uploaded content: a `kubeconfig` *path* names a file whose credential
         plugin the server would then execute just the same."""
         path = data.get("kubeconfig")
@@ -447,8 +518,8 @@ class WebApp:
                 "plugin (aws/gcloud/kubelogin), so accepting one from the network would "
                 "let any caller run commands as the server's user. Either run the "
                 "dashboard on 127.0.0.1, or scan from the CLI on the server "
-                "(`k8smatrixwarden scan --live --kubeconfig …`), or — only behind your own "
-                "authentication — restart with --allow-remote-kubeconfig.")
+                "(`k8smatrixwarden scan --live --kubeconfig …`), or, only behind your own "
+                "authentication, restart with --allow-remote-kubeconfig.")
         if isinstance(path, str) and path.strip():
             return path.strip(), None
         if isinstance(content, str) and content.strip():
@@ -465,7 +536,7 @@ class WebApp:
     def _selector_vocab(self) -> dict:
         """Every selectable term the dashboard's Scan-form selector dropdown offers, grouped
         by axis (the same vocabulary the CLI/chat resolve against, from the mapping engine's
-        registry-derived index — so it never drifts from what actually exists). Techniques
+        registry-derived index, so it never drifts from what actually exists). Techniques
         and rule ids are intentionally omitted: there are too many to be a usable dropdown,
         and tactics/modules/frameworks/aliases cover the user-facing selectors."""
         terms = self.p.mapping.known_terms()
@@ -508,7 +579,7 @@ class WebApp:
         except FileNotFoundError:
             raise _NotFound(f"no stored report with scan-id {scan_id!r}")
         if result is None:
-            raise _NotFound("no stored reports yet — run a scan first")
+            raise _NotFound("no stored reports yet, run a scan first")
         return result
 
     def _not_found(self, message: str, q: dict) -> Response:
@@ -526,7 +597,7 @@ def _wants_json(path: str, q: dict) -> bool:
 
 def _aggregate(reports: list) -> dict:
     order = {"Critical": 5, "Poor": 4, "Fair": 3, "Good": 2, "Excellent": 1}
-    worst = "—"
+    worst = "N/A"
     worst_rank = 0
     for r in reports:
         rk = order.get(r.rating, 0)

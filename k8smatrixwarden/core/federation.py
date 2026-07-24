@@ -1,13 +1,13 @@
 """
-Federation blast-radius — "if this cluster is compromised, what does the attacker reach in
+Federation blast-radius, "if this cluster is compromised, what does the attacker reach in
 the others?"
 
 The hard part of multi-cluster is knowing the clusters are actually ONE blast radius rather
 than assuming it. This engine never assumes: it only surfaces a cross-cluster edge where the
-SAME non-default identity — a custom ClusterRole, ServiceAccount, cloud IAM role, Secret or
-ConfigMap of the same kind+name — appears in two or more clusters. That collision is a
+SAME non-default identity, a custom ClusterRole, ServiceAccount, cloud IAM role, Secret or
+ConfigMap of the same kind+name, appears in two or more clusters. That collision is a
 CANDIDATE shared trust principal (shared IaC, a federated SA, a reused cloud role) worth
-verifying — not proof on its own, since two clusters could coincidentally name a role the
+verifying, not proof on its own, since two clusters could coincidentally name a role the
 same. Built-in/default identities (cluster-admin, system:*, default SA, kube-root-ca.crt)
 are excluded because they exist in every cluster by design. No candidate ⇒ the clusters are
 reported as independent, not silently linked.
@@ -28,13 +28,13 @@ _IDENTITY_KINDS = {
     "ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding",
     "ServiceAccount", "CloudIAM", "ManagedIdentity", "Secret", "ConfigMap",
 }
-# Built-in / default identities exist independently in EVERY cluster — a kind+name collision
+# Built-in / default identities exist independently in EVERY cluster, a kind+name collision
 # on these is not a shared trust principal, it is Kubernetes shipping the same defaults
 # everywhere. Counting them would manufacture false cross-cluster paths (the #1 federation
 # false-positive), so they are excluded from the shared-identity join.
 _BUILTIN_NAMES = {
-    "cluster-admin", "admin", "edit", "view",              # default user-facing ClusterRoles
-    "default",                                              # default ServiceAccount per ns
+    "cluster-admin", "admin", "edit", "view",             # default user-facing ClusterRoles
+    "default",                                             # default ServiceAccount per ns
     "kube-root-ca.crt", "kube-dns", "coredns", "extension-apiserver-authentication",
 }
 def _is_builtin_identity(kind: str, name: str) -> bool:
@@ -83,7 +83,7 @@ def _worst(sevs: list) -> str:
 
 
 def latest_per_cluster(store) -> list:
-    """Newest saved ScanResult for each distinct cluster in a ReportStore — the offline
+    """Newest saved ScanResult for each distinct cluster in a ReportStore, the offline
     input for build_federation. A cluster that was scanned many times contributes once."""
     seen: dict = {}
     for meta in store.list():                       # already sorted newest-first
@@ -115,7 +115,7 @@ def build_federation(results: list) -> FederationReport:
             if f.resource.kind not in _IDENTITY_KINDS:
                 continue
             if _is_builtin_identity(f.resource.kind, f.resource.name or ""):
-                continue        # default identity present in every cluster — not a shared path
+                continue        # default identity present in every cluster, not a shared path
             key = f"{f.resource.kind}/{f.resource.name}"
             tactic = f.mitre[0].tactic.value if f.mitre else ""
             idx.setdefault(key, {}).setdefault(cname, []).append(
@@ -125,7 +125,7 @@ def build_federation(results: list) -> FederationReport:
     shared = []
     for key, per_cluster in idx.items():
         if len(per_cluster) < 2:
-            continue                # present in only one cluster — not a cross-cluster path
+            continue                # present in only one cluster, not a cross-cluster path
         kind, _, name = key.partition("/")
         flat = [fd for fds in per_cluster.values() for fd in fds]
         tactics = sorted({fd["tactic"] for fd in flat if fd["tactic"]})
@@ -147,14 +147,14 @@ def build_federation(results: list) -> FederationReport:
 def _summary(clusters, shared, top_tactic) -> str:
     n = len(clusters)
     if n < 2:
-        return (f"Only {n} cluster in scope — add more clusters (scan each context) to see "
+        return (f"Only {n} cluster in scope, add more clusters (scan each context) to see "
                 f"cross-cluster blast radius.")
     if not shared:
-        return (f"{n} clusters scanned; no shared identity links them — on this evidence they "
+        return (f"{n} clusters scanned; no shared identity links them, on this evidence they "
                 f"are independent blast radii, not one federation.")
     crit = [s for s in shared if s.worst_severity == "CRITICAL"]
     lead = shared[0]
-    return (f"{n} clusters share {len(shared)} non-default identity(ies) — each a CANDIDATE "
+    return (f"{n} clusters share {len(shared)} non-default identity(ies), each a CANDIDATE "
             f"cross-cluster lateral-movement path to verify (same name ≠ guaranteed same "
             f"principal). {len(crit)} critical. Worst: {lead.key} spans "
             f"{', '.join(lead.clusters)}. Most-exposed tactic federation-wide: {top_tactic}.")

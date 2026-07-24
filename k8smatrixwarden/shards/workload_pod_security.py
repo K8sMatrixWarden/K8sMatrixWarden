@@ -1,4 +1,4 @@
-"""Shard ② — Workload & Pod Security (§5.4)."""
+"""Shard ②, Workload & Pod Security (§5.4)."""
 from __future__ import annotations
 
 from ..core.evidence import Evidence
@@ -9,7 +9,7 @@ from .base import DomainShard, ref as _base_ref
 SHARD_NAME = "workload_pod_security"
 WORKLOAD_KINDS = ["Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job"]
 #: extra kinds only needed to resolve a Pod's owner chain one hop further than
-#: shards/base.py's generic single-hop ref() can (ReplicaSet->Deployment, Job->CronJob) —
+#: shards/base.py's generic single-hop ref() can (ReplicaSet->Deployment, Job->CronJob), 
 #: not iterated as scan targets themselves (see _iter), only looked up by name.
 OWNER_LOOKUP_KINDS = WORKLOAD_KINDS + ["CronJob"]
 
@@ -31,7 +31,7 @@ def _find(ev: Evidence, kind: str, name: str):
 def ref(ev: Evidence, res: dict):
     """Pod/workload ResourceRef with the owner chain resolved as far as scan evidence
     allows: a Deployment-owned Pod's direct owner is a ReplicaSet, and a CronJob-owned
-    Pod's direct owner is a Job — neither is the top-level controller a report should
+    Pod's direct owner is a Job, neither is the top-level controller a report should
     attribute the finding to. So resolve one hop further when the intermediate object is
     present in the evidence already fetched for this scan, and prefer the resolved
     *owner's* own labels/annotations over the Pod's own for Helm/ArgoCD/Flux detection
@@ -157,7 +157,7 @@ def _docker_socket(rule, ev, scope):
             path = Evidence.dig(vol, "hostPath.path") or ""
             if "docker.sock" in path:
                 yield rule.finding(
-                    ref(ev, res), f"mounts the Docker socket ({path}) — container escape",
+                    ref(ev, res), f"mounts the Docker socket ({path}), container escape",
                     blast_radius=BlastRadius.CLUSTER,
                     evidence={"volume": vol.get("name"), "path": path})
 
@@ -168,7 +168,7 @@ def _hostpath_root(rule, ev, scope):
             path = Evidence.dig(vol, "hostPath.path")
             if path == "/" or path in ("/etc", "/var/run", "/etc/kubernetes/manifests"):
                 yield rule.finding(
-                    ref(ev, res), f"mounts sensitive hostPath '{path}' — full/host-critical "
+                    ref(ev, res), f"mounts sensitive hostPath '{path}', full/host-critical "
                     f"filesystem access",
                     blast_radius=BlastRadius.CLUSTER,
                     evidence={"volume": vol.get("name"), "path": path})

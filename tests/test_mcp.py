@@ -1,4 +1,4 @@
-"""MCP tool surface (§10) — knowledge layer, scan/audit/runtime layer, reports, platform."""
+"""MCP tool surface (§10), knowledge layer, scan/audit/runtime layer, reports, platform."""
 import json
 import os
 import sys
@@ -28,7 +28,7 @@ def test_build_attack_path_chains_hits_in_killchain_order():
     tools = build_tools()
     path = tools["build_attack_path"](mock=True)
     tactics = [s["tactic"] for s in path["steps"]]
-    assert tactics, "mock cluster is insecure — expected a non-empty attack path"
+    assert tactics, "mock cluster is insecure, expected a non-empty attack path"
     order = ["Initial Access", "Execution", "Persistence", "Privilege Escalation",
              "Defense Evasion", "Credential Access", "Discovery", "Lateral Movement",
              "Impact"]
@@ -54,7 +54,7 @@ def test_all_expected_tools_are_registered():
 
 
 def test_every_tool_has_a_nonempty_docstring():
-    # every tool's docstring IS its description as surfaced to the calling LLM —
+    # every tool's docstring IS its description as surfaced to the calling LLM, 
     # FastMCP reads it directly, so an empty one means a nameless, undocumented tool.
     tools = build_tools()
     for name, fn in tools.items():
@@ -63,7 +63,7 @@ def test_every_tool_has_a_nonempty_docstring():
 
 
 def test_no_remediation_or_apply_tool_is_exposed():
-    # Safety control: the tool detects and reports only — no write/remediation/apply path
+    # Safety control: the tool detects and reports only, no write/remediation/apply path
     # is exposed over MCP (or anywhere). This must stay locked out.
     tools = build_tools()
     forbidden_markers = ("apply", "remediate", "remediation", "fix_", "patch", "rollback",
@@ -74,7 +74,7 @@ def test_no_remediation_or_apply_tool_is_exposed():
 
 
 def test_deploy_falco_is_read_only_by_default():
-    # The one tool that CAN write to a cluster must not do so unless explicitly opted in —
+    # The one tool that CAN write to a cluster must not do so unless explicitly opted in, 
     # the read-only / offline guarantee holds for every normal invocation.
     tools = build_tools()
     out = tools["deploy_falco"](webhook_url="http://x/api/runtime")
@@ -236,7 +236,7 @@ def test_evaluate_runtime_events_detects_falco_and_audit():
         {"source": "falco", "proc": "bash"},
         {"source": "falco", "connect": "169.254.169.254:80"},
         {"source": "audit", "verb": "create", "resource": "clusterrolebindings"},
-        {"source": "falco", "proc": "nginx"},   # benign, should not alert
+        {"source": "falco", "proc": "nginx"},  # benign, should not alert
     ])
     ids = {a["rule_id"] for a in alerts}
     assert "rt-shell-in-container" in ids
@@ -305,7 +305,7 @@ def test_build_threat_matrix_selector_scopes_hits():
     m = tools["build_threat_matrix"](tactics=["Persistence"], mock=True)
     persistence = next(c for c in m["columns"] if c["tactic"] == "Persistence")
     assert persistence["techniques_hit"] > 0       # the selected tactic is implicated
-    # multi-tactic findings may also light up other columns — that's the attack-path map
+    # multi-tactic findings may also light up other columns, that's the attack-path map
 
 
 def test_build_threat_matrix_missing_report_errors():
@@ -387,7 +387,7 @@ def test_run_scan_output_format_sarif_is_valid_json():
 
 def test_run_scan_default_output_format_is_unchanged_json_shape():
     # default output_format stays structured JSON (findings, no rendered `content`).
-    # Scans now persist by default so they reach the web dashboard — assert that, using an
+    # Scans now persist by default so they reach the web dashboard, assert that, using an
     # isolated store so the test never writes into the real per-user reports dir.
     tools = build_tools()
     with tempfile.TemporaryDirectory() as d:
@@ -398,7 +398,7 @@ def test_run_scan_default_output_format_is_unchanged_json_shape():
 
 
 def test_run_scan_typoed_output_format_returns_error_not_silent_terminal():
-    # a typo'd format must never silently render as terminal while claiming success —
+    # a typo'd format must never silently render as terminal while claiming success, 
     # that's a real bug this test guards (found during review; format was previously
     # echoed back unvalidated).
     tools = build_tools()
@@ -419,7 +419,7 @@ def test_download_report_typoed_format_returns_error():
 
 
 # ======================================================================= #
-# PDF (binary) — travels as base64 over MCP's JSON transport, never a bare `content`
+# PDF (binary), travels as base64 over MCP's JSON transport, never a bare `content`
 # str. Skips gracefully if the optional `pdf` extra (fpdf2) isn't installed.
 # ======================================================================= #
 try:
@@ -459,9 +459,9 @@ def test_download_report_format_pdf_returns_base64():
 
 def test_pdf_is_a_valid_output_format_choice():
     tools = build_tools()
-    # even without fpdf2 installed, "pdf" itself must be accepted as a known format —
+    # even without fpdf2 installed, "pdf" itself must be accepted as a known format, 
     # only the underlying render should fail, not format validation
     r = tools["run_scan"](rule_ids=["workload-no-seccomp"], mock=True,
                           output_format="pdf")
-    assert r.get("error") != ("unknown output_format 'pdf' — valid values: html, "
+    assert r.get("error") != ("unknown output_format 'pdf', valid values: html, "
                               "json, markdown, sarif, terminal, text")

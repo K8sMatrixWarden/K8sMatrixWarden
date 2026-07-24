@@ -1,18 +1,18 @@
 """
 Optional LLM-powered orchestration for the local `chat` REPL (§7.4 extension).
 
-When driven from an MCP client (Claude Desktop / Cursor), the CLIENT already orchestrates —
+When driven from an MCP client (Claude Desktop / Cursor), the CLIENT already orchestrates, 
 it reads the 30 tool schemas and chains them. The one surface with no external orchestrator
 is the standalone `chat` command, which parses with regex and can't chain. This module fills
 exactly that gap, and nothing else.
 
-Reuse, don't rebuild — two existing seams do all the work:
+Reuse, don't rebuild, two existing seams do all the work:
   * ``mcp.server.build_tools()``     -> the same 30 callables MCP exposes (the tool catalog)
   * their ``Annotated[...]`` hints    -> already on every parameter for FastMCP; reused here
                                          to generate the tool JSON-schemas
 
 Everything else (plan -> call -> observe -> repeat -> final answer) is the Anthropic SDK's
-tool-use loop below. There is no planner, DAG, state machine, or workflow engine here — just
+tool-use loop below. There is no planner, DAG, state machine, or workflow engine here, just
 the documented tool dispatch loop wired onto the existing catalog. Regex interpretation stays
 the fallback and the offline default; this path only runs when ANTHROPIC_API_KEY is set.
 """
@@ -39,11 +39,11 @@ class LLMUnavailable(RuntimeError):
     """The agentic path can't run (no key, SDK missing, or the API call failed).
 
     The chat REPL catches this and falls back to the regex interpreter, so the LLM path is
-    always strictly additive — its absence or failure never breaks offline behaviour."""
+    always strictly additive, its absence or failure never breaks offline behaviour."""
 
 
 # --------------------------------------------------------------------------- #
-# Multi-step heuristic — decides whether a query is worth an LLM round-trip.
+# Multi-step heuristic, decides whether a query is worth an LLM round-trip.
 # Lightweight regex only; never calls a model to decide whether to call a model.
 # --------------------------------------------------------------------------- #
 _MULTI = re.compile(
@@ -65,7 +65,7 @@ def _looks_multi_step(query: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Tool-schema generation — reuse the Annotated hints, don't hand-write JSON.
+# Tool-schema generation, reuse the Annotated hints, don't hand-write JSON.
 # --------------------------------------------------------------------------- #
 _JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean",
                list: "array", dict: "object"}
@@ -124,7 +124,7 @@ def _schema(name: str, fn: Callable) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Dispatch — execute one tool call; never raise (one bad tool must not kill the loop).
+# Dispatch, execute one tool call; never raise (one bad tool must not kill the loop).
 # --------------------------------------------------------------------------- #
 def _dispatch(tools: dict[str, Callable], name: str, args: dict) -> tuple[str, bool]:
     """Run tool `name` with `args`. Returns (result_text, is_error)."""
@@ -136,7 +136,7 @@ def _dispatch(tools: dict[str, Callable], name: str, args: dict) -> tuple[str, b
         result = fn(**(args or {}))
     except TypeError as exc:
         return f"error: bad arguments for {name}: {exc}", True
-    except Exception as exc:  # isolation — surface the failure to the model, keep looping
+    except Exception as exc:  # isolation, surface the failure to the model, keep looping
         log.warning("tool %s raised: %s", name, exc)
         return f"error: tool {name} failed: {type(exc).__name__}: {exc}", True
     log.info("tool %s ok in %.0fms", name, (time.monotonic() - started) * 1000)
@@ -157,11 +157,11 @@ def run_agentic(query: str, platform=None, *, model: str = MODEL_DEFAULT,
     """Answer a request by letting Claude pick and chain the existing tools (the raw loop).
 
     The extra knobs are used by investigate() and default to today's behaviour:
-      system    — system prompt (defaults to the security profile, Phase 1)
-      prelude   — text prepended to the first user message (retrieved memory, Phase 3)
-      client    — reuse an Anthropic client so the critic shares one; built if None
-      trace     — if a list, each dispatched tool name is appended (for lesson-saving)
-      max_steps — tool-iteration cap (config.max_tool_iterations)
+      system   , system prompt (defaults to the security profile, Phase 1)
+      prelude  , text prepended to the first user message (retrieved memory, Phase 3)
+      client   , reuse an Anthropic client so the critic shares one; built if None
+      trace    , if a list, each dispatched tool name is appended (for lesson-saving)
+      max_steps, tool-iteration cap (config.max_tool_iterations)
     Raises LLMUnavailable if the key/SDK is missing or the API fails, so the caller can fall
     back to the regex interpreter. The tool dispatcher itself is unchanged."""
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -169,7 +169,7 @@ def run_agentic(query: str, platform=None, *, model: str = MODEL_DEFAULT,
     try:
         import anthropic
     except ImportError as exc:
-        raise LLMUnavailable("the 'anthropic' package is not installed — run "
+        raise LLMUnavailable("the 'anthropic' package is not installed, run "
                              "`pip install -e \".[agent]\"` to enable LLM chat") from exc
 
     from ..mcp.server import build_tools
@@ -196,12 +196,12 @@ def run_agentic(query: str, platform=None, *, model: str = MODEL_DEFAULT,
                 if trace is not None:
                     trace.append(block.name)
                 text, is_error = _dispatch(tools, block.name, block.input)
-                if memory is not None:                 # Upgrade 2 — score + persist + hint
+                if memory is not None:                 # Upgrade 2, score + persist + hint
                     text = _score_and_hint(memory, block.name, text, is_error)
                 results.append({"type": "tool_result", "tool_use_id": block.id,
                                 "content": text, "is_error": is_error})
             messages.append({"role": "user", "content": results})
-        return "Stopped after too many tool steps — try a narrower request."
+        return "Stopped after too many tool steps, try a narrower request."
     except anthropic.APIError as exc:  # auth / rate-limit / timeout / connection all subclass this
         raise LLMUnavailable(f"Anthropic API error: {exc}") from exc
 
@@ -214,7 +214,7 @@ def _final_text(resp) -> str:
 
 def _score_and_hint(memory, name: str, text: str, is_error: bool) -> str:
     """Evaluate a tool result's quality, persist it, and append a hint to what the model sees
-    (Upgrade 2). Best-effort — a memory/eval failure never breaks the tool loop."""
+    (Upgrade 2). Best-effort, a memory/eval failure never breaks the tool loop."""
     from .tool_quality import evaluate_tool_result
     try:
         q = evaluate_tool_result(name, text)
@@ -275,7 +275,7 @@ def investigate(query: str, platform=None, *, model: str = MODEL_DEFAULT,
     prelude = ""
     if mem and cfg["memory"]["enabled"]:
         prelude = mem.prelude_for(query)
-        hints = mem.tool_quality_hints()               # Upgrade 2 — inject learned tool quality
+        hints = mem.tool_quality_hints()               # Upgrade 2, inject learned tool quality
         if hints:
             prelude = f"{prelude}\n\n{hints}" if prelude else hints
     if client is None and os.getenv("ANTHROPIC_API_KEY"):
@@ -285,7 +285,7 @@ def investigate(query: str, platform=None, *, model: str = MODEL_DEFAULT,
     trace: list = []
     verdict = dict(_APPROVED)
     draft, feedback = "", ""
-    for _ in range(max(1, rounds)):                    # Upgrade 1 — critic-triggered re-run
+    for _ in range(max(1, rounds)):                    # Upgrade 1, critic-triggered re-run
         q = query if not feedback else f"{query}\n\n{feedback}"
         draft = run_agentic(q, platform, model=model, prelude=prelude, client=client,
                             trace=trace, max_steps=cfg["max_tool_iterations"], memory=mem)
@@ -298,7 +298,7 @@ def investigate(query: str, platform=None, *, model: str = MODEL_DEFAULT,
             break
         feedback = _feedback_text(verdict)
 
-    # Upgrade 3 — evidence-based confidence; the critic's own (lower) confidence wins.
+    # Upgrade 3, evidence-based confidence; the critic's own (lower) confidence wins.
     conf = min(calculate_confidence(draft, " -> ".join(trace), draft),
                float(verdict.get("confidence", 1.0)))
     status = verification_status(conf)
@@ -333,7 +333,7 @@ _APPROVED = {"approved": True, "confidence": 1.0, "missing_evidence": [],
 
 
 def _feedback_text(verdict: dict) -> str:
-    parts = ["The previous assessment was NOT sufficiently validated — gather more evidence "
+    parts = ["The previous assessment was NOT sufficiently validated, gather more evidence "
              "before concluding."]
     if verdict.get("missing_evidence"):
         parts.append("Missing evidence: " + ", ".join(verdict["missing_evidence"]) + ".")
@@ -346,7 +346,7 @@ def _feedback_text(verdict: dict) -> str:
 
 
 def _report_footer(confidence: float, status: str, trace: list) -> str:
-    return (f"\n\n—\nConfidence: {round(confidence * 100)}% · Status: {status}"
+    return (f"\n\n, \nConfidence: {round(confidence * 100)}% · Status: {status}"
             f"\nEvidence: {' -> '.join(trace) if trace else 'none'}")
 
 

@@ -1,5 +1,5 @@
 """
-Scanner Agent (§5) — wires registry + evidence + detection + aggregate + score.
+Scanner Agent (§5), wires registry + evidence + detection + aggregate + score.
 
 The scan path is identical for every request shape (§7.2):
     resolve(selector) → fetch-once evidence → execute rules → aggregate → score → result
@@ -31,7 +31,7 @@ class ScannerAgent:
         findings = self.p.aggregator.aggregate(findings)
         risk = self.p.scoring.score(findings)
 
-        # A collector that could read nothing produces zero findings — which scores as
+        # A collector that could read nothing produces zero findings, which scores as
         # "Excellent". That is a lie about a cluster we never inspected, so the rating is
         # replaced with an explicit Unknown and the reason travels on the result to every
         # surface (report, dashboard, JSON, PDF). See EvidenceCollector.degraded.

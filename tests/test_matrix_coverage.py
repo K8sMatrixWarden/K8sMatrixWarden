@@ -3,7 +3,7 @@
 Two things made the matrix understate real coverage, both fixed here:
 
   1. **Id-first cell matching.** The Redguard matrix is finer-grained than
-     ATT&CK-for-Containers — "Access the K8s API server", "Access Kubelet API" and
+     ATT&CK-for-Containers, "Access the K8s API server", "Access Kubelet API" and
      "Access Kubernetes dashboard" are three distinct Discovery techniques all carrying
      the single id T1613. Matching by id first collapsed them into one cell, so two
      rendered as coverage gaps even though rules for them existed.
@@ -79,7 +79,7 @@ def test_runtime_only_techniques_are_marked_runtime_not_gap():
 
 
 def test_runtime_coverage_does_not_claim_scan_coverage():
-    """`covered` must stay strictly "a scan rule exists" — folding runtime detections in
+    """`covered` must stay strictly "a scan rule exists", folding runtime detections in
     would claim point-in-time coverage the scanner does not have."""
     matrix = _coverage_matrix()
     for column in matrix.columns:
@@ -92,7 +92,7 @@ def test_runtime_coverage_does_not_claim_scan_coverage():
 
 
 def test_scan_only_matrix_is_still_available():
-    """Passing an explicit empty catalog opts out — nothing is silently runtime-covered."""
+    """Passing an explicit empty catalog opts out, nothing is silently runtime-covered."""
     matrix = _coverage_matrix(runtime_catalog=[])
     assert matrix.summary()["techniques_runtime_only"] == 0
     assert _cell(matrix, "Execution", "bash/cmd inside container").state == "gap"

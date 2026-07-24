@@ -4,7 +4,7 @@ Detection Engine / Rule Executor (§6.1).
 Executes the resolved rule set against the shared evidence snapshot, in parallel, with
 per-rule isolation: a bug or exception in one rule becomes an INFO finding rather than
 crashing the whole scan (this is the concrete answer to the Option-B "God module" critique
-in the redesign doc — one bad check must not take the scan down).
+in the redesign doc, one bad check must not take the scan down).
 
 External tool output (Trivy, kube-bench, kubescape, Falco) is folded in through the
 `ExternalToolAdapter` interface, normalized to the same `Finding` schema (§22).

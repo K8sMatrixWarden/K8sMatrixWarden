@@ -4,25 +4,25 @@ K8s Security MCP Server (§8/§10).
 Exposes the full read-only capability surface of k8smatrixwarden as MCP tools, so any
 MCP-compatible AI agent (Claude, Cursor, VS Code, Windsurf, ...) can do everything the
 CLI can do: scan, audit, browse the rule/knowledge datasets, evaluate a runtime event
-stream, and list/export previously-saved reports in any format — the same engine the CLI
+stream, and list/export previously-saved reports in any format, the same engine the CLI
 and chat use.
 
-Read-only by design: this tool does not do remediation/apply at all — it detects and
+Read-only by design: this tool does not do remediation/apply at all, it detects and
 reports, it never mutates the cluster or deletes anything. Scanning (§4.4), the knowledge
 datasets, and report rendering/export are all side-effect-free;
 `tests/test_mcp.py::test_no_remediation_or_apply_tool_is_exposed` enforces this stays true.
 
 30 tools, four layers:
-  1. Knowledge   — browse/query the rule registry, taxonomy, and the 6 MCP datasets
-  2. Scan/audit  — scan / CIS benchmark / runtime detections + event eval / threat matrix
-  3. Reports     — persist a scan and list/export it later in any of the 7 formats
-  4. Platform    — validate the install, generate least-privilege RBAC
+  1. Knowledge  , browse/query the rule registry, taxonomy, and the 6 MCP datasets
+  2. Scan/audit , scan / CIS benchmark / runtime detections + event eval / threat matrix
+  3. Reports    , persist a scan and list/export it later in any of the 7 formats
+  4. Platform   , validate the install, generate least-privilege RBAC
 
 Uses the official `mcp` Python SDK (FastMCP) when installed. If it is not installed, the
-same functions are still callable in-process via `build_tools()` — the server is a thin
+same functions are still callable in-process via `build_tools()`, the server is a thin
 protocol wrapper over them, so nothing is lost when running without the SDK. Each tool's
 docstring below IS its description as surfaced to the calling LLM (FastMCP reads it
-directly) — kept accurate and complete for exactly that reason.
+directly), kept accurate and complete for exactly that reason.
 """
 from __future__ import annotations
 
@@ -36,12 +36,12 @@ from ..core.report_store import DEFAULT_DIR as _DEFAULT_REPORTS_DIR
 from ..core.models import ScanMode, ScanRequest, Scope, ScopeLevel, Selector, Severity
 from . import datasets
 
-#: ReportingEngine.render()'s valid `fmt` values — anything else silently falls back to
+#: ReportingEngine.render()'s valid `fmt` values, anything else silently falls back to
 #: `terminal` there, which would make a typo'd output_format look "successful" while
 #: quietly ignoring what was actually asked for. MCP tools validate against this
 #: explicitly instead and return a clear error.
 _VALID_REPORT_FORMATS = {"terminal", "text", "markdown", "json", "sarif", "html", "pdf"}
-#: pdf is the only format that renders to bytes, not str — MCP responses are JSON, which
+#: pdf is the only format that renders to bytes, not str, MCP responses are JSON, which
 #: has no binary type, so pdf content travels as base64 instead of a plain `content` string.
 
 # --------------------------------------------------------------------------- #
@@ -90,7 +90,7 @@ _Modules = Annotated[Optional[list[str]], _F(description=(
     "Domain shard names to include, e.g. ['rbac_identity','secrets']. See list_shards for "
     "valid values."))]
 _RuleIds = Annotated[Optional[list[str]], _F(description=(
-    "Exact rule ids to include (see list_rules) — target specific checks regardless of "
+    "Exact rule ids to include (see list_rules), target specific checks regardless of "
     "tactic or module."))]
 _Aliases = Annotated[Optional[list[str]], _F(description=(
     "Composite technique aliases to include, e.g. 'Exposed Secrets', 'Privileged Pods'."))]
@@ -141,7 +141,7 @@ _Events = Annotated[list[dict], _F(description=(
 def _encode_report(content) -> dict:
     """content is `str` for every format except pdf, where it's `bytes`. Return the
     right shape for either: {"content": "..."} for text formats, or
-    {"content_base64": "...", "encoding": "base64"} for pdf — the caller must
+    {"content_base64": "...", "encoding": "base64"} for pdf, the caller must
     base64-decode and write the result in binary mode."""
     if isinstance(content, bytes):
         import base64
@@ -155,7 +155,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     platform = build_platform(config_path)
 
     # ================================================================== #
-    # LAYER 1 — Knowledge: rule registry + the 6 MCP datasets (§10)
+    # LAYER 1, Knowledge: rule registry + the 6 MCP datasets (§10)
     # ================================================================== #
     def list_rules(
         shard: Annotated[Optional[str], _F(description=(
@@ -185,7 +185,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                          rule_ids: _RuleIds = None) -> list[str]:
         """Resolve a selector (any combination of MITRE tactics, techniques/composite
         aliases like 'Container Escape', domain modules, compliance frameworks, or exact
-        rule ids) to the concrete list of rule ids it expands to — WITHOUT scanning
+        rule ids) to the concrete list of rule ids it expands to, WITHOUT scanning
         anything. Lower-level than preview_scan (no scope, no shard breakdown); use this
         when you only need the raw rule_id list, e.g. to feed into another tool."""
         sel = Selector(tactics=tactics or [], techniques=techniques or [],
@@ -200,7 +200,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             "list_kubectl_commands() first to see every valid name."))]) -> str:
         """Look up ONE named kubectl security-inspection one-liner from the kubectl
         Security Commands dataset (e.g. 'list-privileged-pods', 'cluster-admin-bindings').
-        Returns '' if the name isn't found — call list_kubectl_commands() first to see
+        Returns '' if the name isn't found, call list_kubectl_commands() first to see
         every available name and its command."""
         return datasets.KUBECTL_COMMANDS.get(name, "")
 
@@ -218,14 +218,14 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             "to see every valid name."))]) -> list:
         """Look up the example invocation(s) for ONE named external security tool (e.g.
         'trivy', 'kube-bench', 'kubescape', 'cosign', 'trufflehog'). Returns [] if the
-        tool name isn't found — call list_tool_commands() to see every available name."""
+        tool name isn't found, call list_tool_commands() to see every available name."""
         return datasets.TOOL_COMMANDS.get(tool, [])
 
     def list_tool_commands() -> dict:
         """List every external security tool in the dataset with its example
         invocation(s) (trivy, kube-bench, kubeaudit, kubesec, kubescape, popeye,
         trufflehog, cosign). These are the tools k8smatrixwarden integrates as normalizing
-        adapters (§22) — this dataset is how to run them directly."""
+        adapters (§22), this dataset is how to run them directly."""
         return dict(datasets.TOOL_COMMANDS)
 
     def lookup_cve(
@@ -233,8 +233,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             "CVE identifier to look up, e.g. 'CVE-2024-9486' (case-insensitive). Call "
             "list_cves() to see every id in the bundled knowledge base."))]) -> dict:
         """Look up ONE CVE by id (e.g. 'CVE-2024-9486') in the bundled Kubernetes CVE
-        knowledge base — returns {severity, affects, desc}, or {} if not found. This is
-        a curated subset (§15.1), not a live feed — call list_cves() to see every id
+        knowledge base, returns {severity, affects, desc}, or {} if not found. This is
+        a curated subset (§15.1), not a live feed, call list_cves() to see every id
         that's actually in it before assuming a lookup miss means "not vulnerable"."""
         return datasets.CVE_KB.get(cve_id.upper(), {})
 
@@ -247,10 +247,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         framework: Annotated[Optional[str], _F(description=(
             "Which framework's metadata to return: 'CIS', 'PSS', or 'NSA_CISA' "
             "(case-insensitive). Omit to get all three."))] = None) -> dict:
-        """Get metadata about a compliance framework k8smatrixwarden tracks — 'CIS' (version,
+        """Get metadata about a compliance framework k8smatrixwarden tracks, 'CIS' (version,
         tool, pass threshold), 'PSS' (Pod Security Standard levels), or 'NSA_CISA' (the
         hardening-guide sections covered). Omit `framework` to get all three. This is
-        summary metadata, not the controls themselves — for the full, evaluated CIS
+        summary metadata, not the controls themselves, for the full, evaluated CIS
         Kubernetes Benchmark (all 130 controls with PASS/FAIL/MANUAL/NA/NEEDS_NODE
         status), use run_cis_benchmark instead."""
         if framework:
@@ -267,13 +267,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     def mitre_coverage() -> dict:
         """Get the number of registered rules per MITRE ATT&CK tactic (all 9: Initial
         Access, Execution, Persistence, Privilege Escalation, Defense Evasion,
-        Credential Access, Discovery, Lateral Movement, Impact) — a quick "how well
+        Credential Access, Discovery, Lateral Movement, Impact), a quick "how well
         covered is each attacker behavior" snapshot, same data k8smatrixwarden's `coverage`
         CLI command and chat's "coverage" turn show."""
         return platform.coverage()
 
     def list_shards() -> list[dict]:
-        """List the 10 domain shards (the scanner's execution boundary — RBAC, network,
+        """List the 10 domain shards (the scanner's execution boundary, RBAC, network,
         secrets, images, workload/pod security, control plane, compliance, attack
         surface, admission control, cloud IAM) with each shard's title and rule count.
         Shard names are the valid values for preview_scan/run_scan's `modules` selector
@@ -289,7 +289,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     def list_namespaces(mock: _Mock = True, fixture: _Fixture = None,
                         kubeconfig: _Kubeconfig = None,
                         context: _Context = None) -> dict:
-        """List namespace names visible in the target cluster (mock or live) — use this
+        """List namespace names visible in the target cluster (mock or live), use this
         before scoping a scan to a namespace, to avoid guessing a name that doesn't
         exist (preview_scan/run_scan won't validate it for you, they'll just find
         nothing)."""
@@ -306,12 +306,12 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                                 context: _Context = None) -> dict:
         """Detect which kind of cluster this is from its Node objects, so the right
         provider-specific choices are made without asking the user. Returns:
-          cloud   — 'gcp' | 'aws' | 'azure' | 'local'  (which IaaS the nodes run on)
-          managed — True if the control plane is a managed offering (GKE/EKS/AKS)
-          profile — 'gke' | 'eks' | 'aks' | 'self-managed'  (pass straight to
+          cloud  , 'gcp' | 'aws' | 'azure' | 'local'  (which IaaS the nodes run on)
+          managed, True if the control plane is a managed offering (GKE/EKS/AKS)
+          profile, 'gke' | 'eks' | 'aks' | 'self-managed'  (pass straight to
                     run_cis_benchmark's `profile`, or leave it 'auto' to do this
                     automatically)
-        Reads Node providerID + managed-service labels only — no writes, no control
+        Reads Node providerID + managed-service labels only, no writes, no control
         plane access. On the bundled mock cluster this returns local/self-managed."""
         try:
             collector = platform.make_collector(mock=mock, fixture=fixture,
@@ -325,7 +325,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     # detect_cluster_provider + interpret_query + run_scan + threat matrix + attack path).
 
     def validate_platform() -> dict:
-        """Validate the k8smatrixwarden install itself — equivalent to the `k8smatrixwarden doctor` CLI
+        """Validate the k8smatrixwarden install itself, equivalent to the `k8smatrixwarden doctor` CLI
         command. Checks: every shard/rule loaded correctly, every rule's MITRE technique
         id exists in the vendored ATT&CK-for-Containers taxonomy, every composite alias
         (e.g. 'Container Escape') resolves to real rule ids, and there are no duplicate
@@ -340,7 +340,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         }
 
     # ================================================================== #
-    # LAYER 2 — Scan / audit / runtime: read-only, mirrors `scan` / `cis` / Runtime Agent
+    # LAYER 2, Scan / audit / runtime: read-only, mirrors `scan` / `cis` / Runtime Agent
     # ================================================================== #
     def _make_scope(scope_level: Optional[str], namespace: Optional[str],
                     name: Optional[str], kind: Optional[str],
@@ -370,7 +370,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                      frameworks: _Frameworks = None,
                      severity_min: _SeverityMin = None) -> dict:
         """Resolve a scan's scope+selector to the exact rule set WITHOUT touching the
-        cluster or running anything — the plan-before-you-scan step (mirrors `scan
+        cluster or running anything, the plan-before-you-scan step (mirrors `scan
         --dry-run` / the chat's confirmation prompt). Call this first, show the user
         what would run, then call run_scan with the same arguments to execute it."""
         scope = _make_scope(scope_level, namespace, name, kind, image)
@@ -400,7 +400,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 save: _Save = True, reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR,
                 scan_name: _ScanName = None,
                 max_findings: _MaxFindings = None) -> dict:
-        """Run a k8smatrixwarden security scan (read-only) — mirrors `k8smatrixwarden scan`.
+        """Run a k8smatrixwarden security scan (read-only), mirrors `k8smatrixwarden scan`.
 
         scope_level: cluster | namespace | workload | node | pod | image | helm_release
         tactics/techniques/modules/rule_ids/aliases/frameworks: selector axes, union'd
@@ -410,10 +410,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         output_format: 'json' (default) returns structured findings + risk score +
           per-finding context. Any of 'markdown'|'html'|'sarif'|'text'|'terminal'
           instead returns {scan_id, format, content, risk, total_findings} where
-          `content` is the fully rendered report string — e.g. ask for 'markdown' to get
+          `content` is the fully rendered report string, e.g. ask for 'markdown' to get
           a shareable report, or 'sarif' for a CI/GitHub-Code-Scanning-ready result.
           'pdf' returns {..., content_base64, encoding: "base64"} instead of `content`
-          (PDF is binary; base64-decode it and write the bytes to a .pdf file yourself —
+          (PDF is binary; base64-decode it and write the bytes to a .pdf file yourself, 
           requires the optional `pdf` extra installed server-side, `pip install -e
           ".[pdf]"`, or this returns an `error`).
         save: persist this scan to the shared report store (default True) so it shows up in
@@ -429,7 +429,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
 
         fmt = (output_format or "json").lower()
         if fmt not in _VALID_REPORT_FORMATS:
-            return {"error": f"unknown output_format {output_format!r} — valid values: "
+            return {"error": f"unknown output_format {output_format!r}, valid values: "
                              f"{', '.join(sorted(_VALID_REPORT_FORMATS))}"}
 
         scope = _make_scope(scope_level, namespace, name, kind, image)
@@ -487,7 +487,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             "resolved rule plan, without scanning."))]) -> dict:
         """Parse a natural-language security request (e.g. 'scan production for
         persistence', 'any exposed secrets?') into scope/selector and the resolved rule
-        plan, WITHOUT executing it — the exact parsing `k8smatrixwarden chat` uses before it asks
+        plan, WITHOUT executing it, the exact parsing `k8smatrixwarden chat` uses before it asks
         for confirmation. Follow up with run_scan using the returned scope/selector to
         actually execute it."""
         from ..agents.orchestrator import Orchestrator
@@ -523,7 +523,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             scan_name: _ScanName = None) -> dict:
         """One call, everything: parse a plain-English request into scope+selector, detect
         which kind of cluster it is, run the read-only scan, and return the findings, risk,
-        threat matrix, and a kill-chain attack path — the composed shortcut for
+        threat matrix, and a kill-chain attack path, the composed shortcut for
         detect_cluster_provider + interpret_query + run_scan + build_threat_matrix +
         build_attack_path done by hand. The query drives scope/selector; pass any explicit
         scope arg (namespace/name/kind/image, or a non-cluster scope_level) to override
@@ -532,7 +532,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         Returns: intent, scope, selector, rule_count, notes; `cluster` (detected cloud +
         CIS profile); `findings` + `risk` + embedded `threat_matrix`; and `attack_path`
         (the exploit chain; omit with include_attack_path=False). Use this to just ask and
-        get the analysis — use preview_scan then run_scan when you need to confirm the plan
+        get the analysis, use preview_scan then run_scan when you need to confirm the plan
         before scanning."""
         from ..agents.orchestrator import Orchestrator
         from ..core.threat_matrix import build_threat_matrix as _build, attack_paths
@@ -592,7 +592,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                               "see."))] = None) -> dict:
         """Run the full CIS Kubernetes Benchmark v1.8 (130 controls, read-only) and
         return the report (PASS/FAIL/MANUAL/NA/NEEDS_NODE per control). Mirrors
-        `k8smatrixwarden cis`. profile: auto (default) | self-managed | eks | gke | aks —
+        `k8smatrixwarden cis`. profile: auto (default) | self-managed | eks | gke | aks, 
         'auto' detects the provider from Node objects (see detect_cluster_provider);
         managed profiles mark the provider-owned control plane NA instead of ungradeable.
         kube_bench_json: optional path to `kube-bench --json` output to resolve node
@@ -628,7 +628,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             kube_bench_json: Annotated[Optional[str], _F(description=(
                 "Optional path to `kube-bench --json` output to resolve node "
                 "file-permission CIS controls."))] = None) -> Any:
-        """Produce a governance compliance audit — maps this cluster's posture onto PCI DSS
+        """Produce a governance compliance audit, maps this cluster's posture onto PCI DSS
         v4.0, SOC 2, ISO 27001:2022 and NIST 800-53 rev5, with per-requirement
         pass/fail/partial/manual/not-assessed status, the evidence behind each verdict, and
         the exact findings blocking attestation (e.g. 'N findings block PCI DSS
@@ -671,12 +671,12 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         """Evaluate a batch of runtime events (Falco-style syscall events or Kubernetes
         audit events) against the Runtime Agent's rule catalog (§8) and return any
         alerts that fired. Each event needs a `source` key of 'falco' or 'audit' plus
-        the relevant fields for that source — Falco: `proc` (process name), `connect`
+        the relevant fields for that source, Falco: `proc` (process name), `connect`
         (dest addr:port), `file`, `op`; audit: `verb`, `resource`, `namespace`, `count`.
         Detects: shell-in-container, metadata-API access, network-recon tools,
         crypto-miner signatures, container-escape indicators, log tampering, new
         (Cluster)RoleBindings, exec into kube-system, secret enumeration, event
-        deletion, and mass-delete spikes. This evaluates a batch you provide — it does
+        deletion, and mass-delete spikes. This evaluates a batch you provide, it does
         NOT tail a live cluster (there is no running Runtime Agent DaemonSet here)."""
         from ..agents.runtime import RuntimeAgent
         alerts = RuntimeAgent().evaluate_stream(events)
@@ -697,14 +697,14 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                           fixture: _Fixture = None, kubeconfig: _Kubeconfig = None,
                           context: _Context = None,
                           reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
-        """Correlate a batch of runtime events against a scan's static findings — the
+        """Correlate a batch of runtime events against a scan's static findings, the
         "which weakness is being exploited RIGHT NOW" view. Evaluates `events` (same
         Falco/audit shape as evaluate_runtime_events) into runtime alerts, then joins them
         to scan findings by MITRE tactic (and namespace, when the event names one).
-        Returns per-correlation `confidence` — 'confirmed' (same tactic + same namespace:
+        Returns per-correlation `confidence`, 'confirmed' (same tactic + same namespace:
         the static weakness is being acted on), 'corroborated' (same tactic: behaviour
         aligns with a known gap), or 'runtime-only' (live behaviour the scan never
-        predicted) — plus headline counts (confirmed_exploitation, correlated,
+        predicted), plus headline counts (confirmed_exploitation, correlated,
         runtime_only). scan_id: correlate against a saved report; otherwise runs a fresh
         read-only scan (same scope/selector args as run_scan)."""
         from ..agents.runtime import RuntimeAgent, normalize_events
@@ -741,7 +741,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                      mock: _Mock = True, fixture: _Fixture = None,
                      kubeconfig: _Kubeconfig = None,
                      context: _Context = None) -> dict:
-        """Detect runtime behaviour that CONTRADICTS a Pod's declared security posture —
+        """Detect runtime behaviour that CONTRADICTS a Pod's declared security posture, 
         the strongest exploitation signal, because it means a control the operator thinks
         is enforced is not. Fetches Pod specs (optionally scoped to `namespace`), reads
         each pod's promise (runAsNonRoot / readOnlyRootFilesystem / not-privileged), then
@@ -765,7 +765,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
 
     def deploy_falco(
             webhook_url: Annotated[str, _F(description=(
-                "URL Falco/falcosidekick should POST runtime events to — your "
+                "URL Falco/falcosidekick should POST runtime events to, your "
                 "K8sMatrixWarden runtime endpoint, e.g. "
                 "'http://host.minikube.internal:8080/api/runtime'."))],
             namespace: Annotated[str, _F(description=(
@@ -775,9 +775,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         is READ-ONLY by default, so this does NOT touch your cluster unless you opt in: it
         returns the exact `helm` commands (with the webhook pre-filled) for you to run
         yourself. Only when the env var K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 is set will it
-        execute them — that is the single write path in the tool and it is off by default, so
+        execute them, that is the single write path in the tool and it is off by default, so
         the read-only / offline guarantee holds for every normal invocation. Requires helm."""
-        vals = (f"falcosidekick.enabled=true,"
+        # json_output=true makes Falco print one JSON alert per line to stdout, required
+        # for the pull feed (a `scan --live` reads these pod logs directly); falcosidekick
+        # covers the push feed (POST to /api/runtime). Setting both wires up either path.
+        vals = (f"falco.json_output=true,"
+                f"falcosidekick.enabled=true,"
                 f"falcosidekick.config.webhook.address={webhook_url}")
         commands = [
             "helm repo add falcosecurity https://falcosecurity.github.io/charts",
@@ -793,7 +797,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         if os.environ.get("K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE") != "1":
             return {"status": "dry-run", "webhook": webhook_url, "commands": commands,
                     "next_steps": next_steps,
-                    "note": ("K8sMatrixWarden is read-only by default — these commands were "
+                    "note": ("K8sMatrixWarden is read-only by default, these commands were "
                              "NOT run. Execute them yourself, or set "
                              "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 to let this tool run them.")}
 
@@ -815,7 +819,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             out["webhook"] = webhook_url
             out["next_steps"] = next_steps
         except FileNotFoundError:
-            return {"error": "helm not found — install helm first (https://helm.sh)"}
+            return {"error": "helm not found, install helm first (https://helm.sh)"}
         except subprocess.CalledProcessError as e:
             return {"error": f"helm install failed: {e.stderr.decode()[:200] if e.stderr else str(e)}"}
         except Exception as e:
@@ -823,7 +827,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         return out
 
     def list_runtime_detections() -> list[dict]:
-        """List the Runtime Agent's detection catalog (§8) — every rule tagged
+        """List the Runtime Agent's detection catalog (§8), every rule tagged
         surface='runtime', i.e. what is caught by observing a LIVE stream (Falco/Tetragon
         syscalls, K8s audit events, container drift) rather than by a point-in-time scan.
         This is the runtime half of the runtime-vs-scan split: the Scanner's rules
@@ -853,7 +857,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                             reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
         """Project findings onto the Kubernetes Threat Matrix (the 9-tactic
         Microsoft/Redguard matrix, MITRE ATT&CK for Containers, §12) and return the full
-        structure: a `summary` (tactics/techniques hit, coverage %) plus `columns` — one
+        structure: a `summary` (tactics/techniques hit, coverage %) plus `columns`, one
         per tactic, each a list of technique `cells` with state gap|covered|hit, worst
         severity, finding count, mapped resources, and the ATT&CK reference URL. This is
         the same matrix the HTML report/web dashboard heatmap and the JSON report's
@@ -866,8 +870,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
           • otherwise (default)→ run a fresh read-only scan with the given scope/selector
                                  (same args as run_scan) and overlay its findings
 
-        Cells are painted three ways: `hit` (a finding fired — coloured by worst severity),
-        `covered` (a rule exists but nothing fired this scan), `gap` (no rule yet — an
+        Cells are painted three ways: `hit` (a finding fired, coloured by worst severity),
+        `covered` (a rule exists but nothing fired this scan), `gap` (no rule yet, an
         honest, un-hidden coverage hole)."""
         from ..core.threat_matrix import build_threat_matrix as _build
 
@@ -915,11 +919,11 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                           fixture: _Fixture = None, kubeconfig: _Kubeconfig = None,
                           context: _Context = None,
                           reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
-        """Chain a scan's threat-matrix HIT cells into a kill-chain exploit path — the
+        """Chain a scan's threat-matrix HIT cells into a kill-chain exploit path, the
         tactics an attacker can actually string together in THIS cluster, Initial Access
         -> ... -> Impact. Returns `chain` (the tactic sequence), `steps` (per tactic: the
         available techniques, their worst severity, the exposing resources, and finding
-        rule ids), `entry_points` (the first step's techniques — where the chain starts),
+        rule ids), `entry_points` (the first step's techniques, where the chain starts),
         and `reaches_impact` (does the chain terminate in the Impact tactic). scan_id:
         build from a previously saved report; otherwise runs a fresh read-only scan (same
         scope/selector args as run_scan). A coverage-only matrix has no hits, so no path."""
@@ -952,13 +956,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         return attack_paths(_build(result, platform.registry.rules))
 
     # ================================================================== #
-    # LAYER 3 — Reports: persist + list + export in any format (§16.4)
+    # LAYER 3, Reports: persist + list + export in any format (§16.4)
     # ================================================================== #
     def list_reports(reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR,
                      limit: Annotated[Optional[int], _F(description=(
                          "Maximum number of reports to return, newest first. Omit for "
                          "all."))] = None) -> list[dict]:
-        """List previously saved scan reports (from a run_scan call with save=True) —
+        """List previously saved scan reports (from a run_scan call with save=True), 
         mirrors `k8smatrixwarden report list`. Each entry has the scan_id (needed for
         download_report), when it was generated, its rating/risk score, total finding
         count, and scope. Returns [] if nothing has been saved yet in `reports_dir`."""
@@ -978,20 +982,20 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 "'text', 'json', 'sarif', 'html', or 'pdf' (returned base64-encoded)."))]
             = "markdown",
             reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
-        """Re-render a previously saved scan report in ANY format, without re-scanning —
+        """Re-render a previously saved scan report in ANY format, without re-scanning, 
         mirrors `k8smatrixwarden report download`. This is how to get the same scan as a
         markdown write-up for a PR, a SARIF file for CI, and an HTML page for a
         stakeholder, all from one run_scan(save=True) call. Omit scan_id for the most
         recent saved report. format: terminal | text | markdown | json | sarif | html |
-        pdf. Returns {scan_id, format, content} — `content` is the full rendered report
+        pdf. Returns {scan_id, format, content}, `content` is the full rendered report
         string; write it to a file yourself if you need it on disk. For format='pdf',
         the response has `content_base64` (+ `encoding: "base64"`) instead of `content`,
-        since PDF is binary — base64-decode it before writing. Returns an `error` key
+        since PDF is binary, base64-decode it before writing. Returns an `error` key
         instead if nothing has been saved yet, the given scan_id isn't found, or (for
         pdf) the optional `pdf` extra isn't installed server-side."""
         fmt = (format or "markdown").lower()
         if fmt not in _VALID_REPORT_FORMATS:
-            return {"error": f"unknown format {format!r} — valid values: "
+            return {"error": f"unknown format {format!r}, valid values: "
                              f"{', '.join(sorted(_VALID_REPORT_FORMATS))}"}
         from ..core.report_store import ReportStore
         store = ReportStore(reports_dir)
@@ -1001,7 +1005,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             return {"error": f"no stored report with scan-id {scan_id!r} in "
                              f"{reports_dir!r}"}
         if result is None:
-            return {"error": f"no stored reports in {reports_dir!r} — call "
+            return {"error": f"no stored reports in {reports_dir!r}, call "
                              f"run_scan(save=True) first"}
         try:
             content = platform.reporting.render(result, fmt)
@@ -1015,11 +1019,11 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 "'json' (default), 'markdown', or 'html'."))] = "json") -> Any:
         """Cross-cluster blast radius: 'if one cluster is compromised, what does the
         attacker reach in the others?' Correlates the newest saved scan of EACH distinct
-        cluster in the report store and finds shared identities — the same ClusterRole,
+        cluster in the report store and finds shared identities, the same ClusterRole,
         ServiceAccount, cloud IAM role, Secret or ConfigMap (by kind+name) present in two
         or more clusters (built-in defaults like cluster-admin/system:*/default SA are
         excluded). Each shared identity is a CANDIDATE cross-cluster lateral-movement path to
-        verify — a same-name collision to confirm is the same trust principal, not proof on
+        verify, a same-name collision to confirm is the same trust principal, not proof on
         its own (no candidate ⇒ reported as independent). Also returns a federated
         tactic-exposure view across all clusters. To populate the store, run_scan(save=True)
         against each cluster with its own context. output_format: json | markdown | html."""
@@ -1043,7 +1047,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         return {"error": f"unknown output_format: {output_format}"}
 
     # ================================================================== #
-    # LAYER 4 — Platform: least-privilege RBAC generation
+    # LAYER 4, Platform: least-privilege RBAC generation
     # ================================================================== #
     def generate_rbac_manifest(
             service_account: Annotated[str, _F(description=(
@@ -1059,11 +1063,11 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 "True (default) returns a full deployable manifest (Namespace + "
                 "ServiceAccount + per-shard ClusterRole/ClusterRoleBinding); False returns "
                 "just the bare ClusterRoles for review."))] = True) -> dict:
-        """Generate the least-privilege RBAC k8smatrixwarden needs to scan a real cluster — every
+        """Generate the least-privilege RBAC k8smatrixwarden needs to scan a real cluster, every
         verb is get/list/watch, never a write. bind=True returns a full deployable
         manifest (Namespace + ServiceAccount + per-shard ClusterRole/ClusterRoleBinding);
         bind=False returns just the bare ClusterRoles for review. Review before
-        `kubectl apply` — this tool only generates the manifest, it never applies it."""
+        `kubectl apply`, this tool only generates the manifest, it never applies it."""
         if bind:
             return platform.loader.deployment_manifest(
                 service_account=service_account, namespace=namespace,
@@ -1115,7 +1119,7 @@ def serve(config_path: Optional[str] = None) -> None:
     try:
         from mcp.server.fastmcp import FastMCP  # type: ignore
     except Exception as exc:
-        # Do NOT claim the SDK is missing — very often it is installed, just not
+        # Do NOT claim the SDK is missing, very often it is installed, just not
         # visible to *this* interpreter. MCP clients spawn the server with a
         # stripped environment, which hides a per-user site-packages directory
         # (where `pip install` silently lands when the interpreter's own
@@ -1134,7 +1138,7 @@ def serve(config_path: Optional[str] = None) -> None:
             "Install it for THIS interpreter:\n"
             f'  "{_sys.executable}" -m pip install mcp\n'
             "If it IS installed but lives in a per-user site-packages directory, an "
-            "MCP client's stripped environment cannot see it — install it into the "
+            "MCP client's stripped environment cannot see it, install it into the "
             "interpreter's own site-packages, use a virtualenv, or point the client "
             "at an interpreter that has it.\n"
             "The same datasets are available in-process via "

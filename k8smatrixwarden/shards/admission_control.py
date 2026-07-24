@@ -1,4 +1,4 @@
-"""Shard ⑨ — Admission Control (NEW, §5.11).
+"""Shard ⑨, Admission Control (NEW, §5.11).
 
 Closes the Persistence / Credential Access 'malicious admission controller' and Execution
 'sidecar injection' gaps, plus CronJob persistence.

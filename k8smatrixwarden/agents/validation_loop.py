@@ -1,5 +1,5 @@
 """
-Critic-triggered re-run decision (Upgrade 1). Pure function, no I/O — trivially testable.
+Critic-triggered re-run decision (Upgrade 1). Pure function, no I/O, trivially testable.
 
 The per-round question ("is this verdict good enough to stop?") lives here. The max-round cap is
 the caller's for-loop (investigate). Together: keep going while the critic is unsatisfied and

@@ -1,14 +1,14 @@
 """
-PDF Report (§18.2 extension) — a professional, print/share-ready audit document.
+PDF Report (§18.2 extension), a professional, print/share-ready audit document.
 
 Mirrors the markdown report's structure exactly (title page -> executive summary ->
 coverage -> findings, each with Summary / Standards & Benchmark Mapping / MITRE ATT&CK
 Mapping / Impact / Validation) so the two formats never disagree about what a finding
-means — both read from the same `core.finding_context.build_finding_context()`.
+means, both read from the same `core.finding_context.build_finding_context()`.
 
 Requires the optional `fpdf2` dependency (`pip install -e ".[pdf]"`), imported lazily so
 the core engine stays dependency-free when PDF output isn't needed. Uses only the three
-built-in PDF core fonts (Helvetica/Courier) — no font embedding, no external resources.
+built-in PDF core fonts (Helvetica/Courier), no font embedding, no external resources.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .results import ScanResult
 
 _SEV_DISPLAY = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]
 
-# RGB triples — same semantic palette as the HTML/markdown reports.
+# RGB triples, same semantic palette as the HTML/markdown reports.
 _INK = (31, 35, 40)
 _MUTED = (87, 96, 106)
 _LINE = (208, 215, 222)
@@ -34,13 +34,13 @@ _SEV_BG = {
     "MEDIUM": (253, 246, 227), "LOW": (238, 241, 246),
 }
 
-# The 3 built-in PDF core fonts (Helvetica/Times/Courier) only support Latin-1 — no
+# The 3 built-in PDF core fonts (Helvetica/Times/Courier) only support Latin-1, no
 # em-dashes, arrows, curly quotes, or emoji, all of which the shared finding_context.py
-# knowledge base uses freely (correctly — markdown/html/json/sarif are all full Unicode).
+# knowledge base uses freely (correctly, markdown/html/json/sarif are all full Unicode).
 # Rather than degrade that shared content, or embed a Unicode TrueType font just to
 # avoid it, sanitize text to a close ASCII equivalent at the point it enters the PDF.
 _UNICODE_ASCII = {
-    "—": "--", "–": "-", "‑": "-", "→": "->", "←": "<-",
+    "N/A": "--", "–": "-", "‑": "-", "→": "->", "←": "<-",
     "‘": "'", "’": "'", "“": '"', "”": '"', "…": "...",
     "•": "-", "×": "x", " ": " ",
 }
@@ -58,7 +58,7 @@ def _ascii(text) -> str:
 
 
 def render_pdf(result: ScanResult) -> bytes:
-    """The single entry point. Returns raw PDF bytes — callers must write them in
+    """The single entry point. Returns raw PDF bytes, callers must write them in
     binary mode (unlike every other report format, which is plain text)."""
     try:
         from fpdf import FPDF
@@ -94,7 +94,7 @@ def render_pdf(result: ScanResult) -> bytes:
 
 
 # ======================================================================= #
-# PDF class with branded header/footer — built lazily from the caller's FPDF class so
+# PDF class with branded header/footer, built lazily from the caller's FPDF class so
 # this module never imports fpdf2 at module load time (it must stay importable, and the
 # rest of the engine dependency-free, when the optional `pdf` extra isn't installed).
 # ======================================================================= #
@@ -184,7 +184,7 @@ def _link_line(pdf, label: str, url: str) -> None:
 
 def _ensure_space(pdf, needed_mm: float) -> None:
     """fpdf2's auto_page_break only fires once a cell/multi_cell call itself would
-    overflow — it can still leave a lone heading orphaned at the very bottom of a page.
+    overflow, it can still leave a lone heading orphaned at the very bottom of a page.
     Call this before starting a block that should stay together with what follows it."""
     if pdf.get_y() + needed_mm > pdf.page_break_trigger:
         pdf.add_page()
