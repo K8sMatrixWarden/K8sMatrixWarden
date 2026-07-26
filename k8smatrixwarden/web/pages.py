@@ -679,6 +679,9 @@ function findingDetailHTML(f){
     ['Exploitability', f.exploitability],
     ['Blast radius', f.blast_radius],
     ['Risk score', (f.score||0).toFixed(1)],
+    ['Attack vector', (f.exploitable_by||[]).includes('ingress')?'🔴 Internet-reachable'
+      :((f.exploitable_by||[]).includes('pod-privilege')?'🟡 Post-breach only':'')],
+    ['Vector detail', f.path_reason||''],
   ].filter(m=>m[1]);
   const metaHtml=meta.map(m=>`<div class='m'><div class='mk'>${esc(m[0])}</div><div class='mv'>${esc(m[1])}</div></div>`).join('');
   const mitre=(f.mitre||[]).map(m=>`<span class='tchip'>${esc(m.tactic)}${m.technique_id?` · ${esc(m.technique_id)}`:''}${m.technique_name?` ${esc(m.technique_name)}`:''}</span>`).join('');

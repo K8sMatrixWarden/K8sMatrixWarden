@@ -20,10 +20,11 @@
 
 1. **Scan** — 60 detection rules across 11 security domains (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
 2. **Correlate** — joins static findings to live Falco/audit runtime events → **confirmed** (the event names the exact resource a finding is on — actively exploited), **corroborated** (same tactic/namespace, no resource link), or **runtime-only** (novel behavior)
-3. **Visualize** — interactive dashboard with threat matrix heatmap, kill-chain exploit path, attack map (chain + vulnerable resources), MTTD/MTTR timeline, runtime readiness
-4. **Report** — PDF/JSON/Markdown/SARIF exports with embedded attack path, CIS Benchmark v1.8 (130 controls), MITRE ATT&CK for Containers, OWASP K8s Top 10 mapping
-5. **Attest** — governance compliance audit: maps posture onto **PCI DSS v4.0, SOC 2, ISO 27001:2022, NIST 800-53 rev5** with per-requirement pass/fail/evidence and "N findings block PCI-DSS attestation" — auditor-facing PDF/HTML, not a finding dump
-6. **Federate** — multi-cluster blast radius: correlates saved scans across clusters and flags **shared non-default identities** (same custom ClusterRole / ServiceAccount / cloud IAM role in >1 cluster; built-in defaults excluded) as **candidate** cross-cluster lateral-movement paths to verify — "if prod is compromised, staging may fall too — here's the shared role to check"
+3. **Reach** — tags every workload finding with its live attack vector without ever lowering severity: **🔴 internet-reachable** (a NodePort/LoadBalancer/Ingress fronts the pod and no NetworkPolicy isolates it — fix now), **🟡 post-breach only** (reachable only after an attacker is already in a pod), and **⚠ rbac-escalation** (the pod's ServiceAccount can reach cluster-admin). Turns a flat finding list into a triage queue — e.g. *368 findings → 74 fix-now, 270 deprioritizable* — with nothing hidden. See [`core/reachability.py`](k8smatrixwarden/core/reachability.py).
+4. **Visualize** — interactive dashboard with threat matrix heatmap, kill-chain exploit path, attack map (chain + vulnerable resources), MTTD/MTTR timeline, runtime readiness
+5. **Report** — PDF/JSON/Markdown/SARIF exports with embedded attack path + per-finding attack vector, CIS Benchmark v1.8 (130 controls), MITRE ATT&CK for Containers, OWASP K8s Top 10 mapping
+6. **Attest** — governance compliance audit: maps posture onto **PCI DSS v4.0, SOC 2, ISO 27001:2022, NIST 800-53 rev5** with per-requirement pass/fail/evidence and "N findings block PCI-DSS attestation" — auditor-facing PDF/HTML, not a finding dump
+7. **Federate** — multi-cluster blast radius: correlates saved scans across clusters and flags **shared non-default identities** (same custom ClusterRole / ServiceAccount / cloud IAM role in >1 cluster; built-in defaults excluded) as **candidate** cross-cluster lateral-movement paths to verify — "if prod is compromised, staging may fall too — here's the shared role to check"
 
 **32 MCP tools** (Cursor, Claude Code, VS Code Agent mode) — conversational API for scanning, correlation, RBAC generation, threat matrix building.
 
@@ -250,6 +251,8 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 - **Scan × runtime correlation** — joins static findings to live Falco/audit events by MITRE tactic: `confirmed` (actively exploited), `corroborated` (behavior aligns), `runtime-only` (new behavior)
 - **Drift detection** — flags runtime behavior contradicting declared posture (uid 0 despite `runAsNonRoot`, writes despite `readOnlyRootFilesystem`)
 - **Attack-path derivation** — chains threat matrix into kill-chain (Initial Access → Impact) with entry points and impact reachability
+- **Reachability tagging** — per-workload attack vector (internet-reachable / post-breach-only / rbac-escalation-to-cluster-admin) computed from Service/Ingress exposure, NetworkPolicy isolation, and the pod's ServiceAccount RBAC — context that prioritizes findings without ever changing severity ([`core/reachability.py`](k8smatrixwarden/core/reachability.py))
+- **External graph tools (optional)** — passthrough runners for [KubeHound](https://github.com/DataDog/KubeHound) and [IceKube](https://github.com/ReversecLabs/IceKube) when a customer wants deep multi-hop attack-path graphs alongside posture ([`integrations/external_graph.py`](k8smatrixwarden/integrations/external_graph.py))
 - **7-tab SPA dashboard** — Overview (KPIs), Findings (search/filter/sort), Threat Matrix (heatmap), Attack Path, Attack Map (chain + resources), Runtime, Scan history
 - **Coverage accounting** — 77.8% scan + 85.2% including runtime detections (techniques only visible live are not counted as gaps)
 - **Honest evidence reporting** — fails with real credential errors, never silently collects nothing

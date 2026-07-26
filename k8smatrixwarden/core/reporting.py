@@ -205,6 +205,8 @@ class ReportingEngine:
                            f"cis: {', '.join(f.cis) or '-'}")
                 out.append(f"     impact : exploitability={f.exploitability.label} · "
                            f"blast={f.blast_radius.label} · score={round(f.score, 1)}")
+                if _vector_label(f):
+                    out.append(f"     vector : {_vector_label(f)} — {f.path_reason}")
                 out.append(f"     detail : {f.message}")
                 from .finding_context import build_finding_context
                 ctx = build_finding_context(f)
@@ -506,7 +508,11 @@ class ReportingEngine:
                 "partialFingerprints": {
                     "k8smatrixwarden/v1": f"{f.rule_id}:{f.resource.namespace}:"
                                  f"{f.resource.kind}:{f.resource.name}"},
-                "properties": {"security-severity": _security_severity(f.severity)},
+                "properties": {"security-severity": _security_severity(f.severity),
+                    # per-finding: the reachability vector varies by pod, so it lives on the
+                    # result, not the rule (owasp/mitre/cis are rule-level, exploitable_by isn't)
+                    **({"exploitableBy": f.exploitable_by, "attackVector": f.path_reason}
+                       if f.exploitable_by else {})},
                 "locations": [{"logicalLocations": [{
                     "name": str(f.resource), "kind": f.resource.kind,
                     "fullyQualifiedName": _fqn(f)}]}],
@@ -641,6 +647,16 @@ def _display_findings(findings: list[Finding]) -> list[Finding]:
     return real if real else []
 
 
+def _vector_label(f: Finding) -> str:
+    """Short attack-vector label from the reachability pass; '' if the finding wasn't
+    analysed (non-pod resource). See core/reachability.py."""
+    if "ingress" in f.exploitable_by:
+        return "🔴 Internet-reachable"
+    if "pod-privilege" in f.exploitable_by:
+        return "🟡 Post-breach only"
+    return ""
+
+
 def _finding_card(f: Finding, i: int) -> list[str]:
     """A full, report-grade finding write-up, the seven sections a professional scan
     report is expected to carry: Summary, Standards & Benchmark Mapping, MITRE ATT&CK
@@ -658,6 +674,8 @@ def _finding_card(f: Finding, i: int) -> list[str]:
         f"| **Blast radius** | {f.blast_radius.label} |",
         f"| **Risk score** | {round(f.score, 2)} |",
     ]
+    if _vector_label(f):
+        rows.append(f"| **Attack vector** | {_vector_label(f)} — {f.path_reason} |")
 
     out = [
         f"#### {i}. {f.severity.emoji} {f.title}{amp}",

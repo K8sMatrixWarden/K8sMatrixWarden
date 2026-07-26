@@ -397,6 +397,9 @@ def _finding_block(pdf, f: Finding, i: int, build_finding_context) -> None:
     kv = [("Rule ID", f.rule_id), ("Domain", f.owning_shard),
          ("Exploitability", f.exploitability.label),
          ("Blast radius", f.blast_radius.label), ("Risk score", str(round(f.score, 2)))]
+    if f.exploitable_by:
+        vec = "Internet-reachable" if "ingress" in f.exploitable_by else "Post-breach only"
+        kv.append(("Attack vector", f"{vec} -- {f.path_reason}"))
     _kv_table(pdf, kv)
 
     _h3(pdf, "Standards & Benchmark Mapping")

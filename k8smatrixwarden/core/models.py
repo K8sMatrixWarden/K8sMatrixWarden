@@ -314,6 +314,12 @@ class Finding:
     detection_method: Optional[DetectionMethod] = None
     exploitability: Exploitability = Exploitability.LOCAL
     blast_radius: BlastRadius = BlastRadius.POD
+    #: Cluster-verified attack vectors (core/reachability.py). We never downgrade severity
+    #: for posture -- a real vuln stays a real vuln to fix -- we tag *how* it's reachable so
+    #: the analyst knows the fix lever. "ingress" = network-reachable now; "pod-privilege" =
+    #: only reachable by an attacker already inside a pod (assume-breach). Empty = not analysed.
+    exploitable_by: list[str] = field(default_factory=list)
+    path_reason: Optional[str] = None       # human-readable "why this vector", if analysed
     evidence: dict = field(default_factory=dict)
     score: float = 0.0                      # filled in by RiskScoringEngine
 
@@ -359,6 +365,8 @@ class Finding:
             "surface": self.surface,
             "exploitability": self.exploitability.label,
             "blast_radius": self.blast_radius.label,
+            "exploitable_by": list(self.exploitable_by),
+            "path_reason": self.path_reason,
             "evidence": self.evidence,
             "score": round(self.score, 3),
         }
@@ -388,6 +396,8 @@ class Finding:
             blast_radius=BlastRadius.parse(d.get("blast_radius", "Pod")),
             evidence=d.get("evidence", {}) or {},
         )
+        f.exploitable_by = list(d.get("exploitable_by", []) or [])
+        f.path_reason = d.get("path_reason")
         f.score = float(d.get("score", 0.0))
         return f
 

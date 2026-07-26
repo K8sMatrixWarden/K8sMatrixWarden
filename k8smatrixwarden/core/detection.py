@@ -18,6 +18,7 @@ from typing import Iterable
 from .evidence import Evidence, EvidenceCollector
 from .models import (BlastRadius, DetectionMethod, Exploitability, Finding,
                      ResourceRef, Rule, Scope, Severity)
+from .reachability import annotate_reachability
 from .registry import RuleRegistry
 
 
@@ -75,6 +76,14 @@ class DetectionEngine:
                     findings.extend(adapter.findings(scope))
             except Exception as exc:  # pragma: no cover
                 findings.append(_error_finding(f"adapter:{adapter.name}", str(exc)))
+
+        # Reachability gating: re-check each finding's attack path against the cluster's
+        # own controls (same shared snapshot, no new fetch) and lower exploitability where
+        # the path is provably broken. Isolated so a bug here can't fail the scan.
+        try:
+            findings = annotate_reachability(findings, evidence)
+        except Exception as exc:  # pragma: no cover - never let gating crash a scan
+            findings.append(_error_finding("reachability", str(exc)))
 
         return findings
 

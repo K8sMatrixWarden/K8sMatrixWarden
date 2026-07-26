@@ -1260,6 +1260,25 @@ security_score = round((1 − cluster_risk / 10) × 100)  <span class="c-mut"># 
 <tr><td><em>n/a</em></td><td>⚠️ <strong>Unknown</strong> — the scan could not read the cluster, so no rating is possible. Explicitly <em>not</em> a passing grade.</td></tr>
 </tbody>
 </table></div>
+
+<h3>Reachability tagging — a separate axis that never moves the score</h3>
+<p>After scoring, <code>core/reachability.py</code> tags every workload finding with <em>how an attacker
+reaches it</em> — but it <strong>never lowers severity, exploitability, or blast_radius</strong>. A real
+misconfiguration is a real thing to fix regardless of reachability; the tags decide triage <em>order</em>,
+not <em>whether</em>. Each finding's <code>exploitable_by</code> carries one or more of:</p>
+<div class="table-scroll"><table>
+<thead><tr><th>Tag</th><th>Meaning</th><th>Fix lever</th></tr></thead>
+<tbody>
+<tr><td>🔴 <code>ingress</code></td><td>A NodePort/LoadBalancer Service or Ingress fronts the pod and no NetworkPolicy isolates it — reachable from outside the cluster <em>today</em>.</td><td>Remediate + cut exposure (NetworkPolicy / drop external Service)</td></tr>
+<tr><td>🟡 <code>pod-privilege</code></td><td>Not externally reachable — exploitable only after an attacker already has code execution in a pod (assume-breach).</td><td>Remediate for defense-in-depth (lower urgency)</td></tr>
+<tr><td>⚠ <code>rbac-escalation</code></td><td>The pod's ServiceAccount holds a cluster-admin escalation lever (wildcard, bind/escalate, impersonate, create-pods, or read-secrets).</td><td>Scope the ServiceAccount's RBAC</td></tr>
+</tbody>
+</table></div>
+<p>On a live kubernetes-goat + DVKA scan this turns 368 flat findings into a triage queue:
+<strong>74 fix-now</strong> (internet-reachable or escalate-to-cluster-admin) vs <strong>270 post-breach-only</strong>
+— with nothing hidden and no severity changed. For deep multi-hop attack-path graphs, optional passthrough
+runners in <code>integrations/external_graph.py</code> invoke <a href="https://github.com/DataDog/KubeHound">KubeHound</a>
+and <a href="https://github.com/ReversecLabs/IceKube">IceKube</a>.</p>
 </section>
 
 <hr>
