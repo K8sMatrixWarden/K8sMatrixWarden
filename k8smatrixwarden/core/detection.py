@@ -77,9 +77,9 @@ class DetectionEngine:
             except Exception as exc:  # pragma: no cover
                 findings.append(_error_finding(f"adapter:{adapter.name}", str(exc)))
 
-        # Reachability gating: re-check each finding's attack path against the cluster's
-        # own controls (same shared snapshot, no new fetch) and lower exploitability where
-        # the path is provably broken. Isolated so a bug here can't fail the scan.
+        # Reachability tagging: tag each finding with its attack vector (internet-reachable /
+        # post-breach / rbac-escalation) from the cluster's own exposure + RBAC, on the same
+        # shared snapshot. NEVER lowers severity. Isolated so a bug here can't fail the scan.
         try:
             findings = annotate_reachability(findings, evidence)
         except Exception as exc:  # pragma: no cover - never let gating crash a scan

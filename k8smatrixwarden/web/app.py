@@ -204,6 +204,7 @@ class WebApp:
                      # count reads these so an unread cluster is never painted as clean.
                      "evidence_ok": latest.evidence_ok,
                      "warnings": scan_warning_lines(latest)},
+            "inventory": latest.inventory,
             "findings": [f.as_dict() for f in latest.findings],
             "threat_matrix": matrix.as_dict(),
             "attack_path": attack_paths(matrix),

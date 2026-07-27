@@ -262,6 +262,28 @@ def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
     return tags, reason
 
 
+def inventory(evidence: Evidence) -> dict:
+    """Cluster inventory + per-pod exposure buckets for the dashboard's scope bar.
+
+    Classifies EVERY pod in scope (not just ones with findings) so the bar has an honest
+    denominator -- "380 pods, 4 internet-reachable" reads very differently from "4 of 4".
+    Each pod lands in exactly one worst-wins bucket so the segments sum to the pod total:
+    internet+admin > internet > admin > internal. Reuses _classify -- same tags, no new logic.
+    """
+    policies = evidence.get("NetworkPolicy", all_scopes=True)
+    pods = evidence.get("Pod")                       # scope-filtered, same as the rules saw
+    buckets = {"internet_admin": 0, "internet": 0, "admin": 0, "internal": 0}
+    for pod in pods:
+        tags, _ = _classify(pod, Evidence.dig(pod, "metadata.namespace"), policies, evidence)
+        ingress, admin = EXPLOIT_INGRESS in tags, EXPLOIT_RBAC_ESCALATION in tags
+        key = ("internet_admin" if ingress and admin else "internet" if ingress
+               else "admin" if admin else "internal")
+        buckets[key] += 1
+    return {"nodes": len(evidence.get("Node", all_scopes=True)),
+            "namespaces": len(evidence.get("Namespace", all_scopes=True)),
+            "pods": len(pods), "exposure": buckets}
+
+
 def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[Finding]:
     """In-place: tag every workload finding with how an attacker reaches it and whether its
     ServiceAccount can escalate to cluster-admin.

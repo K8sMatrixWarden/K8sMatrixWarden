@@ -49,6 +49,20 @@ class ScannerAgent:
         except Exception:
             pass
 
+        # Cluster inventory + pod exposure buckets for the dashboard scope bar. The collector
+        # caches buckets, so kinds the rules already fetched cost nothing here; only Node /
+        # Namespace (if unused by rules) trigger a one-off fetch. Isolated: a probe failure
+        # must never fail the scan, the bar just won't render.
+        inv: dict = {}
+        try:
+            from ..core.reachability import inventory as _inventory
+            ev = collector.collect(
+                {"Pod", "Node", "Namespace", "Service", "NetworkPolicy",
+                 "ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding"}, request.scope)
+            inv = _inventory(ev)
+        except Exception:
+            pass
+
         return ScanResult(
             request=request,
             findings=findings,
@@ -62,4 +76,5 @@ class ScannerAgent:
             name=name,
             cluster_name=cluster,
             mode=mode_label,
+            inventory=inv,
         )

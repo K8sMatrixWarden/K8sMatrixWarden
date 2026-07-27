@@ -67,6 +67,10 @@ class ScanResult:
     #: live scan with --no-runtime / no Falco). Lets the dashboard show the runtime
     #: correlation without a manual paste. See core/correlation.py + agents/runtime.py.
     runtime: Optional[dict] = None
+    #: Cluster inventory + per-pod exposure buckets (nodes/namespaces/pods counts and a
+    #: worst-wins exposure split) for the dashboard scope bar. Empty for scans saved before
+    #: this existed, so the bar simply doesn't render on old reports. See reachability.inventory.
+    inventory: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.scan_id:
@@ -109,6 +113,7 @@ class ScanResult:
             # Only present when a live scan pulled a Falco feed, kept out of the dict
             # otherwise so existing reports/round-trips are byte-for-byte unchanged.
             **({"runtime": self.runtime} if self.runtime else {}),
+            **({"inventory": self.inventory} if self.inventory else {}),
         }
 
     @classmethod
@@ -140,7 +145,8 @@ class ScanResult:
             mode=d.get("mode", "mock"),
             warnings=list(d.get("warnings", []) or []),
             evidence_ok=bool(d.get("evidence_ok", True)),
-            runtime=d.get("runtime") or None)
+            runtime=d.get("runtime") or None,
+            inventory=d.get("inventory", {}) or {})
 
 
 _RATING_EMOJI = {"Excellent": "🟢", "Good": "🟢", "Fair": "🟡", "Poor": "🟠",

@@ -11,7 +11,7 @@ from k8smatrixwarden.core.models import (BlastRadius, Exploitability, Finding,
                                           ResourceRef, Scope, ScopeLevel, Severity)
 from k8smatrixwarden.core.reachability import (EXPLOIT_INGRESS, EXPLOIT_POD_PRIVILEGE,
                                                EXPLOIT_RBAC_ESCALATION,
-                                               annotate_reachability)
+                                               annotate_reachability, inventory)
 
 
 def _pod(name="web", ns="prod", labels=None):
@@ -139,6 +139,29 @@ def test_harmless_sa_gets_no_escalation_tag():
     f = _finding()
     annotate_reachability([f], _ev_rbac([_pod_with_sa()], crb, croles))
     assert EXPLOIT_RBAC_ESCALATION not in f.exploitable_by
+
+
+def test_inventory_buckets_worst_wins_and_sums_to_pods():
+    # 3 pods: one internet-exposed, one clean-internal, one with a cluster-admin SA.
+    exposed = _pod(name="edge", labels={"app": "edge"})
+    internal = _pod(name="worker", labels={"app": "worker"})
+    admin = _pod_with_sa(sa="pwn-sa")
+    admin["metadata"]["name"] = "ops"
+    svc = {"metadata": {"name": "edge-svc", "namespace": "prod"},
+           "spec": {"type": "LoadBalancer", "selector": {"app": "edge"}}}
+    crb = [{"metadata": {"name": "b"}, "roleRef": {"kind": "ClusterRole", "name": "cr"},
+            "subjects": [{"kind": "ServiceAccount", "name": "pwn-sa", "namespace": "prod"}]}]
+    croles = [{"metadata": {"name": "cr"}, "rules": [{"verbs": ["*"], "resources": ["*"]}]}]
+    ev = Evidence({"pods": [exposed, internal, admin], "services": [svc], "networkpolicies": [],
+                   "ingresses": [], "nodes": [{"metadata": {"name": "n1"}}],
+                   "namespaces": [{"metadata": {"name": "prod"}}],
+                   "clusterrolebindings": crb, "clusterroles": croles,
+                   "rolebindings": [], "roles": []}, Scope(ScopeLevel.CLUSTER))
+    inv = inventory(ev)
+    assert inv["pods"] == 3 and inv["nodes"] == 1 and inv["namespaces"] == 1
+    x = inv["exposure"]
+    assert x["internet"] == 1 and x["admin"] == 1 and x["internal"] == 1
+    assert sum(x.values()) == inv["pods"]   # every pod in exactly one bucket
 
 
 if __name__ == "__main__":

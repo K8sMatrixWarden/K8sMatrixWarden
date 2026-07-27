@@ -111,6 +111,11 @@ code,.mono{font-family:var(--mono);font-size:.9em}
 .sevleg i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:.4rem;vertical-align:0}
 .sevleg .s-CRITICAL{background:var(--crit)}.sevleg .s-HIGH{background:var(--high)}
 .sevleg .s-MEDIUM{background:var(--med)}.sevleg .s-LOW{background:var(--low)}.sevleg .s-INFO{background:var(--info)}
+/* pod exposure buckets (reachability) reuse the sevbar idiom, worst-wins colours */
+.sevbar .x-internet_admin,.sevleg .x-internet_admin{background:var(--crit)}
+.sevbar .x-internet,.sevleg .x-internet{background:var(--high)}
+.sevbar .x-admin,.sevleg .x-admin{background:var(--med)}
+.sevbar .x-internal,.sevleg .x-internal{background:var(--low)}
 .sysline{font-family:var(--mono);font-size:.735rem;color:var(--muted);margin:.1rem 0 .6rem;
  display:flex;align-items:center;flex-wrap:wrap;gap:.55rem;letter-spacing:.01em}
 .sysline .dot{width:3px;height:3px;border-radius:50%;background:var(--bd);display:inline-block;flex:0 0 auto}
@@ -499,7 +504,9 @@ function hero(){
     :d>0?`<div class='s up'>&uarr; ${d.toFixed(1)} vs previous</div>`:`<div class='s fm'>no change</div>`);
   const hp=(s.counts.CRITICAL||0)+(s.counts.HIGH||0);
   const cov=D.threat_matrix.summary.coverage_pct;
-  const meta=`<div class='sysline'>${esc(s.scope)} <span class='dot'></span> ${esc(s.mode)} <span class='dot'></span> ${fmtTime(s.generated_at)} <span class='dot'></span> ${esc(s.scan_id)}</div>`;
+  const inv=D.inventory||null;
+  const invBits=inv&&inv.pods?` <span class='dot'></span> ${inv.nodes} node${inv.nodes!==1?'s':''} <span class='dot'></span> ${inv.namespaces} ns <span class='dot'></span> ${inv.pods} pod${inv.pods!==1?'s':''}`:'';
+  const meta=`<div class='sysline'>${esc(s.scope)} <span class='dot'></span> ${esc(s.mode)} <span class='dot'></span> ${fmtTime(s.generated_at)} <span class='dot'></span> ${esc(s.scan_id)}${invBits}</div>`;
   // Cluster never read: show "N/A" rather than a 0.0 risk / Excellent rating that a reader
   // would take as a passing grade for a cluster nothing was collected from.
   if(!scanOk()){
@@ -523,7 +530,20 @@ function hero(){
     <div class='kpi ${hp?'crit':'good'}'><div class='n'>${hp}</div><div class='l'>Critical &amp; high</div><div class='s fm'>${hp?'need attention':'all clear'}</div></div>
     <div class='kpi good'><div class='n'>${cov}<span class='max'>%</span></div><div class='l'>Detection coverage</div><div class='s fm'>${D.threat_matrix.summary.techniques_covered} techniques</div></div>
   </div>
-  ${tot?`<div class='sevbar'>${segs}</div><div class='sevleg'>${leg}</div>`:''}`;
+  ${tot?`<div class='sevbar'>${segs}</div><div class='sevleg'>${leg}</div>`:''}
+  ${exposureBar()}`;
+}
+// Pod exposure bar (reachability): worst-wins buckets over EVERY pod, so the segments have an
+// honest denominator. Reuses the sevbar/sevleg idiom. Renders nothing for pre-inventory scans.
+function exposureBar(){
+  const inv=D.inventory; if(!inv||!inv.pods) return '';
+  const X=inv.exposure||{}, tot=inv.pods;
+  const ORD=[['internet_admin','Internet + cluster-admin'],['internet','Internet-reachable'],
+             ['admin','Cluster-admin SA'],['internal','Post-breach only']];
+  const segs=ORD.filter(([k])=>X[k]).map(([k,lbl])=>`<span class='x-${k}' style='width:${(X[k]/tot*100).toFixed(2)}%' title='${lbl}: ${X[k]}'></span>`).join('');
+  const leg=ORD.filter(([k])=>X[k]).map(([k,lbl])=>`<span><i class='x-${k}'></i><b>${X[k]}</b> ${lbl}</span>`).join('');
+  return `<div class='sysline' style='margin-bottom:.3rem'>Pod exposure &mdash; how much of the cluster an attacker can actually reach</div>
+    <div class='sevbar'>${segs}</div><div class='sevleg'>${leg}</div>`;
 }
 function overview(){
   return `${healthNote()}
