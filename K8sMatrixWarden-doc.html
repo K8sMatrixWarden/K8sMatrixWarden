@@ -1279,6 +1279,13 @@ not <em>whether</em>. Each finding's <code>exploitable_by</code> carries one or 
 — with nothing hidden and no severity changed. For deep multi-hop attack-path graphs, optional passthrough
 runners in <code>integrations/external_graph.py</code> invoke <a href="https://github.com/DataDog/KubeHound">KubeHound</a>
 and <a href="https://github.com/ReversecLabs/IceKube">IceKube</a>.</p>
+<p>The Overview surfaces this as a <strong>pod-exposure inventory bar</strong>: <code>reachability.inventory()</code>
+classifies <em>every</em> in-scope pod (not just flagged ones) into one worst-wins bucket
+— <span style="color:var(--crit,#e5484d)">internet + cluster-admin</span> &gt;
+<span style="color:var(--high,#ff801f)">internet-reachable</span> &gt;
+<span style="color:var(--med,#f5a623)">cluster-admin SA</span> &gt; post-breach-only — so the segments sum to the
+real pod total. The denominator is the point: "380 pods, 4 internet-reachable" reads very differently from
+"4 of 4", and a clean cluster shows an almost-entirely-quiet bar.</p>
 </section>
 
 <hr>

@@ -86,3 +86,14 @@ kube-bench*.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Loose analysis / marketing one-pagers — deliverables, not source. Keep local, don't commit.
+k8s-accuracy-validation.html
+k8s-drift-analysis.html
+k8s-drift-details.html
+k8s-false-positive-funnel.html
+k8s-matrix-falco-coverage.html
+k8s-wiz-capability-analysis.html
+mcp-orchestration-advantage.html
+# Generated per-scan reports
+k8smatrixwarden-report-scan-*.md
