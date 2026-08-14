@@ -16,6 +16,10 @@
 
 ---
 
+## K8sMatrixWarden working with MCP Client
+<video src="K8sMatrixWarden-working.mp4" controls width="100%"></video>
+
+
 ## What it does in 90 seconds
 
 1. **Scan** — 60 detection rules across 11 security domains (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
