@@ -17,7 +17,7 @@
 ---
 
 ## K8sMatrixWarden working with MCP Client
-<video src="K8sMatrixWarden-working.mp4" controls width="100%"></video>
+[[Watch the K8sMatrixWarden Demo Video]](https://github.com/rohitsoni1209/K8sMatrixWarden/blob/edcd45879ef685813ee700ffe341dd75e9bc6f71/K8sMatrixWarden-working.mp4)
 
 
 ## What it does in 90 seconds
