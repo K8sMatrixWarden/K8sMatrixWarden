@@ -777,3 +777,29 @@ def test_the_only_duplicated_formula_between_python_and_js_still_agrees():
     ]
     for case in cases:
         assert finding_anchor(*case) == js_anchor(*case), case
+
+
+def test_every_text_format_states_evidence_coverage():
+    """Coverage is security meaning, not formatting: the format a stakeholder opens must
+    not be the one that cannot say how much of the cluster was read."""
+    platform = _platform()
+    path = fx.write_fixture(fx.scenario_a(), tempfile.mkdtemp())
+    collector = _PartialCollector(path)
+    result = ScannerAgent(platform).scan(
+        ScanRequest(scope=Scope(ScopeLevel.CLUSTER), selector=Selector(),
+                    mode=ScanMode.SYNC), collector, mode_label="mock")
+
+    md = platform.reporting.render(result, "markdown")
+    txt = platform.reporting.render(result, "text")
+    html = platform.reporting.render(result, "html")
+    doc = json.loads(platform.reporting.render(result, "json"))
+
+    for name, body in (("markdown", md), ("text", txt), ("html", html)):
+        assert "coverage" in body.lower(), f"{name} report omits evidence coverage"
+        assert str(result.coverage["coverage_pct"]) in body, \
+            f"{name} report omits the coverage percentage"
+    assert "basis" in html.lower() and "basis" in md.lower()
+    assert doc["coverage"]["coverage_pct"] == result.coverage["coverage_pct"]
+    # The unread kind is named everywhere, not silently dropped.
+    for name, body in (("markdown", md), ("html", html)):
+        assert "ConfigMap" in body, f"{name} report does not name the unread kind"

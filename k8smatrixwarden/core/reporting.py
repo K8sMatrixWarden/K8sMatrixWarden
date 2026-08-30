@@ -636,6 +636,7 @@ class ReportingEngine:
             css=_HTML_CSS, js=_HTML_JS + THEME_JS, scan=_esc(result.scan_id),
             matrix=matrix_html, themebtn=THEME_BUTTON,
             warnings=warning_banner_html(result),
+            coverage=_coverage_html(result),
             cluster=_esc(result.cluster_name), rating=r.rating,
             risk=r.cluster_risk, sec=r.security_score,
             rating_emoji=r.rating_emoji, rating_class=r.rating.lower(),
@@ -670,6 +671,35 @@ def _coverage_lines(result: ScanResult) -> list[str]:
                      "clean may simply not have been visible.")
     lines.append("─" * 60)
     return lines
+
+
+def _coverage_html(result: ScanResult) -> str:
+    """Evidence coverage and assessment confidence for the HTML report.
+
+    The markdown and text reports have carried this since coverage existed; the HTML one
+    did not, which meant the format a stakeholder actually opens was the one that could
+    not say how much of the cluster was read. Coverage is security meaning, not
+    formatting, so every format states it.
+    """
+    cov = result.coverage
+    if not cov:
+        return ""
+    rows = "".join(
+        f"<tr><td>{_esc(name)}</td><td>{d['coverage_pct']}%</td>"
+        f"<td>{_esc(d.get('coverage_basis', 'measured'))}</td></tr>"
+        for name, d in cov.get("domains", {}).items())
+    unread = cov.get("unread_kinds") or []
+    note = (f"<p class='muted'>Not read: <code>{_esc(', '.join(unread))}</code>. Findings "
+            f"are reported in full regardless; the unread parts are unassessed, not "
+            f"clean.</p>" if unread else "")
+    return (f"<section class='matrix'><h2>Evidence coverage &amp; assessment confidence</h2>"
+            f"<p>Evidence coverage <strong>{cov['coverage_pct']}%</strong> "
+            f"(basis: {_esc(cov.get('coverage_basis', 'measured'))}) &middot; "
+            f"assessment confidence <strong>{cov['confidence_pct']}%</strong> "
+            f"({_esc(cov['confidence_label'])})</p>"
+            f"<table class='ctx-table'>"
+            f"<tr><th>Domain</th><th>Coverage</th><th>Basis</th></tr>{rows}</table>"
+            f"{note}</section>")
 
 
 def _coverage_md(result: ScanResult) -> list[str]:
@@ -1272,6 +1302,7 @@ _HTML_TMPL = """<!doctype html><html><head><meta charset="utf-8">
  <div>{chips}</div>
 </div>
 {warnings}
+{coverage}
 {matrix}
 <h2>Findings</h2>
 <div class="filters">{filters}</div>
