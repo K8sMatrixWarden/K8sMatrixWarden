@@ -63,6 +63,15 @@ class ScannerAgent:
         except Exception:
             pass
 
+        # Evidence coverage / assessment confidence, computed AFTER every collect() above
+        # so the inventory probe's kinds are counted too. Structural, derived from what the
+        # collector actually managed to read (§5); it never changes a finding.
+        from ..core.coverage import build_coverage
+        try:
+            coverage = build_coverage(collector)
+        except Exception:                     # never let bookkeeping fail a scan
+            coverage = {}
+
         return ScanResult(
             request=request,
             findings=findings,
@@ -77,4 +86,5 @@ class ScannerAgent:
             cluster_name=cluster,
             mode=mode_label,
             inventory=inv,
+            coverage=coverage,
         )

@@ -338,12 +338,18 @@ def _default_runtime_catalog() -> list[dict]:
         return []
 
 
-def attack_paths(matrix: ThreatMatrix) -> dict:
+def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
     """Chain the matrix's HIT cells into a kill-chain exploit path.
 
     The columns are already in kill-chain order (TACTIC_ORDER: Initial Access -> Impact).
     An attacker's realistic path through THIS cluster is, per tactic they have a foothold
     in (a hit cell), the technique(s) actually available and the resources exposing them.
+
+    Every step is backed by findings this scan actually produced: a tactic with no hit cell
+    contributes no step, so the chain never invents a link between unrelated findings.
+    `runtime` (a scan's runtime block, when one exists) attaches the live evidence that
+    lands on the same tactic, which is what lifts a step's confidence from "possible" to
+    "observed".
 
     ponytail: kill-chain-order chaining, the ATT&CK-navigator convention, not a per-finding
     causal graph. It answers "which tactics can an attacker actually string together here,
@@ -351,12 +357,15 @@ def attack_paths(matrix: ThreatMatrix) -> dict:
     ServiceAccount can reach that binding) when a single-target path matters more than the
     tactic-level overview.
     """
+    by_tactic = _runtime_by_tactic(runtime)
     steps = []
     for col in matrix.columns:                       # already kill-chain ordered
         hits = [c for c in col.cells if c.hit]
         if not hits:
             continue
         sev = col.max_severity
+        evidence = by_tactic.get(col.tactic, [])
+        supporting = _supporting(hits)
         steps.append({
             "tactic": col.tactic,
             "worst_severity": sev.label if sev else None,
@@ -368,17 +377,86 @@ def attack_paths(matrix: ThreatMatrix) -> dict:
                 "finding_rule_ids": sorted({f.rule_id for f in c.findings}),
                 "url": c.url(),
             } for c in hits],
+            # The individual findings that put this step on the chain, so a reader can go
+            # step -> finding -> evidence without re-deriving anything.
+            "supporting_findings": supporting,
+            "runtime_evidence": evidence,
+            "confidence": _step_confidence(evidence),
+            "internet_reachable": any(f["internet_reachable"] for f in supporting),
         })
+    reaches_impact = any(s["tactic"] == "Impact" for s in steps)
     return {
         "scan_id": matrix.scan_id,
         "scope": matrix.scope,
         "chain": " -> ".join(s["tactic"] for s in steps),
         "steps": steps,
         "entry_points": steps[0]["techniques"] if steps else [],
-        "reaches_impact": any(s["tactic"] == "Impact" for s in steps),
+        "reaches_impact": reaches_impact,
         "tactic_count": len(steps),
+        "confidence": _path_confidence(steps),
         "reference": REDGUARD_MATRIX_URL,
     }
+
+
+def _supporting(cells: list) -> list[dict]:
+    """Distinct findings behind a step, worst first, with the reachability context already
+    computed for them (never recomputed here)."""
+    seen: dict = {}
+    for cell in cells:
+        for f in cell.findings:
+            seen.setdefault(f.dedup_key(), f)
+    out = sorted(seen.values(), key=lambda f: (f.severity.order, f.score), reverse=True)
+    return [{"rule_id": f.rule_id, "title": f.title, "severity": f.severity.label,
+             "resource": str(f.resource), "namespace": f.resource.namespace,
+             "exploitable_by": list(f.exploitable_by),
+             "internet_reachable": "ingress" in f.exploitable_by,
+             "exploit_path": list(f.exploit_path)}
+            for f in out[:20]]
+
+
+def _runtime_by_tactic(runtime: Optional[dict]) -> dict:
+    """Live evidence grouped by tactic, from a scan's runtime block. Only `confirmed` and
+    `corroborated` correlations count as evidence for a step; a `runtime-only` alert by
+    definition has no static finding to support."""
+    out: dict = {}
+    for c in ((runtime or {}).get("correlation") or {}).get("correlations", []):
+        if c.get("confidence") == "runtime-only":
+            continue
+        out.setdefault(c.get("tactic", ""), []).append({
+            "level": c.get("confidence"), "timestamp": c.get("timestamp", ""),
+            "rule_id": (c.get("runtime") or {}).get("rule_id"),
+            "title": (c.get("runtime") or {}).get("title"),
+            "resource": c.get("resource", ""), "namespace": c.get("namespace", "")})
+    for drift in ((runtime or {}).get("drift") or {}).get("drift", []):
+        out.setdefault(drift.get("tactic", ""), []).append({
+            "level": "drift", "timestamp": drift.get("timestamp", ""),
+            "rule_id": "drift", "title": drift.get("verdict", ""),
+            "resource": drift.get("pod", ""), "namespace": drift.get("namespace", "")})
+    return out
+
+
+def _step_confidence(evidence: list) -> str:
+    """How strongly this step is evidenced. `observed` requires runtime proof on the same
+    tactic; without it a step is exactly what the scan can honestly claim, a configuration
+    that makes the tactic available."""
+    levels = {e.get("level") for e in evidence}
+    if "confirmed" in levels or "drift" in levels:
+        return "observed"
+    if "corroborated" in levels:
+        return "corroborated"
+    return "configuration-only"
+
+
+_PATH_RANK = {"configuration-only": 0, "corroborated": 1, "observed": 2}
+
+
+def _path_confidence(steps: list) -> str:
+    """The chain is only as strong as its strongest evidenced step, and a chain with no
+    steps has no confidence to report."""
+    if not steps:
+        return "none"
+    best = max(steps, key=lambda s: _PATH_RANK.get(s["confidence"], 0))
+    return best["confidence"]
 
 
 # ----------------------------------------------------------------------- #

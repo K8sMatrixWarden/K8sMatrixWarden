@@ -62,10 +62,19 @@ def test_runtime_refresh_needs_scan_then_degrades_without_cluster():
     # No scan yet -> clear 400, not a crash.
     r = app.route("POST", "/api/runtime/refresh", body=b"{}")
     assert r.status == 400 and "no saved scan" in json.loads(r.text)["error"]
-    # With a (mock) scan but no live cluster access, the live pull degrades gracefully.
+    # With a (mock) scan, the live pull degrades gracefully instead of crashing. Which
+    # degradation depends on the machine the tests run on, and both are correct:
+    #   * no cluster reachable   -> 400 naming the missing cluster access
+    #   * cluster but no Falco   -> 200 with runtime: null and a warning saying why
+    # Asserting only the first made this test fail on any developer machine that happens
+    # to have a working kubeconfig, which is a property of the machine, not of the code.
     _scan(app)
     r = app.route("POST", "/api/runtime/refresh", body=b"{}")
-    assert r.status == 400 and "cluster access" in json.loads(r.text)["error"]
+    out = json.loads(r.text)
+    if r.status == 400:
+        assert "cluster access" in out["error"]
+    else:
+        assert r.status == 200 and out["runtime"] is None and out["warnings"]
 
 
 def test_finding_context_endpoint_returns_report_grade_detail():

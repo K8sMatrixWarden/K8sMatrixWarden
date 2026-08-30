@@ -71,6 +71,11 @@ class ScanResult:
     #: worst-wins exposure split) for the dashboard scope bar. Empty for scans saved before
     #: this existed, so the bar simply doesn't render on old reports. See reachability.inventory.
     inventory: dict = field(default_factory=dict)
+    #: Evidence coverage + assessment confidence (core/coverage.py): what fraction of the
+    #: requested evidence was actually readable, per kind and per domain. Separate from the
+    #: risk score on purpose, "how bad is it" and "how much did we see" are different
+    #: questions. Empty for scans saved before this existed.
+    coverage: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.scan_id:
@@ -105,6 +110,9 @@ class ScanResult:
                 "cluster_risk": self.risk.cluster_risk,
                 "security_score": self.risk.security_score,
                 "rating": self.risk.rating,
+                # Why the score is what it is (§7). Additive: every existing consumer of
+                # this block reads the three keys above and is unaffected.
+                "explanation": self.risk.explanation,
             },
             "counts": self.counts,
             "by_tactic": self.by_tactic,
@@ -114,6 +122,7 @@ class ScanResult:
             # otherwise so existing reports/round-trips are byte-for-byte unchanged.
             **({"runtime": self.runtime} if self.runtime else {}),
             **({"inventory": self.inventory} if self.inventory else {}),
+            **({"coverage": self.coverage} if self.coverage else {}),
         }
 
     @classmethod
@@ -127,7 +136,8 @@ class ScanResult:
             security_score=int(rk.get("security_score", 0)),
             rating=rating,
             rating_emoji=_RATING_EMOJI.get(rating, "🟡"),
-            raw=0.0)
+            raw=0.0,
+            explanation=rk.get("explanation", {}) or {})
         return cls(
             request=_ReplayRequest(_Descr(d.get("scope", "")),
                                    _Descr(d.get("selector", ""))),
@@ -146,7 +156,8 @@ class ScanResult:
             warnings=list(d.get("warnings", []) or []),
             evidence_ok=bool(d.get("evidence_ok", True)),
             runtime=d.get("runtime") or None,
-            inventory=d.get("inventory", {}) or {})
+            inventory=d.get("inventory", {}) or {},
+            coverage=d.get("coverage", {}) or {})
 
 
 _RATING_EMOJI = {"Excellent": "🟢", "Good": "🟢", "Fair": "🟡", "Poor": "🟠",

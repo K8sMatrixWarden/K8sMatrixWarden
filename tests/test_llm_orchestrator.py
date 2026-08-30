@@ -110,7 +110,14 @@ def test_tool_exception_does_not_crash_dispatch():
 
 
 def test_empty_response_yields_placeholder():
-    assert llm._final_text(_Resp(content=[])) == "(no response)"
+    """A model that returns no content still produces an answer string, never None."""
+    restore = _install_fake_anthropic([_Resp(stop_reason="end_turn", content=[])])
+    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+    try:
+        assert llm.run_agentic("scan", platform=None) == "(no response)"
+    finally:
+        restore()
+        os.environ.pop("ANTHROPIC_API_KEY", None)
 
 
 def test_looks_multi_step_heuristic():
@@ -134,12 +141,16 @@ def test_schema_reuses_annotated_descriptions_and_required():
 
 
 def test_missing_key_raises_unavailable():
-    os.environ.pop("ANTHROPIC_API_KEY", None)
+    saved = {k: os.environ.pop(k) for k in list(os.environ)
+             if k.startswith("K8SMATRIXWARDEN_LLM_") or k in ("ANTHROPIC_API_KEY",
+                                                              "OPENAI_API_KEY")}
     try:
         llm.run_agentic("scan then verify", platform=None)
         assert False, "expected LLMUnavailable"
     except llm.LLMUnavailable:
         pass
+    finally:
+        os.environ.update(saved)
 
 
 class _Field:

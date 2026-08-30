@@ -16,7 +16,8 @@
     "compliance": {"enabled": true},
     "attack_surface": {"enabled": true},
     "admission_control": {"enabled": true},
-    "cloud_iam": {"enabled": true}
+    "cloud_iam": {"enabled": true},
+    "log_analysis": {"enabled": true}
   },
   "rule_overrides": {
     "workload-latest-tag": {"severity": "MEDIUM"},

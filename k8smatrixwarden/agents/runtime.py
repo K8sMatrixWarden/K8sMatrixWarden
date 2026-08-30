@@ -73,18 +73,23 @@ def normalize_falco_event(raw: dict) -> dict:
     ('syscall' | 'k8s_audit'). We flatten to {source: falco|audit, proc, connect, file,
     op, uid, pod, namespace, verb, resource}."""
     of = raw.get("output_fields") or {}
+    # When the event happened. Kept because a correlation without a time cannot be placed
+    # in an attack sequence, Falco's own `time` field first, then the syscall timestamp.
+    when = raw.get("time") or of.get("evt.time") or ""
     if raw.get("source") == "k8s_audit" or "ka.verb" in of:
         ev = {"source": "audit", "verb": of.get("ka.verb"),
               "resource": of.get("ka.target.resource"),
               "namespace": of.get("ka.target.namespace"),
-              "pod": of.get("ka.target.name")}
+              "pod": of.get("ka.target.name"), "time": when,
+              "rule": raw.get("rule", "")}
         return {k: v for k, v in ev.items() if v not in (None, "")}
     fd = of.get("fd.name") or ""
     # network fd if Falco gave a sip/rip, or the fd looks like host:port (not a path)
     is_net = bool(of.get("fd.sip") or of.get("fd.rip")) or (":" in fd and "/" not in fd)
     ev = {"source": "falco", "proc": of.get("proc.name"),
           "op": of.get("evt.type"), "namespace": of.get("k8s.ns.name"),
-          "pod": of.get("k8s.pod.name"), "uid": of.get("user.uid")}
+          "pod": of.get("k8s.pod.name"), "uid": of.get("user.uid"),
+          "time": when, "rule": raw.get("rule", "")}
     if is_net:
         ev["connect"] = fd or f"{of.get('fd.sip', '')}:{of.get('fd.sport', '')}"
     elif fd:

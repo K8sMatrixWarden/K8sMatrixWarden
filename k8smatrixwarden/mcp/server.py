@@ -12,10 +12,13 @@ reports, it never mutates the cluster or deletes anything. Scanning (§4.4), the
 datasets, and report rendering/export are all side-effect-free;
 `tests/test_mcp.py::test_no_remediation_or_apply_tool_is_exposed` enforces this stays true.
 
-30 tools, four layers:
+Four layers (the exact tool count is whatever `build_tools()` returns, `doctor` and
+`python -m k8smatrixwarden mcp --list-tools` both report it, so no number is hard-coded
+here to drift):
   1. Knowledge  , browse/query the rule registry, taxonomy, and the 6 MCP datasets
   2. Scan/audit , scan / CIS benchmark / runtime detections + event eval / threat matrix
-  3. Reports    , persist a scan and list/export it later in any of the 7 formats
+  3. Reports    , persist a scan, list/export it in any format, and analyse a stored one
+                   (explain a finding, evidence coverage, posture change, federation)
   4. Platform   , validate the install, generate least-privilege RBAC
 
 Uses the official `mcp` Python SDK (FastMCP) when installed. If it is not installed, the
@@ -577,7 +580,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         if getattr(collector, "warnings", None):
             doc["warnings"] = list(collector.warnings)
         if include_attack_path:
-            doc["attack_path"] = attack_paths(_build(result, platform.registry.rules))
+            doc["attack_path"] = attack_paths(_build(result, platform.registry.rules),
+                                              result.runtime)
         return doc
 
     def run_cis_benchmark(mock: _Mock = True, fixture: _Fixture = None,
@@ -953,7 +957,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                     request, collector, mode_label="mock" if mock else "live")
             except Exception as exc:
                 return {"error": f"scan failed: {exc}"}
-        return attack_paths(_build(result, platform.registry.rules))
+        return attack_paths(_build(result, platform.registry.rules), result.runtime)
 
     # ================================================================== #
     # LAYER 3, Reports: persist + list + export in any format (§16.4)
@@ -1046,6 +1050,122 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             return _encode_report(to_html(rep))
         return {"error": f"unknown output_format: {output_format}"}
 
+    def get_rule(
+            rule_id: Annotated[str, _F(description=(
+                "Exact rule id to describe, e.g. 'rbac-wildcard-verbs'. See list_rules "
+                "for the catalog."))]) -> dict:
+        """Full machine-readable metadata for ONE detection rule: stable id and version,
+        owning shard, severity, detection method and surface (scan vs runtime), MITRE /
+        OWASP / CIS / NSA-CISA mappings, the evidence it needs, its declared detection
+        confidence, references, whether it needs node access or a live runtime feed, and
+        known false-positive patterns. Use it to explain WHY a finding fired and how far to
+        trust it, without re-running a scan. Returns an `error` key for an unknown id."""
+        rule = platform.registry.rules.get(rule_id)
+        if rule is None:
+            return {"error": f"unknown rule id {rule_id!r}; see list_rules"}
+        return rule.metadata()
+
+    def explain_finding(
+            scan_id: Annotated[Optional[str], _F(description=(
+                "Saved scan to read the finding from (see list_reports). Omit for the "
+                "most recent saved scan."))] = None,
+            rule_id: Annotated[Optional[str], _F(description=(
+                "Rule id of the finding to explain. Combine with resource_name (and "
+                "namespace) when one rule fired on several resources."))] = None,
+            resource_name: Annotated[Optional[str], _F(description=(
+                "Name of the affected resource, to pick one finding when a rule fired "
+                "more than once."))] = None,
+            namespace: _Namespace = None,
+            limit: Annotated[int, _F(description=(
+                "Maximum number of explanations to return when the filters match several "
+                "findings (default 5, worst first)."))] = 5,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
+        """Explain a finding in full, structured detail, everything an analyst needs to
+        judge it without opening a report: what is wrong, why it matters, the exact
+        evidence the rule keyed on, the affected resource and its owner, whether it is
+        internet-reachable and the hop chain that makes it so, whether its ServiceAccount
+        can escalate to cluster-admin, any RUNTIME evidence that names this same resource,
+        which kill-chain step it feeds, the four factors that produced its risk score, the
+        standards/MITRE it maps to, how to reproduce it, and a confidence score with the
+        reasons behind it. Filter with rule_id / resource_name / namespace; without
+        filters it explains the worst findings in the scan."""
+        from ..core.explain import explain_finding as _explain
+        from ..core.report_store import ReportStore
+        from ..core.threat_matrix import attack_paths, build_threat_matrix
+
+        try:
+            result = ReportStore(reports_dir).resolve(scan_id)
+        except FileNotFoundError:
+            return {"error": f"no stored report with scan-id {scan_id!r}"}
+        if result is None:
+            return {"error": f"no stored reports in {reports_dir!r}, run a scan first"}
+
+        picked = [f for f in result.findings
+                  if f.severity.weight > 0
+                  and (not rule_id or f.rule_id == rule_id)
+                  and (not resource_name or f.resource.name == resource_name)
+                  and (not namespace or f.resource.namespace == namespace)]
+        if not picked:
+            return {"error": "no finding in that scan matches the given filters",
+                    "scan_id": result.scan_id}
+        picked.sort(key=lambda f: (f.severity.order, f.score), reverse=True)
+        path = attack_paths(build_threat_matrix(result, platform.registry.rules),
+                            result.runtime)
+        return {
+            "scan_id": result.scan_id,
+            "matched": len(picked),
+            "explanations": [
+                _explain(f, rule=platform.registry.rules.get(f.rule_id),
+                         runtime=result.runtime, attack_path=path)
+                for f in picked[:max(1, limit)]],
+        }
+
+    def get_cluster_coverage(
+            scan_id: _ScanIdOpt = None,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
+        """How much of the cluster a saved scan actually READ, and therefore how much
+        weight its risk score carries (§5). Returns evidence coverage and assessment
+        confidence as percentages plus a per-resource-type and per-domain breakdown
+        (`ok` / `partial` / `skipped`, with the reason a type was skipped, e.g. RBAC
+        forbidden or an absent API group), the scan's own warnings, and `evidence_ok`,
+        which is False when the cluster could not be read at all. Low coverage never hides
+        a finding, it tells you the clean-looking parts may simply not have been visible."""
+        from ..core.report_store import ReportStore
+        try:
+            result = ReportStore(reports_dir).resolve(scan_id)
+        except FileNotFoundError:
+            return {"error": f"no stored report with scan-id {scan_id!r}"}
+        if result is None:
+            return {"error": f"no stored reports in {reports_dir!r}, run a scan first"}
+        return {"scan_id": result.scan_id, "generated_at": result.generated_at,
+                "mode": result.mode, "evidence_ok": result.evidence_ok,
+                "warnings": list(result.warnings),
+                "risk": result.risk.as_dict(),
+                "coverage": result.coverage or {
+                    "note": "this scan predates coverage tracking"}}
+
+    def posture_history(
+            scan_id: _ScanIdOpt = None,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
+        """What CHANGED since the previous scan of the same cluster: findings that are
+        new, resolved, still persistent, or regressed (previously fixed and now back),
+        plus per-severity deltas and the risk-score direction. Finding identity is the
+        stable rule+resource key, so 'resolved' means that exact check stopped firing on
+        that exact object, and a finding whose rule was not re-run lands in
+        `not_rescanned` rather than being reported as fixed. Also returns the store's
+        MTTD/MTTR timeline (how long findings have been open, and when ones that were
+        fixed got fixed). Needs at least one saved scan; two for a comparison."""
+        from ..core.posture import latest_change
+        from ..core.report_store import ReportStore
+        store = ReportStore(reports_dir)
+        try:
+            change = latest_change(store, scan_id)
+        except FileNotFoundError:
+            return {"error": f"no stored report with scan-id {scan_id!r}"}
+        if not change:
+            return {"error": f"no stored reports in {reports_dir!r}, run a scan first"}
+        return {**change, "timeline": store.timeline()}
+
     # ================================================================== #
     # LAYER 4, Platform: least-privilege RBAC generation
     # ================================================================== #
@@ -1105,10 +1225,14 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "list_runtime_detections": list_runtime_detections,
         "build_threat_matrix": build_threat_matrix,
         "build_attack_path": build_attack_path,
-        # 3. reports
+        # 3. reports / analysis of a stored scan
         "list_reports": list_reports,
         "download_report": download_report,
         "federation_blast_radius": federation_blast_radius,
+        "get_rule": get_rule,
+        "explain_finding": explain_finding,
+        "get_cluster_coverage": get_cluster_coverage,
+        "posture_history": posture_history,
         # 4. platform
         "generate_rbac_manifest": generate_rbac_manifest,
     }

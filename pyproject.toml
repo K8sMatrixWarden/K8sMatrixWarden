@@ -26,7 +26,11 @@ mcp = ["mcp>=1.0"]
 pdf = ["fpdf2>=2.7"]
 # Excel workbook export
 excel = ["openpyxl>=3.1"]
-# Optional LLM-driven orchestration for the local `chat` REPL (multi-step tool chaining)
+# Optional LLM-driven orchestration for the local `chat` REPL (multi-step tool chaining).
+# The scanner never uses it. Only the Anthropic adapter needs a package: any
+# OpenAI-compatible endpoint (OpenAI, Azure, OpenRouter, vLLM, Ollama, llama.cpp, LM
+# Studio) is driven over stdlib HTTP, so a local model needs no dependency at all.
+# Install `openai` yourself if you would rather use that SDK than the built-in client.
 agent = ["anthropic>=0.40"]
 # Everything
 all = ["kubernetes>=28.0", "rich>=13.0", "mcp>=1.0", "fpdf2>=2.7", "openpyxl>=3.1", "anthropic>=0.40"]

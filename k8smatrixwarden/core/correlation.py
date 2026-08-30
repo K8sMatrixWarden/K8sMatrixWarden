@@ -59,9 +59,17 @@ def _resource_matched(pod: str, ns: str, statics: list) -> list:
     return out
 
 
+def _event_time(event: dict) -> str:
+    """When the runtime event happened, as the source reported it ('' when it didn't).
+    Kept verbatim rather than reformatted, so it stays comparable to the source's own
+    logs during an investigation."""
+    return str(event.get("time") or event.get("evt.time") or "").strip()
+
+
 def _alert_view(a) -> dict:
     return {"rule_id": a.rule_id, "title": a.title, "severity": a.severity.label,
-            "source": a.source, "event": a.event}
+            "source": a.source, "surface": getattr(a, "surface", "runtime"),
+            "timestamp": _event_time(a.event), "event": a.event}
 
 
 def _finding_view(f: Finding) -> dict:
@@ -98,11 +106,20 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
                   key=lambda s: s.order)
         correlations.append({
             "tactic": a.tactic,
+            # `confidence` is the historic key; `correlation_level` is the same value under
+            # the name §8 asks for. Both are emitted so nothing downstream breaks.
             "confidence": conf,
+            "correlation_level": conf,
             "verdict": verdict,
+            "reason": _reason(conf, pod, ns, matched),
             "severity": sev.label,
+            "timestamp": _event_time(a.event),
+            "source": a.source,
+            "resource": pod,
+            "namespace": ns,
             "runtime": _alert_view(a),
             "static_findings": [_finding_view(f) for f in matched[:5]],
+            "related_finding": _finding_view(matched[0]) if matched else None,
         })
 
     correlations.sort(key=lambda c: Severity.parse(c["severity"]).order, reverse=True)
@@ -114,7 +131,26 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
         "runtime_only": sum(1 for c in correlations
                             if c["confidence"] == "runtime-only"),
         "correlations": correlations,
+        # The same correlations in the order they HAPPENED, which is how an incident is
+        # read. Events with no timestamp sort last rather than being dropped.
+        "timeline": sorted(correlations,
+                           key=lambda c: (c["timestamp"] == "", c["timestamp"])),
     }
+
+
+def _reason(level: str, pod: str, ns: str, matched: list) -> str:
+    """Why this correlation got the confidence it did, in one line an analyst can audit."""
+    where = f"pod {pod!r}" + (f" in ns/{ns}" if ns else "")
+    if level == "confirmed":
+        return (f"runtime event names {where}, which is (or belongs to) the resource "
+                f"{matched[0].resource} the static finding is on")
+    if level == "corroborated":
+        if not pod:
+            return ("runtime event shares the tactic with static findings but names no "
+                    "resource, so no resource-level link can be established")
+        return (f"runtime event names {where}, which does not match any static finding's "
+                f"resource; shared tactic only")
+    return "no static finding carries this tactic, nothing to link the behaviour to"
 
 
 # --------------------------------------------------------------------------- #
@@ -187,8 +223,10 @@ def detect_drift(pods: list[dict], events: list[dict]) -> dict:
             findings.append({
                 "pod": name, "namespace": ns, "policy": policy,
                 "declared": declared, "observed": observed, "tactic": tactic,
-                "severity": "CRITICAL",
+                "severity": "CRITICAL", "timestamp": _event_time(e),
+                "source": str(e.get("source", "")),
                 "verdict": f"policy bypass, pod declares {declared!r} but runtime shows "
                            f"{observed}", "event": e})
+    findings.sort(key=lambda d: (d["timestamp"] == "", d["timestamp"]))
     return {"pods_checked": len(by_pod), "events_seen": len(events),
             "drift_count": len(findings), "drift": findings}

@@ -20,6 +20,7 @@ ALL_TOOLS = {
     "detect_drift", "deploy_falco", "list_runtime_detections",
     "build_threat_matrix", "build_attack_path",
     "list_reports", "download_report", "federation_blast_radius",
+    "get_rule", "explain_finding", "get_cluster_coverage", "posture_history",
     "generate_rbac_manifest",
 }
 
@@ -71,6 +72,35 @@ def test_no_remediation_or_apply_tool_is_exposed():
     offenders = [name for name in tools
                  if any(m in name.lower() for m in forbidden_markers)]
     assert offenders == [], f"unexpected write-capable MCP tool(s): {offenders}"
+
+
+def test_stored_scan_analysis_tools_do_not_mutate_the_report_store():
+    """The read-only boundary for the analysis tools added on top of a saved scan: they
+    read a stored report and must leave the store byte-for-byte unchanged."""
+    import hashlib
+    import os
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    tools = build_tools()
+    tools["run_scan"](mock=True, reports_dir=d, save=True)
+
+    def _fingerprint():
+        out = {}
+        for name in sorted(os.listdir(d)):
+            with open(os.path.join(d, name), "rb") as fh:
+                out[name] = hashlib.sha256(fh.read()).hexdigest()
+        return out
+
+    before = _fingerprint()
+    tools["explain_finding"](reports_dir=d)
+    tools["get_cluster_coverage"](reports_dir=d)
+    tools["posture_history"](reports_dir=d)
+    tools["get_rule"]("rbac-wildcard-verbs")
+    tools["list_reports"](reports_dir=d)
+    tools["download_report"](reports_dir=d, format="sarif")
+    tools["federation_blast_radius"](reports_dir=d)
+    assert _fingerprint() == before
 
 
 def test_deploy_falco_is_read_only_by_default():

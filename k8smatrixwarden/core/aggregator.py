@@ -27,7 +27,13 @@ class ResultAggregator:
             existing.nsa_cisa = sorted(set(existing.nsa_cisa) | set(f.nsa_cisa))
             if f.severity.order > existing.severity.order:
                 existing.severity = f.severity
-        return list(merged.values())
+        # Deterministic order, worst first then by identity. Rules execute in parallel and
+        # complete in whatever order the pool finishes them, so without this the SAME scan
+        # emits findings in a different sequence each run, which shows up as spurious diffs
+        # in SARIF/JSON output and makes two reports awkward to compare.
+        return sorted(merged.values(),
+                      key=lambda f: (-f.severity.order, f.rule_id, f.resource.kind,
+                                     f.resource.name, f.resource.namespace or ""))
 
     @staticmethod
     def counts(findings: list[Finding]) -> dict[str, int]:

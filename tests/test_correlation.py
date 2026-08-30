@@ -17,9 +17,18 @@ def test_normalize_falco_syscall_event():
                              "k8s.pod.name": "web-abc", "user.uid": 0,
                              "fd.name": "/etc/passwd", "evt.type": "open"}}
     ev = normalize_falco_event(raw)
+    # `rule` and `time` are carried through so a correlation can name the Falco rule that
+    # fired and be placed in an incident timeline; this event has no timestamp, so `time`
+    # is dropped rather than invented.
     assert ev == {"source": "falco", "proc": "bash", "op": "open",
                   "namespace": "default", "pod": "web-abc", "uid": 0,
-                  "file": "/etc/passwd"}
+                  "file": "/etc/passwd", "rule": "Terminal shell in container"}
+
+
+def test_normalize_falco_event_keeps_the_timestamp():
+    raw = {"source": "syscall", "time": "2026-08-30T10:15:00Z", "rule": "Shell",
+           "output_fields": {"proc.name": "bash", "k8s.pod.name": "web-abc"}}
+    assert normalize_falco_event(raw)["time"] == "2026-08-30T10:15:00Z"
 
 
 def test_normalize_falco_network_event():

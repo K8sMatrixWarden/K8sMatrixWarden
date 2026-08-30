@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-60-orange"/>
-  <img src="https://img.shields.io/badge/MCP%20tools-32-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-316%20passing-success"/>
+  <img src="https://img.shields.io/badge/MCP%20tools-36-blueviolet"/>
+  <img src="https://img.shields.io/badge/tests-496%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -22,7 +22,7 @@
 
 ## What it does in 90 seconds
 
-1. **Scan** — 60 detection rules across 11 security domains (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
+1. **Scan** — 60 detection rules across 11 domain shards (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
 2. **Correlate** — joins static findings to live Falco/audit runtime events → **confirmed** (the event names the exact resource a finding is on — actively exploited), **corroborated** (same tactic/namespace, no resource link), or **runtime-only** (novel behavior)
 3. **Reach** — tags every workload finding with its live attack vector without ever lowering severity: **🔴 internet-reachable** (a NodePort/LoadBalancer/Ingress fronts the pod and no NetworkPolicy isolates it — fix now), **🟡 post-breach only** (reachable only after an attacker is already in a pod), and **⚠ rbac-escalation** (the pod's ServiceAccount can reach cluster-admin). Turns a flat finding list into a triage queue — e.g. *368 findings → 74 fix-now, 270 deprioritizable* — with nothing hidden. See [`core/reachability.py`](k8smatrixwarden/core/reachability.py).
 4. **Visualize** — interactive dashboard with a **pod-exposure inventory bar** (every pod bucketed worst-wins: internet+admin / internet-reachable / cluster-admin SA / post-breach-only, over an honest pod-count denominator), threat matrix heatmap, kill-chain exploit path, attack map (chain + vulnerable resources), MTTD/MTTR timeline, runtime readiness
@@ -30,7 +30,7 @@
 6. **Attest** — governance compliance audit: maps posture onto **PCI DSS v4.0, SOC 2, ISO 27001:2022, NIST 800-53 rev5** with per-requirement pass/fail/evidence and "N findings block PCI-DSS attestation" — auditor-facing PDF/HTML, not a finding dump
 7. **Federate** — multi-cluster blast radius: correlates saved scans across clusters and flags **shared non-default identities** (same custom ClusterRole / ServiceAccount / cloud IAM role in >1 cluster; built-in defaults excluded) as **candidate** cross-cluster lateral-movement paths to verify — "if prod is compromised, staging may fall too — here's the shared role to check"
 
-**32 MCP tools** (Cursor, Claude Code, VS Code Agent mode) — conversational API for scanning, correlation, RBAC generation, threat matrix building.
+**36 MCP tools** (Cursor, Claude Code, VS Code Agent mode) — conversational API for scanning, correlation, RBAC generation, threat matrix building.
 
 **Zero dependencies** in the core engine — pure Python stdlib, no database, runs offline.
 
@@ -83,7 +83,7 @@ python -m k8smatrixwarden web --port 8080
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (316/316 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (496/496 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -119,7 +119,7 @@ discovery, so there is nothing to write and no path to fill in.
 2. **Open the folder** in your MCP client — Cursor, Claude Code, or VS Code.
 3. **Enable the server and confirm the tools load.**
    - *Cursor* — **Settings → Tools & MCP**; `k8smatrixwarden` should be listed, toggled on, with
-     32 tools under it.
+     36 tools under it.
    - *Claude Code* — run `/mcp`, approve the project-scoped server the first time it prompts.
    - *VS Code* — open Copilot Chat, switch the mode dropdown to **Agent**, then check the tools (🛠)
      picker. MCP tools only appear in Agent mode.
@@ -181,12 +181,12 @@ Restart the client after editing.
 > **Why not one file for all clients?** MCP standardizes the *protocol*, not *config discovery* —
 > each client picked its own filename, directory and JSON shape (VS Code nests under `servers`
 > with `"type": "stdio"`; everyone else uses `mcpServers`). The **server** never forks: all five
-> clients run the identical `k8smatrixwarden mcp` process and see the identical 32 tools.
+> clients run the identical `k8smatrixwarden mcp` process and see the identical 36 tools.
 
 Verify the server independently at any time:
 
 ```bash
-python -m k8smatrixwarden mcp --list-tools     # prints all 32, without starting the server
+python -m k8smatrixwarden mcp --list-tools     # prints all 36, without starting the server
 ```
 
 ### 2. From the command line
@@ -266,7 +266,7 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 
 | Command | What it does |
 |---|---|
-| `k8smatrixwarden mcp [--list-tools]` | **Run the MCP server**, or list its 32 tools |
+| `k8smatrixwarden mcp [--list-tools]` | **Run the MCP server**, or list its 36 tools |
 | `k8smatrixwarden chat` | **Interactive conversational assistant** (plain-English, confirm-then-run) |
 | `k8smatrixwarden scan ...` | Run a scan by scope × selector, or a one-shot natural-language query |
 | `k8smatrixwarden web [--port 8080]` | **Security Dashboard** web UI — browse scans, open reports, view the per-scan threat matrix, run a scan. Binds `127.0.0.1` |
@@ -274,9 +274,12 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 | `k8smatrixwarden rules [--module M] [--tactic T]` | List the rule registry (each tagged `surface=scan`) |
 | `k8smatrixwarden coverage` | MITRE tactic coverage (rules per tactic) |
 | `k8smatrixwarden cis ...` | Full **CIS Kubernetes Benchmark v1.8** (all 130 controls) |
+| `k8smatrixwarden compliance ...` | Governance audit: **PCI DSS 4.0 · SOC 2 · ISO 27001:2022 · NIST 800-53 r5** |
+| `k8smatrixwarden federation` | **Cross-cluster blast radius** from the saved scans of each cluster |
+| `k8smatrixwarden posture` | **What changed** since the previous scan: new / resolved / persistent / regressed |
 | `k8smatrixwarden report list / download` | List & re-download saved scans in any format/filename (scans are saved automatically) |
 | `k8smatrixwarden roles` | Per-plugin scoped RBAC ClusterRoles |
-| `k8smatrixwarden doctor` | Validate taxonomy, aliases, duplicate rule ids |
+| `k8smatrixwarden doctor [--probe]` | **Full health check** — shards, config, rules, taxonomy, MCP, report formats, runtime, LLM, deps, read-only invariants |
 
 ### Scan options
 
@@ -333,11 +336,57 @@ CIS-designated manual reviews (surfaced, never auto-passed).
 | Plugin model | `k8smatrixwarden/core/plugin.py` |
 | 11 Domain Shards | `k8smatrixwarden/shards/*` |
 | Orchestrator / Scanner / Runtime agents | `k8smatrixwarden/agents/*` |
-| MCP Server | `k8smatrixwarden/mcp/` — **32 tools**: knowledge (14), scan/audit/runtime/analysis (13), reports (3), platform (2). Every parameter carries a schema description. Read-only: no remediation/apply tool is exposed. |
+| MCP Server | `k8smatrixwarden/mcp/` — **36 tools**: knowledge (15), scan/audit/runtime (13), reports & stored-scan analysis (7), platform (1). Every parameter carries a schema description. Read-only: no remediation/apply tool is exposed. |
 | Scan × Runtime correlation | `k8smatrixwarden/core/correlation.py` |
+| Reachability tagging | `k8smatrixwarden/core/reachability.py` (attack vector + structural hop chain) |
+| Evidence coverage & confidence | `k8smatrixwarden/core/coverage.py` |
+| Finding explanation | `k8smatrixwarden/core/explain.py` — one structured shape, every surface |
+| Historical posture | `k8smatrixwarden/core/posture.py` + `report_store.py` (timeline) |
+| Health checks | `k8smatrixwarden/doctor.py` (PASS / WARN / FAIL / NOT CONFIGURED) |
+| Optional LLM layer | `k8smatrixwarden/agents/llm_provider.py` — provider/model agnostic, never used by the scanner |
 | Interactive Dashboard | `k8smatrixwarden/web/` — zero-dependency SPA, `/api/dashboard` · `/api/timeline` · `/api/runtime` |
 | IST timestamps | `k8smatrixwarden/core/timeutil.py` |
 | Taxonomy / Config | `k8smatrixwarden/taxonomy/*.json` · `k8smatrixwarden/config/default_config.json` |
+
+## Optional LLM layer — provider- and model-agnostic
+
+**The scanner never needs an LLM.** Every number in this README (findings, risk, coverage,
+threat matrix, attack path, CIS/compliance status) is produced by deterministic Python with
+zero model involvement. The optional agent layer only powers the local `chat` REPL's
+multi-step tool chaining; an MCP client brings its own model and does not use this at all.
+
+When you do want it, nothing about the provider or model is compiled in — configure it:
+
+```bash
+# any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter, Together, Groq,
+# vLLM, llama.cpp, LM Studio, Ollama — including fully local models
+export K8SMATRIXWARDEN_LLM_PROVIDER=openai-compatible
+export K8SMATRIXWARDEN_LLM_BASE_URL=http://localhost:11434/v1
+export K8SMATRIXWARDEN_LLM_MODEL=llama3.1:70b
+
+# or a hosted Anthropic model
+export K8SMATRIXWARDEN_LLM_PROVIDER=anthropic
+export K8SMATRIXWARDEN_LLM_MODEL=<any model your account can call>
+export ANTHROPIC_API_KEY=...
+```
+
+Equivalent settings live in the `"llm"` block of `k8smatrixwarden/config/agent.json`
+(`provider`, `model`, `base_url`, `api_key_env`, `extra`). Environment wins over the file.
+With no provider set, one is auto-detected from a conventional credential
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`); with none of those either, the agent path simply
+stays off.
+
+**Changing the model is configuration, never a code change.** Check what is active:
+
+```bash
+python -m k8smatrixwarden doctor            # reports provider/model/config validity
+python -m k8smatrixwarden doctor --probe    # also makes one tiny live call
+```
+
+Any LLM problem — no key, wrong model, unreachable endpoint, rate limit, missing SDK — is
+reported and the tool falls back to its deterministic path. It can never change what a scan
+found. The OpenAI-compatible adapter works with no third-party package at all (stdlib HTTP);
+`pip install -e ".[agent]"` adds the Anthropic SDK.
 
 ## The 11 domain shards
 
@@ -388,7 +437,7 @@ kubectl apply -f k8smatrixwarden-rbac.json
 self-contained, searchable page (dark/light aware) covering everything: architecture and design
 decisions, the risk-scoring math, all 11 shards' rule catalogs, MITRE / OWASP / CIS coverage, the
 complete CLI flag reference, configuration, live-cluster setup, the runtime-correlation layer, the
-full 32-tool MCP reference with per-client setup, known limitations, and troubleshooting.
+full 36-tool MCP reference with per-client setup, known limitations, and troubleshooting.
 
 ## License
 

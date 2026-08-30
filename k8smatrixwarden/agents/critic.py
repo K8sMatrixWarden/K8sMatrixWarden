@@ -29,21 +29,22 @@ _DEFAULT = {"approved": True, "confidence": 1.0, "missing_evidence": [],
             "recommended_tools": [], "reason": "", "issues": [], "recommended_actions": []}
 
 
-def review(query: str, draft: str, *, client, model: str, evidence: str = "") -> dict:
+def review(query: str, draft: str, *, client, model: str = "",
+           evidence: str = "") -> dict:
+    """Critique a draft assessment with whatever provider/model the operator configured.
+
+    `client` is an `llm_provider.LLMProvider` (or a raw SDK client, which is wrapped), so
+    the critic is as provider-agnostic as the loop it reviews."""
+    from .llm_provider import as_provider
     content = (f"{CRITIC_PROMPT}\n\nTask: {query}\n\nEvidence / tool trace:\n{evidence}\n\n"
                f"Draft assessment:\n{draft}")
     try:
-        resp = client.messages.create(
-            model=model, max_tokens=1024,
-            messages=[{"role": "user", "content": content}])
+        resp = as_provider(client, model=model).chat(
+            system="", messages=[{"role": "user", "content": content}],
+            tools=[], max_tokens=1024)
     except Exception:
         return dict(_DEFAULT)  # fail-open, never let the critic break the run
-    return _parse(_text(resp))
-
-
-def _text(resp) -> str:
-    return "".join(getattr(b, "text", "") for b in getattr(resp, "content", [])
-                   if getattr(b, "type", None) == "text")
+    return _parse(resp.text)
 
 
 def _parse(text: str) -> dict:

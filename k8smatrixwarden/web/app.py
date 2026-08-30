@@ -204,10 +204,17 @@ class WebApp:
                      # count reads these so an unread cluster is never painted as clean.
                      "evidence_ok": latest.evidence_ok,
                      "warnings": scan_warning_lines(latest)},
+            # Evidence coverage / assessment confidence (§5) and the score's own
+            # contributor breakdown (§7). Both are computed server-side; the dashboard
+            # renders them and never recomputes security logic in JavaScript.
+            "coverage": latest.coverage,
+            "risk_explanation": latest.risk.explanation,
+            # What changed since the previous scan of this cluster (§16).
+            "posture": self._posture(selected),
             "inventory": latest.inventory,
             "findings": [f.as_dict() for f in latest.findings],
             "threat_matrix": matrix.as_dict(),
-            "attack_path": attack_paths(matrix),
+            "attack_path": attack_paths(matrix, latest.runtime),
             "runtime": {"armed": len(catalog), "by_tactic": runtime_by_tactic,
                         "exposed_tactics": exposed},
             # Runtime correlation baked into the scan at --live time from the Falco feed
@@ -222,6 +229,15 @@ class WebApp:
                          "rating": r.rating, "risk_score": r.risk_score,
                          "total": r.total, "scope": r.scope} for r in reports],
         }
+
+    def _posture(self, scan_id: str) -> dict:
+        """Posture change vs the previous scan of the same cluster. Isolated: a store with
+        one scan (or an unreadable older report) must not take the dashboard down."""
+        from ..core.posture import latest_change
+        try:
+            return latest_change(self.store, scan_id)
+        except Exception:
+            return {}
 
     def _api_runtime(self, body: bytes) -> Response:
         """Ingest a batch of runtime events (Falco/audit JSON) and return both the
@@ -261,7 +277,8 @@ class WebApp:
         without loading the whole page. Identifies the finding by its stable anchor, the
         same slug the report cards and the dashboard JS already share."""
         from ..core.reporting import finding_anchor
-        from ..core.finding_context import build_finding_context
+        from ..core.explain import explain_finding
+        from ..core.threat_matrix import attack_paths
         result = self.store.resolve(q.get("scan_id"))
         if result is None:
             return _json({"error": "no such scan"}, 404)
@@ -271,9 +288,16 @@ class WebApp:
                                     x.resource.namespace) == anchor), None)
         if f is None:
             return _json({"error": "finding not found"}, 404)
-        ctx = build_finding_context(f)
-        return _json({"summary": ctx.summary, "impact": ctx.impact,
-                      "validation": ctx.validation_steps})
+        path = attack_paths(build_threat_matrix(result, self.p.registry.rules),
+                            result.runtime)
+        explanation = explain_finding(f, rule=self.p.registry.rules.get(f.rule_id),
+                                      runtime=result.runtime, attack_path=path)
+        # `summary`/`impact`/`validation` are kept at the top level: the dashboard's inline
+        # detail pane already reads those three keys, and the richer structure is additive.
+        return _json({"summary": explanation["what"],
+                      "impact": explanation["why_it_matters"],
+                      "validation": explanation["validation_steps"],
+                      "explanation": explanation})
 
     def _api_runtime_refresh(self, body: bytes) -> Response:
         """Live-pull Falco events from the cluster, re-correlate against the current scan,

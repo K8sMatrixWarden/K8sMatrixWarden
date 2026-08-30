@@ -550,10 +550,72 @@ function overview(){
   <div class='grid2'>
     <div class='panel'><h2>Fix first</h2>${priorityList()}</div>
     <div class='panel'><h2>Risk by domain</h2>${domainBars()}</div>
+    <div class='panel'><h2>Why this score</h2>${riskContributors()}</div>
+    <div class='panel'><h2>Evidence coverage</h2>${coveragePanel()}</div>
     <div class='panel'><h2>Attack surface</h2>${surfaceStrip()}</div>
     <div class='panel'><h2>Risk trend</h2>${trendBars()}</div>
   </div>
+  <div class='panel'><h2>Since the last scan</h2>${posturePanel()}</div>
   <div class='panel'><h2>Runtime coverage</h2>${runtimeReadiness()}</div>`;
+}
+// What the risk score is actually made of. Rendered straight from the server's own
+// breakdown, the browser does no scoring arithmetic of its own.
+function riskContributors(){
+  const x=D.risk_explanation||{};
+  if(!x.by_severity) return "<div class='fm'>No scored findings.</div>";
+  const rows=Object.entries(x.by_tactic||{}).slice(0,6).map(([k,v])=>
+    `<div class='bar'><div class='barl'>${esc(k)}</div><div class='bart'>
+      <div class='barf' style='width:${Math.max(v.share_pct,6)}%'>${v.share_pct}% · ${v.findings}</div></div></div>`).join('');
+  // `resource` here is the server's pre-rendered string, not the {kind,name,namespace}
+  // object findingAnchor() needs, so these rows are plain text rather than deep links.
+  const top=(x.top_contributors||[]).slice(0,3).map(f=>
+    `<div class='findlink'>
+      <span class='sev ${f.severity}'>${f.severity}</span>
+      <span class='fl-t'>${esc(f.rule_id)}</span>
+      <span class='fl-r'><code>${esc(f.resource)}</code></span>
+      <span class='fl-go'>${f.share_pct}%</span></div>`).join('');
+  return `<div class='fm'>Raw score ${x.raw_total} over ${x.scored_findings} findings,
+    saturated to ${x.cluster_risk}/10. <code>${esc(x.formula||'')}</code></div>
+    <div style='margin:.6rem 0'>${rows}</div>${top}`;
+}
+// How much of the cluster this verdict rests on. Never used to soften a finding.
+function coveragePanel(){
+  const c=D.coverage;
+  if(!c||!c.domains) return "<div class='fm'>Coverage was not recorded for this scan.</div>";
+  const rows=Object.entries(c.domains).map(([k,v])=>
+    `<div class='bar'><div class='barl'>${esc(k)}</div><div class='bart'>
+      <div class='barf' style='width:${Math.max(v.coverage_pct,6)}%;background:var(--${v.coverage_pct>=100?'low':v.coverage_pct>=50?'med':'crit'})'>${v.coverage_pct}%</div>
+      </div></div>`).join('');
+  const unread=(c.unread_kinds||[]).length
+    ? `<div class='fm' style='margin-top:.6rem'>Not read: <code>${c.unread_kinds.map(esc).join('</code>, <code>')}</code>.
+       Those areas are <b>unassessed</b>, not clean.</div>` : '';
+  return `<div class='fm'>Evidence coverage <b>${c.coverage_pct}%</b> ·
+    assessment confidence <b>${c.confidence_pct}% (${esc(c.confidence_label)})</b></div>
+    <div style='margin:.6rem 0'>${rows}</div>${unread}`;
+}
+// New / resolved / regressed vs the previous scan of the same cluster.
+function posturePanel(){
+  const p=D.posture;
+  if(!p||!p.current_scan_id) return "<div class='fm'>No earlier scan to compare against.</div>";
+  if(!p.previous_scan_id) return `<div class='fm'>${esc(p.summary)}</div>`;
+  const cells=Object.entries(p.counts||{}).map(([sev,v])=>{
+    const dir=v.delta>0?'up':v.delta<0?'down':'fm';
+    const sign=v.delta>0?'+':'';
+    return `<div class='kpi'><div class='n'>${v.current}</div><div class='l'>${esc(sev)}</div>
+      <div class='s ${dir}'>${v.previous} &rarr; ${v.current} (${sign}${v.delta})</div></div>`}).join('');
+  const list=(title,items,cls)=>items.length
+    ? `<div class='fm' style='margin-top:.7rem'><b>${title} (${items.length})</b></div>`
+      + items.slice(0,5).map(f=>`<div class='findlink ${cls}'><span class='sev ${f.severity}'>${f.severity}</span>
+          <span class='fl-t'>${esc(f.rule_id)}</span><span class='fl-r'><code>${esc(f.resource)}</code></span></div>`).join('')
+    : '';
+  return `<div class='fm'>${esc(p.summary)}</div>
+    <div class='kpis' style='margin:.8rem 0'>${cells}</div>
+    ${list('Regressed (previously fixed, back again)',p.regressed||[],'')}
+    ${list('New',p.new||[],'')}
+    ${list('Resolved',p.resolved||[],'')}
+    ${(p.not_rescanned||[]).length?`<div class='fm' style='margin-top:.6rem'>${p.not_rescanned.length}
+      earlier finding(s) were <b>not re-scanned</b> by this run, so they are neither confirmed
+      fixed nor still open.</div>`:''}`;
 }
 function priorityList(){
   const top=[...D.findings].sort((a,b)=>SEV.indexOf(a.severity)-SEV.indexOf(b.severity)||b.score-a.score)

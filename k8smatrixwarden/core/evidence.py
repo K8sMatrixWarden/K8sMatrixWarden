@@ -120,6 +120,12 @@ class EvidenceCollector:
         #: fetch errored, which is the difference between "clean cluster" and "we could
         #: not read the cluster at all".
         self.fetched_ok = False
+        #: Per-resource-type read outcome, the structural basis for evidence coverage and
+        #: assessment confidence (§5). kind -> {status: ok|partial|skipped, count, reason}.
+        #: A kind that was never requested does not appear at all; a kind that was
+        #: requested and could not be read appears as `skipped`, which is what stops
+        #: "we could not look" from being reported as "nothing found".
+        self.coverage: dict[str, dict] = {}
 
     @property
     def degraded(self) -> bool:
@@ -127,11 +133,21 @@ class EvidenceCollector:
         clean cluster and must never be rendered as a passing score."""
         return bool(self.warnings) and not self.fetched_ok
 
+    def _record(self, kind: str, status: str, count: int = 0, reason: str = "") -> None:
+        """Record how one resource type's read went. Called by `_fetch` for anything other
+        than a clean read; `collect` fills in the clean case."""
+        self.coverage[kind] = {"status": status, "count": count, "reason": reason}
+
     def collect(self, needs: set[str], scope: Scope) -> Evidence:
         for kind in needs:
             bucket = KIND_ALIASES.get(kind, kind.lower())
             if bucket not in self._cache:
-                self._cache[bucket] = self._fetch(kind, bucket)
+                items = self._fetch(kind, bucket)
+                self._cache[bucket] = items
+                # `_fetch` records its own outcome when the read was degraded; anything it
+                # did not record was a clean read.
+                self.coverage.setdefault(
+                    kind, {"status": "ok", "count": len(items), "reason": ""})
         return Evidence(self._cache, scope)
 
     def _fetch(self, kind: str, bucket: str) -> list[dict]:  # pragma: no cover - overridden
@@ -349,6 +365,11 @@ class LiveEvidenceCollector(EvidenceCollector):
     #: Per-request cap (seconds) so an unreachable/slow API server can't hang a scan.
     _REQUEST_TIMEOUT = 15
     _PREFLIGHT_TIMEOUT = 6
+    #: Set by `_get_json` when a list was truncated at the pagination cap, so `_fetch` can
+    #: record that type's coverage as `partial` rather than a clean read. A class-level
+    #: default so a collector built without __init__ (tests substituting a fake API) still
+    #: has it.
+    _page_capped = False
 
     def __init__(self, kubeconfig: Optional[str] = None, context: Optional[str] = None):
         super().__init__()
@@ -580,6 +601,7 @@ class LiveEvidenceCollector(EvidenceCollector):
                 return items
         # Hit the page cap with a continue token still outstanding, partial, and we say so
         # rather than silently under-reporting a very large cluster.
+        self._page_capped = True
         self.warnings.append(
             f"{path}: read first {len(items)} objects then stopped at the pagination cap "
             f"({self._MAX_PAGES} pages), results for this type are partial")
@@ -617,7 +639,11 @@ class LiveEvidenceCollector(EvidenceCollector):
             return self._build_component_config()
         path = self._PATHS.get(bucket)
         if not path:
-            return []   # synthetic buckets (cloudiam) unavailable without an adapter
+            # Synthetic buckets (cloudiam) have no K8s API path and need an external
+            # adapter. Report them as unread rather than as an empty, clean result.
+            self._record(kind, "skipped", 0,
+                         "no Kubernetes API path; needs an external evidence adapter")
+            return []
         try:
             items = self._get_json(path)
         except Exception as exc:
@@ -633,8 +659,14 @@ class LiveEvidenceCollector(EvidenceCollector):
             # RBAC-forbidden, missing API group, or a transient error for THIS resource
             # type only: skip it, record why, and keep scanning everything else. Honest
             # partial coverage beats aborting the whole scan over one resource type.
-            self.warnings.append(f"{kind}: skipped ({_short_api_error(exc)})")
+            reason = _short_api_error(exc)
+            self.warnings.append(f"{kind}: skipped ({reason})")
+            self._record(kind, "skipped", 0, reason)
             return []
+        if self._page_capped:
+            self._page_capped = False
+            self._record(kind, "partial", len(items),
+                         "hit the pagination cap; results for this type are incomplete")
         self.fetched_ok = True
         for it in items:
             it.setdefault("kind", kind)
@@ -650,9 +682,11 @@ class LiveEvidenceCollector(EvidenceCollector):
         try:
             pods = self._get_json("/api/v1/namespaces/kube-system/pods")
         except Exception as exc:
+            reason = _short_api_error(exc)
             self.warnings.append(
                 f"ComponentConfig: control-plane flags unavailable "
-                f"({_short_api_error(exc)}), control-plane checks were not evaluated")
+                f"({reason}), control-plane checks were not evaluated")
+            self._record("ComponentConfig", "skipped", 0, reason)
             return []
         config = build_component_config(pods)
         # No component sections means no control-plane static Pods were visible, the
