@@ -106,13 +106,45 @@ class ReportStore:
         return path
 
     # -- timeline (MTTD/MTTR) --------------------------------------------- #
-    # ponytail: diffs each scan against an accumulated index. Meaningful across scans of
-    # the SAME scope (e.g. a scheduled cluster-wide scan); mixing scopes/selectors makes
-    # findings falsely "resolve" and reappear. Upgrade: key the index per scope if you
-    # run mixed scans on one store.
+    # The index accumulates across scans, and a scan "resolves" whatever it did not
+    # re-observe. That is only sound WITHIN one security context: a namespace-scoped scan
+    # of `staging` must not mark a cluster-wide finding in `production` as fixed, and a scan
+    # of cluster B must not resolve cluster A's history. So every entry is keyed by its
+    # scope identity as well as its finding identity, and the resolve sweep only ever
+    # touches entries sharing the current scan's scope.
+    #
+    # Scope identity = cluster + scope description. Both come from the existing model
+    # (ScanResult.cluster_name, Scope.describe()); no new concept was introduced. The
+    # selector is deliberately NOT part of it: running the same scope with a narrower
+    # selector is a partial re-scan of the same context, and posture.py already reports
+    # rules that did not re-run as `not_rescanned` rather than resolved.
     @staticmethod
-    def _fkey(rule_id, kind, name, namespace) -> str:
-        return "|".join([rule_id or "", kind or "", name or "", namespace or ""])
+    def scope_key_of(cluster: str, scope: str) -> str:
+        """The scope identity string, from its two parts. One place builds it, so a
+        `StoredReport` (which carries cluster+scope as plain strings) and a live
+        `ScanResult` can never disagree about which history they belong to."""
+        return f"{cluster or 'target-cluster'}@{scope or 'cluster-wide'}"
+
+    @classmethod
+    def scope_key(cls, result: ScanResult) -> str:
+        try:
+            scope = result.request.scope.describe()
+        except Exception:
+            scope = ""
+        return cls.scope_key_of(result.cluster_name, scope)
+
+    @classmethod
+    def _fkey(cls, rule_id, kind, name, namespace, scope: str = "") -> str:
+        """Timeline key. Legacy entries (written before scoping) have four fields and no
+        scope prefix; they are still readable and are never resolved by a scoped sweep, so
+        an existing store keeps its history instead of being invalidated."""
+        finding = "|".join([rule_id or "", kind or "", name or "", namespace or ""])
+        return f"{scope}#{finding}" if scope else finding
+
+    @staticmethod
+    def _entry_scope(key: str) -> str:
+        """The scope a timeline key belongs to. Legacy (unscoped) keys return ''."""
+        return key.split("#", 1)[0] if "#" in key else ""
 
     def _timeline_path(self) -> str:
         return os.path.join(self.dir, _TIMELINE_FILE)
@@ -130,36 +162,74 @@ class ReportStore:
         with _TIMELINE_LOCK:
             tl = self._load_timeline()
             ts = result.generated_at
+            scope = self.scope_key(result)
             current = {}
             for f in result.findings:
                 if f.severity.weight == 0:      # skip INFO/engine-error
                     continue
                 r = f.resource
-                current[self._fkey(f.rule_id, r.kind, r.name, r.namespace)] = f
+                current[self._fkey(f.rule_id, r.kind, r.name, r.namespace, scope)] = f
             for k, f in current.items():
                 e = tl.get(k)
                 if e is None:
                     tl[k] = {"rule_id": f.rule_id, "title": f.title,
                              "severity": f.severity.label, "resource": str(f.resource),
+                             "scope": scope, "cluster": result.cluster_name,
                              "first_seen": ts, "last_seen": ts, "resolved_at": None}
                 else:
-                    e.update(last_seen=ts, resolved_at=None,
+                    # A finding that comes back is open again, but the fact that it was
+                    # once fixed is the whole evidence for calling it a REGRESSION rather
+                    # than a first sighting. Clearing `resolved_at` without keeping that
+                    # date destroyed it, so it moves to `last_resolved_at`.
+                    if e.get("resolved_at"):
+                        e["last_resolved_at"] = e["resolved_at"]
+                    e.update(last_seen=ts, resolved_at=None, scope=scope,
+                             cluster=result.cluster_name,
                              severity=f.severity.label)   # reappeared / refresh
             for k, e in tl.items():
+                # Only sweep the scope this scan actually covered. Another cluster's or
+                # another namespace's entries were not re-examined, so their absence here
+                # says nothing about whether they are fixed. Legacy unscoped entries are
+                # likewise left alone rather than being resolved by a scoped scan.
+                if self._entry_scope(k) != scope:
+                    continue
                 if k not in current and not e.get("resolved_at"):
                     e["resolved_at"] = ts               # gone this scan == fixed
             _atomic_write_json(self._timeline_path(), tl)
 
-    def raw_timeline(self) -> dict:
-        """The per-finding first/last-seen index itself, keyed by the same stable finding
-        identity `core/posture.py` compares on. `timeline()` is the aggregated view; this
-        is the raw one, needed to tell a regression from a first-time finding."""
-        return self._load_timeline()
+    def raw_timeline(self, scope: Optional[str] = None) -> dict:
+        """The per-finding first/last-seen index. `timeline()` is the aggregated view; this
+        is the raw one, needed to tell a regression from a first-time finding.
 
-    def timeline(self) -> dict:
-        """Open/resolved finding ages against the latest scan. `age_days` is a
-        scan-cadence-granular MTTD proxy; `resolved` with a `resolved_at` gives MTTR."""
+        Without `scope` the whole index is returned as stored (scope-prefixed keys). With a
+        scope, only that scope's entries come back, re-keyed to the bare finding identity
+        `core/posture.py` compares on. Legacy entries written before scoping existed have no
+        prefix and are included in every scoped view, so an upgraded store keeps detecting
+        regressions against the history it already had instead of starting over.
+        """
         tl = self._load_timeline()
+        if scope is None:
+            return tl
+        out: dict = {}
+        for key, entry in tl.items():
+            entry_scope = self._entry_scope(key)
+            if entry_scope and entry_scope != scope:
+                continue
+            bare = key.split("#", 1)[1] if "#" in key else key
+            # A scoped entry is authoritative over a legacy one for the same finding.
+            if bare not in out or entry_scope:
+                out[bare] = entry
+        return out
+
+    def timeline(self, scope: Optional[str] = None) -> dict:
+        """Open/resolved finding ages against the latest scan. `age_days` is a
+        scan-cadence-granular MTTD proxy; `resolved` with a `resolved_at` gives MTTR.
+
+        `scope` (from `scope_key`/`scope_key_of`) narrows the view to one security context,
+        which is what a dashboard showing ONE cluster's scan should pass. Omitted, the view
+        spans the whole store, which is correct for a single-context store and is the
+        historic behaviour."""
+        tl = self.raw_timeline(scope=scope) if scope else self._load_timeline()
         if not tl:
             return {"open": 0, "resolved": 0, "oldest_open_days": 0,
                     "median_open_days": 0, "oldest_critical": None, "entries": []}

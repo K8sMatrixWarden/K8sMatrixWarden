@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-60-orange"/>
-  <img src="https://img.shields.io/badge/MCP%20tools-36-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-496%20passing-success"/>
+  <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
+  <img src="https://img.shields.io/badge/tests-600%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -30,7 +30,7 @@
 6. **Attest** — governance compliance audit: maps posture onto **PCI DSS v4.0, SOC 2, ISO 27001:2022, NIST 800-53 rev5** with per-requirement pass/fail/evidence and "N findings block PCI-DSS attestation" — auditor-facing PDF/HTML, not a finding dump
 7. **Federate** — multi-cluster blast radius: correlates saved scans across clusters and flags **shared non-default identities** (same custom ClusterRole / ServiceAccount / cloud IAM role in >1 cluster; built-in defaults excluded) as **candidate** cross-cluster lateral-movement paths to verify — "if prod is compromised, staging may fall too — here's the shared role to check"
 
-**36 MCP tools** (Cursor, Claude Code, VS Code Agent mode) — conversational API for scanning, correlation, RBAC generation, threat matrix building.
+**38 MCP tools** (Cursor, Claude Code, VS Code Agent mode) — conversational API for scanning, correlation, RBAC generation, threat matrix building.
 
 **Zero dependencies** in the core engine — pure Python stdlib, no database, runs offline.
 
@@ -83,7 +83,7 @@ python -m k8smatrixwarden web --port 8080
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (496/496 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (600/600 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -119,7 +119,7 @@ discovery, so there is nothing to write and no path to fill in.
 2. **Open the folder** in your MCP client — Cursor, Claude Code, or VS Code.
 3. **Enable the server and confirm the tools load.**
    - *Cursor* — **Settings → Tools & MCP**; `k8smatrixwarden` should be listed, toggled on, with
-     36 tools under it.
+     38 tools under it.
    - *Claude Code* — run `/mcp`, approve the project-scoped server the first time it prompts.
    - *VS Code* — open Copilot Chat, switch the mode dropdown to **Agent**, then check the tools (🛠)
      picker. MCP tools only appear in Agent mode.
@@ -181,12 +181,12 @@ Restart the client after editing.
 > **Why not one file for all clients?** MCP standardizes the *protocol*, not *config discovery* —
 > each client picked its own filename, directory and JSON shape (VS Code nests under `servers`
 > with `"type": "stdio"`; everyone else uses `mcpServers`). The **server** never forks: all five
-> clients run the identical `k8smatrixwarden mcp` process and see the identical 36 tools.
+> clients run the identical `k8smatrixwarden mcp` process and see the identical 38 tools.
 
 Verify the server independently at any time:
 
 ```bash
-python -m k8smatrixwarden mcp --list-tools     # prints all 36, without starting the server
+python -m k8smatrixwarden mcp --list-tools     # prints all 38, without starting the server
 ```
 
 ### 2. From the command line
@@ -254,7 +254,9 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 
 - **Scan × runtime correlation** — joins static findings to live Falco/audit events by MITRE tactic: `confirmed` (actively exploited), `corroborated` (behavior aligns), `runtime-only` (new behavior)
 - **Drift detection** — flags runtime behavior contradicting declared posture (uid 0 despite `runAsNonRoot`, writes despite `readOnlyRootFilesystem`)
-- **Attack-path derivation** — chains threat matrix into kill-chain (Initial Access → Impact) with entry points and impact reachability
+- **Attack paths in two layers** — the *tactic* chain (Initial Access → Impact, ATT&CK-navigator convention, adjacency) **and** the *resource* chain (`Internet → Service → Pod → ServiceAccount → RoleBinding → ClusterRole → secrets/get`), where every hop is read off a real object. Two findings sharing a tactic are never claimed to be connected ([`core/attack_path.py`](k8smatrixwarden/core/attack_path.py))
+- **Multi-hop RBAC graph** — RBAC modelled as a graph, not a permission checklist: shortest, cycle-safe, namespace-aware escalation paths that name the binding and role behind every claim, including second-hop routes (*read this Secret → become that ServiceAccount → its permissions*). A capability whose target does not exist in the cluster is reported as a capability, never as an escalation ([`core/rbac_graph.py`](k8smatrixwarden/core/rbac_graph.py))
+- **Complete NetworkPolicy evaluation** — `matchLabels` **and** `matchExpressions` (`In` / `NotIn` / `Exists` / `DoesNotExist`), `podSelector` + `namespaceSelector` peers, `ipBlock` with `except`, `policyTypes` defaulting, additive union across policies, in **both** directions. A policy this build cannot evaluate is `partial`, which never reads as isolation ([`core/netpol.py`](k8smatrixwarden/core/netpol.py))
 - **Reachability tagging** — per-workload attack vector (internet-reachable / post-breach-only / rbac-escalation-to-cluster-admin) computed from Service/Ingress exposure, NetworkPolicy isolation, and the pod's ServiceAccount RBAC — context that prioritizes findings without ever changing severity ([`core/reachability.py`](k8smatrixwarden/core/reachability.py))
 - **External graph tools (optional)** — passthrough runners for [KubeHound](https://github.com/DataDog/KubeHound) and [IceKube](https://github.com/ReversecLabs/IceKube) when a customer wants deep multi-hop attack-path graphs alongside posture ([`integrations/external_graph.py`](k8smatrixwarden/integrations/external_graph.py))
 - **7-tab SPA dashboard** — Overview (KPIs), Findings (search/filter/sort), Threat Matrix (heatmap), Attack Path, Attack Map (chain + resources), Runtime, Scan history
@@ -266,7 +268,7 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 
 | Command | What it does |
 |---|---|
-| `k8smatrixwarden mcp [--list-tools]` | **Run the MCP server**, or list its 36 tools |
+| `k8smatrixwarden mcp [--list-tools]` | **Run the MCP server**, or list its 38 tools |
 | `k8smatrixwarden chat` | **Interactive conversational assistant** (plain-English, confirm-then-run) |
 | `k8smatrixwarden scan ...` | Run a scan by scope × selector, or a one-shot natural-language query |
 | `k8smatrixwarden web [--port 8080]` | **Security Dashboard** web UI — browse scans, open reports, view the per-scan threat matrix, run a scan. Binds `127.0.0.1` |
@@ -336,8 +338,11 @@ CIS-designated manual reviews (surfaced, never auto-passed).
 | Plugin model | `k8smatrixwarden/core/plugin.py` |
 | 11 Domain Shards | `k8smatrixwarden/shards/*` |
 | Orchestrator / Scanner / Runtime agents | `k8smatrixwarden/agents/*` |
-| MCP Server | `k8smatrixwarden/mcp/` — **36 tools**: knowledge (15), scan/audit/runtime (13), reports & stored-scan analysis (7), platform (1). Every parameter carries a schema description. Read-only: no remediation/apply tool is exposed. |
+| MCP Server | `k8smatrixwarden/mcp/` — **38 tools**: knowledge (15), scan/audit/runtime/graph analysis (15), reports & stored-scan analysis (7), platform (1). Every parameter carries a schema description. Read-only: no remediation/apply tool is exposed. |
 | Scan × Runtime correlation | `k8smatrixwarden/core/correlation.py` |
+| RBAC graph | `k8smatrixwarden/core/rbac_graph.py` — principals → bindings → roles → permissions → escalation, multi-hop, cycle-safe |
+| NetworkPolicy engine | `k8smatrixwarden/core/netpol.py` — matchLabels + matchExpressions, ingress **and** egress, `partial`/`unknown` when a policy can't be evaluated |
+| Resource-level attack paths | `k8smatrixwarden/core/attack_path.py` — the causal layer beneath the tactic chain |
 | Reachability tagging | `k8smatrixwarden/core/reachability.py` (attack vector + structural hop chain) |
 | Evidence coverage & confidence | `k8smatrixwarden/core/coverage.py` |
 | Finding explanation | `k8smatrixwarden/core/explain.py` — one structured shape, every surface |
@@ -370,11 +375,42 @@ export K8SMATRIXWARDEN_LLM_MODEL=<any model your account can call>
 export ANTHROPIC_API_KEY=...
 ```
 
-Equivalent settings live in the `"llm"` block of `k8smatrixwarden/config/agent.json`
-(`provider`, `model`, `base_url`, `api_key_env`, `extra`). Environment wins over the file.
-With no provider set, one is auto-detected from a conventional credential
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`); with none of those either, the agent path simply
-stays off.
+Equivalent settings live in the `"llm"` block of `k8smatrixwarden/config/agent.json`:
+
+```json
+{
+  "llm": {
+    "provider": "openai-compatible",
+    "model": "llama3.1:70b",
+    "base_url": "http://localhost:11434/v1",
+    "api_key_env": "MY_LOCAL_KEY",
+    "extra": {"headers": {"X-Tenant": "sec-team"}}
+  }
+}
+```
+
+| Setting | Env var | Meaning |
+|---|---|---|
+| `provider` | `K8SMATRIXWARDEN_LLM_PROVIDER` | `anthropic`, `openai`, `azure-openai`, `openai-compatible`, `ollama` |
+| `model` | `K8SMATRIXWARDEN_LLM_MODEL` | any model id the endpoint serves — **no model is baked in** |
+| `base_url` | `K8SMATRIXWARDEN_LLM_BASE_URL` | endpoint, for self-hosted / gateway / local servers |
+| `api_key_env` | `K8SMATRIXWARDEN_LLM_API_KEY_ENV` | name of the variable holding the key (the key itself never goes in a file) |
+| — | `K8SMATRIXWARDEN_LLM_API_KEY` | the key directly, when you would rather not use a named variable |
+| `extra` | `K8SMATRIXWARDEN_LLM_EXTRA` (JSON) | per-provider extras (custom headers, Azure deployment/api-version) |
+
+**Selection is deterministic, and documented rather than incidental.** Precedence, highest
+first:
+
+1. an explicit argument (`resolve_config(provider=…, model=…)`, used by API callers)
+2. environment variables
+3. the `llm` block of `agent.json`
+4. controlled auto-detection, in this fixed order: `ANTHROPIC_API_KEY` → `OPENAI_API_KEY`
+   → `AZURE_OPENAI_API_KEY` → `OLLAMA_HOST`
+
+If auto-detection finds **more than one** candidate, the tool refuses to guess: it reports
+an ambiguity and asks you to name the provider. It never depends on dictionary or
+environment iteration order. With no candidate at all, the agent path simply stays off and
+the scanner is unaffected.
 
 **Changing the model is configuration, never a code change.** Check what is active:
 
@@ -437,7 +473,7 @@ kubectl apply -f k8smatrixwarden-rbac.json
 self-contained, searchable page (dark/light aware) covering everything: architecture and design
 decisions, the risk-scoring math, all 11 shards' rule catalogs, MITRE / OWASP / CIS coverage, the
 complete CLI flag reference, configuration, live-cluster setup, the runtime-correlation layer, the
-full 36-tool MCP reference with per-client setup, known limitations, and troubleshooting.
+full 38-tool MCP reference with per-client setup, known limitations, and troubleshooting.
 
 ## License
 

@@ -574,9 +574,9 @@ footer.site-footer {
         <li><a href="#mcp-connect">Connect a Client</a></li>
         <li><a href="#mcp-single-file">One File for Every Client?</a></li>
         <li><a href="#mcp-knowledge">Knowledge Layer (14)</a></li>
-        <li><a href="#mcp-scan">Scan / Audit / Runtime (12)</a></li>
-        <li><a href="#mcp-reports">Reports (2)</a></li>
-        <li><a href="#mcp-platform">Platform (2)</a></li>
+        <li><a href="#mcp-scan">Scan / Audit / Runtime / Graph (15)</a></li>
+        <li><a href="#mcp-reports">Reports &amp; analysis (7)</a></li>
+        <li><a href="#mcp-platform">Platform (1)</a></li>
       </ul>
     </div>
 
@@ -643,6 +643,24 @@ footer.site-footer {
       <p class="nav-group-label">Web Dashboard</p>
       <ul class="nav-items">
         <li><a href="#web">Web Interface</a></li>
+      </ul>
+    </div>
+
+    <div class="nav-group">
+      <p class="nav-group-label">Graph &amp; Evidence Analysis</p>
+      <ul class="nav-items">
+        <li><a href="#evidence-coverage">Coverage &amp; Confidence</a></li>
+        <li><a href="#rbac-graph">RBAC Graph</a></li>
+        <li><a href="#netpol">NetworkPolicy Evaluation</a></li>
+        <li><a href="#attack-layers">Attack Path Layers</a></li>
+        <li><a href="#posture-history">Historical Posture</a></li>
+      </ul>
+    </div>
+
+    <div class="nav-group">
+      <p class="nav-group-label">Optional LLM</p>
+      <ul class="nav-items">
+        <li><a href="#llm">Provider &amp; Model Configuration</a></li>
       </ul>
     </div>
 
@@ -1760,9 +1778,12 @@ same engine. Pick whichever fits the moment.</p>
 <tr><td><code>rules</code></td><td>List / inspect the rule registry (each rule tagged <code>surface=scan</code>)</td></tr>
 <tr><td><code>coverage</code></td><td>MITRE tactic coverage as a bar chart</td></tr>
 <tr><td><code>roles</code></td><td>Print per-shard least-privilege RBAC</td></tr>
-<tr><td><code>report list / download</code></td><td>List saved scans; re-render any of them in any format</td></tr>
-<tr><td><code>doctor</code></td><td>Validate the whole platform's wiring</td></tr>
-<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 36 tools</td></tr>
+<tr><td><code>report</code> (<code>list</code> / <code>download</code>)</td><td>List saved scans; re-render any of them in any format</td></tr>
+<tr><td><code>compliance</code></td><td>Audit posture against PCI DSS v4.0 / SOC 2 / ISO 27001:2022 / NIST 800-53 r5</td></tr>
+<tr><td><code>federation</code></td><td>Cross-cluster blast radius from the saved per-cluster scans</td></tr>
+<tr><td><code>posture</code></td><td>What changed since the previous scan of the same scope, new / resolved / persistent / regressed, with MTTD and MTTR</td></tr>
+<tr><td><code>doctor</code></td><td>Full health check: shards, config, rules, taxonomy, MCP, report formats, runtime, LLM, dependencies, read-only invariants (<code>--probe</code>, <code>-o json</code>)</td></tr>
+<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 38 tools</td></tr>
 </tbody>
 </table></div>
 
@@ -2042,7 +2063,7 @@ path-traversal-guarded, and <code>--no-scan</code> serves existing reports fully
 
 <section id="mcp-connect">
 <h1>MCP Server</h1>
-<p class="lede">This is the intended way to run K8sMatrixWarden. 36 tools across four layers
+<p class="lede">This is the intended way to run K8sMatrixWarden. 38 tools across four layers
 let any MCP-compatible AI agent — Claude, Cursor, VS&nbsp;Code, Windsurf — do everything the CLI
 can: scan, audit, project the threat matrix and kill-chain, correlate a live runtime feed against
 static findings, and export reports. Every tool's docstring and all 150 parameters carry their own
@@ -2068,7 +2089,7 @@ setup — there is nothing to write and no path to fill in.</p>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">02</div><div class="fs-t">Open the folder</div><div class="fs-d">Open the repo root in Cursor, Claude Code, or VS&nbsp;Code. The config is found automatically.</div></div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 36 tools load.</div></div>
+  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 38 tools load.</div></div>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">04</div><div class="fs-t">Ask in plain English</div><div class="fs-d">Open the agent chat and describe the scan you want — no flags.</div></div>
 </div>
@@ -2076,7 +2097,7 @@ setup — there is nothing to write and no path to fill in.</p>
 <p>Per-client where to check that step 3 worked:</p>
 <ul>
 <li><strong>Cursor</strong> — <em>Settings → Tools &amp; MCP</em>. <code>k8smatrixwarden</code> should
-be listed and toggled on, with 36 tools underneath it.</li>
+be listed and toggled on, with 38 tools underneath it.</li>
 <li><strong>Claude Code</strong> — run <code>/mcp</code>. A project-scoped
 <code>.mcp.json</code> asks for approval the first time you open the folder; approve it, then the
 server shows as <em>connected</em>.</li>
@@ -2144,13 +2165,13 @@ explicit <code>"type": "stdio"</code>, while everyone else uses <code>mcpServers
 clients converge on a shared path, three small files is the floor for zero-config support, and the
 two global-config clients need the one-time paste above. The upside: the <em>server</em> never
 forks — all five clients run the identical <code>k8smatrixwarden mcp</code> process and see the
-identical 36 tools.</p></div>
+identical 38 tools.</p></div>
 </div>
 
 <h3>Verify, then talk to it</h3>
 <div class="code-card">
   <div class="code-head"><span class="code-lang">bash</span><button class="copy-btn" data-copy>Copy</button></div>
-  <pre><code><span class="c-mut"># lists all 36 tools without starting the server — the fastest wiring check</span>
+  <pre><code><span class="c-mut"># lists all 38 tools without starting the server — the fastest wiring check</span>
 python -m k8smatrixwarden mcp --list-tools
 
 <span class="c-mut"># start it over stdio yourself (this is what the client runs for you)</span>
@@ -2205,7 +2226,7 @@ fails the build if a write-capable tool name ever appears.</p></div>
 </section>
 
 <section id="mcp-scan">
-<h3>Layer 2 — Scan / Audit / Runtime / Analysis <span class="tag">12 tools</span></h3>
+<h3>Layer 2 — Scan / Audit / Runtime / Graph analysis <span class="tag">15 tools</span></h3>
 <div class="table-scroll"><table>
 <thead><tr><th>Tool</th><th>Description</th></tr></thead>
 <tbody>
@@ -2220,18 +2241,27 @@ fails the build if a write-capable tool name ever appears.</p></div>
 <tr><td><code>evaluate_runtime_events</code></td><td>Evaluate a batch of Falco/audit events against the Runtime Agent's catalog; alerts are tagged <code>surface=runtime</code>.</td></tr>
 <tr><td><code>correlate_runtime</code></td><td>Join a runtime event batch to a scan's static findings by MITRE tactic (+ namespace) → <code>confirmed</code> / <code>corroborated</code> / <code>runtime-only</code>: which weakness is being exploited right now.</td></tr>
 <tr><td><code>detect_drift</code></td><td>Flag runtime behaviour that contradicts a Pod's declared posture (uid 0 despite <code>runAsNonRoot</code>, writes despite <code>readOnlyRootFilesystem</code>, a privileged-only op from a non-privileged pod).</td></tr>
+<tr><td><code>run_compliance_audit</code></td><td>Map cluster posture onto PCI DSS v4.0 / SOC 2 / ISO 27001:2022 / NIST 800-53 r5, per-requirement pass/fail with the evidence and the findings blocking attestation.</td></tr>
+<tr><td><code>deploy_falco</code></td><td>Print the exact <code>helm</code> commands to install Falco + falcosidekick pointed at the runtime webhook. Read-only by default: it returns the commands, and only executes them when <code>K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1</code> is explicitly set.</td></tr>
+<tr><td><code>analyze_rbac_paths</code></td><td><strong>Multi-hop RBAC graph.</strong> Evidence-backed escalation paths from a principal to a privilege — <code>ServiceAccount → RoleBinding → ClusterRole → capability → next principal</code> — shortest first, cycle-safe, namespace-aware. Every edge names the object it was read from. A capability whose target is not present in this cluster yields no onward hop.</td></tr>
+<tr><td><code>analyze_network_policy</code></td><td><strong>Full NetworkPolicy evaluation</strong>, both directions. <code>matchLabels</code> and <code>matchExpressions</code> (<code>In</code>/<code>NotIn</code>/<code>Exists</code>/<code>DoesNotExist</code>), <code>podSelector</code> + <code>namespaceSelector</code> peers, <code>ipBlock</code> with <code>except</code>, additive union across policies. Status is <code>unrestricted</code> / <code>allow-all</code> / <code>restricted</code> / <code>deny-all</code> / <code>partial</code> / <code>unknown</code> — a policy that cannot be evaluated is never reported as isolation.</td></tr>
 <tr><td><code>list_runtime_detections</code></td><td>List the Runtime Agent's detection catalog — every rule tagged <code>surface=runtime</code> (the counterpart to <code>list_rules</code>, which is all <code>surface=scan</code>).</td></tr>
 </tbody>
 </table></div>
 </section>
 
 <section id="mcp-reports">
-<h3>Layer 3 — Reports <span class="tag">2 tools</span></h3>
+<h3>Layer 3 — Reports &amp; stored-scan analysis <span class="tag">7 tools</span></h3>
 <div class="table-scroll"><table>
 <thead><tr><th>Tool</th><th>Description</th></tr></thead>
 <tbody>
 <tr><td><code>list_reports</code></td><td>List previously saved scans (every <code>run_scan</code>/<code>intelligent_scan</code> is saved by default) — name, time, rating, risk, findings, scan id.</td></tr>
 <tr><td><code>download_report</code></td><td>Re-render a saved scan in any of the 7 formats without re-scanning; omit <code>scan_id</code> for the latest.</td></tr>
+<tr><td><code>federation_blast_radius</code></td><td>Cross-cluster blast radius from the newest saved scan of each cluster: shared non-default identities as <em>candidate</em> lateral-movement paths, promoted to <em>confirmed</em> only on runtime evidence in two or more clusters.</td></tr>
+<tr><td><code>get_rule</code></td><td>Full machine-readable metadata for one rule — id, version, shard, severity, detection method and surface, MITRE/OWASP/CIS/NSA mappings, evidence needs, confidence, references, false-positive notes.</td></tr>
+<tr><td><code>explain_finding</code></td><td>One finding, fully explained as structured fields: what is wrong, why it matters, the evidence, the affected resource and owner, network reachability, the RBAC escalation path, any runtime evidence, the attack-path step it feeds, and a confidence score with its reasons.</td></tr>
+<tr><td><code>get_cluster_coverage</code></td><td>How much of the cluster a saved scan actually read: evidence coverage and assessment confidence, per resource type and per domain, with the basis for each number (<code>measured</code> / <code>estimated</code> / <code>heuristic</code> / <code>unknown</code>).</td></tr>
+<tr><td><code>posture_history</code></td><td>What changed since the previous scan <em>of the same scope</em>: new, resolved, persistent, regressed, plus the MTTD/MTTR timeline. A rule that did not re-run lands in <code>not_rescanned</code>, never in <code>resolved</code>.</td></tr>
 </tbody>
 </table></div>
 <div class="callout">
@@ -2243,7 +2273,7 @@ writes to arbitrary paths on the host.</p></div>
 </section>
 
 <section id="mcp-platform">
-<h3>Layer 4 — Platform <span class="tag">2 tools</span></h3>
+<h3>Layer 4 — Platform <span class="tag">1 tool</span></h3>
 <div class="table-scroll"><table>
 <thead><tr><th>Tool</th><th>Description</th></tr></thead>
 <tbody>
@@ -2278,6 +2308,253 @@ kubectl apply -f rbac.json</code></pre>
 by a standing test that fails the build if any shard's role ever gains a write verb.</p>
 </section>
 
+<section id="evidence-coverage">
+<h2><span class="h2-title">Evidence Coverage &amp; Assessment Confidence</span></h2>
+<p class="lede">A risk score says how bad what we saw is. It says nothing about how much we
+managed to see. Those are different questions, and conflating them is how a scan of a
+cluster whose Secrets and Nodes were unreadable gets read as a clean bill of health.</p>
+
+<p>Every scan therefore carries three numbers, not one:</p>
+<div class="table-scroll"><table>
+<thead><tr><th>Number</th><th>Answers</th></tr></thead>
+<tbody>
+<tr><td><strong>Risk score</strong></td><td>How bad the findings are (<code>core/scoring.py</code>)</td></tr>
+<tr><td><strong>Evidence coverage</strong></td><td>What fraction of the requested evidence the scan actually read</td></tr>
+<tr><td><strong>Assessment confidence</strong></td><td>How much weight to put on the risk score, given that coverage</td></tr>
+</tbody>
+</table></div>
+
+<p>Coverage is structural, not a guess: the Evidence Collector records the outcome of every
+resource type it was asked for, and <code>core/coverage.py</code> aggregates it per kind and
+per domain (Workloads, RBAC, Network, Secrets, Node configuration, Control plane, Admission
+control, Cloud IAM). Each number also carries <em>how it was arrived at</em>, so an estimate
+never renders like a measurement:</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Basis</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>measured</code></td><td>Counted exactly. A clean read is 100%, a skipped type is 0%, both known rather than inferred.</td></tr>
+<tr><td><code>estimated</code></td><td>A truncated read where the API reported <code>remainingItemCount</code>, so the fraction is computed from real numbers.</td></tr>
+<tr><td><code>heuristic</code></td><td>A partial read with no basis to compute a fraction. The fallback value is flagged, never presented as counted.</td></tr>
+<tr><td><code>unknown</code></td><td>Truncated with no remaining count available. The fraction is not known and no number is invented.</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<span class="co-icon">&#9888;</span>
+<div class="co-body"><p>Low coverage never suppresses, downgrades or hides a finding: what
+was seen was seen. And a scan that could not read the cluster at all is rated
+<strong>Unknown</strong> with confidence <strong>None</strong>, never &quot;Excellent&quot;.</p></div>
+</div>
+</section>
+
+<section id="rbac-graph">
+<h2><span class="h2-title">RBAC as a Graph, Multi-Hop Escalation</span></h2>
+<p class="lede">Not &quot;does this ServiceAccount hold a dangerous verb&quot;, but &quot;here is the
+binding, the role and the hop sequence by which it reaches cluster-admin&quot;.</p>
+
+<pre><code>Principal (ServiceAccount / User / Group)
+    --bound-by--&gt;   RoleBinding | ClusterRoleBinding
+    --grants--&gt;     Role | ClusterRole
+    --permits--&gt;    verb on resource
+    --enables--&gt;    escalation capability
+    --reaches--&gt;    another Principal / an admin ClusterRole   (the second hop)</code></pre>
+
+<p>Two rules keep the claims honest, because an attack path that is not true is worse than
+no path at all:</p>
+<ul>
+<li><strong>Every edge is evidence-backed.</strong> An edge exists because a specific
+collected object says so, and it carries that object&#39;s identity and the reason.</li>
+<li><strong>A second hop needs its target to exist.</strong> &quot;Can bind any ClusterRole&quot;
+becomes an escalation only if an admin-equivalent ClusterRole was actually collected;
+otherwise the capability is reported with no onward hop.</li>
+</ul>
+
+<p>Traversal is breadth-first with a visited set and an edge budget, so a cyclic RBAC graph
+(A can impersonate B, B can impersonate A, which is legal and does happen) terminates and
+returns the shortest path. Namespaces are respected: a namespaced permission never reaches
+another namespace&#39;s identities.</p>
+
+<p>Capabilities modelled: <code>cluster-admin</code>, <code>bind-roles</code>,
+<code>impersonate</code>, <code>create-workload</code>, <code>exec-pods</code>,
+<code>read-secrets</code>, <code>modify-bindings</code>. Reachable through
+<code>analyze_rbac_paths</code> over MCP, on each finding&#39;s <code>rbac_paths</code>, and
+spliced into the reachability chain shown in reports and the dashboard.</p>
+</section>
+
+<section id="netpol">
+<h2><span class="h2-title">NetworkPolicy, Full Selector Semantics, Both Directions</span></h2>
+<p class="lede">Matching only <code>matchLabels</code> under-matches real policies: a policy
+selecting pods by expression looks like it selects nothing, so an isolated pod reads as
+exposed. And egress was invisible entirely.</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Supported</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td><code>matchLabels</code></td><td>All keys must match.</td></tr>
+<tr><td><code>matchExpressions</code></td><td><code>In</code>, <code>NotIn</code>, <code>Exists</code>, <code>DoesNotExist</code>. A pod without the key satisfies <code>NotIn</code>, as Kubernetes specifies.</td></tr>
+<tr><td><code>podSelector</code></td><td>On the policy and on peers. An empty selector selects everything in the namespace.</td></tr>
+<tr><td><code>namespaceSelector</code></td><td>Resolved against collected Namespace objects, including the built-in <code>kubernetes.io/metadata.name</code> label.</td></tr>
+<tr><td><code>ipBlock</code></td><td><code>cidr</code> plus <code>except</code>. <code>0.0.0.0/0</code> and <code>::/0</code> are allow-all.</td></tr>
+<tr><td><code>policyTypes</code></td><td>Kubernetes defaulting: omitted means Ingress, plus Egress only when egress rules exist.</td></tr>
+<tr><td>Ingress <em>and</em> egress</td><td>Both directions evaluated. Policies are additive, so one allow-all rule defeats a strict sibling.</td></tr>
+</tbody>
+</table></div>
+
+<p>Each direction returns a status:</p>
+<div class="table-scroll"><table>
+<thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>unrestricted</code></td><td>No policy governs this direction, the Kubernetes default.</td></tr>
+<tr><td><code>allow-all</code></td><td>Governed, but a rule admits every peer. Not isolation.</td></tr>
+<tr><td><code>restricted</code></td><td>Governed, every rule names specific peers, which are returned.</td></tr>
+<tr><td><code>deny-all</code></td><td>Governed with no rules at all.</td></tr>
+<tr><td><code>partial</code></td><td>A selector this build cannot evaluate. The restriction is <strong>not confirmed</strong> and is never treated as isolation.</td></tr>
+<tr><td><code>unknown</code></td><td>No NetworkPolicy evidence was collected.</td></tr>
+</tbody>
+</table></div>
+
+<p>Egress feeds context rather than a tag: unrestricted egress means a compromised process
+can reach any in-cluster service and the internet (an exfiltration / C2 path), which is
+stated in the finding&#39;s explanation without altering its severity.</p>
+</section>
+
+<section id="attack-layers">
+<h2><span class="h2-title">Attack Paths, Two Layers, Never Confused</span></h2>
+<p class="lede">Two findings sharing a tactic are not connected by anything except the label.
+Pretending otherwise is how a scanner starts inventing attack chains.</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Layer</th><th>What it claims</th></tr></thead>
+<tbody>
+<tr><td><strong>Tactic</strong> (<code>steps</code>)</td><td>Tactics with findings, in kill-chain order, the ATT&amp;CK-navigator convention. Adjacency, deliberately <em>not</em> causality.</td></tr>
+<tr><td><strong>Resource</strong> (<code>resource_paths</code>)</td><td><code>Internet &rarr; Service &rarr; Pod &rarr; ServiceAccount &rarr; RoleBinding &rarr; ClusterRole &rarr; privilege</code>, every hop read off a real object by the reachability and RBAC engines. Causal, evidence-backed.</td></tr>
+<tr><td><strong>Runtime</strong></td><td>Events that named the same resource or namespace, attached to the layer they evidence.</td></tr>
+</tbody>
+</table></div>
+
+<p>Each resource path is graded with the same vocabulary the tactic layer uses:</p>
+<div class="table-scroll"><table>
+<thead><tr><th>Confidence</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>configuration-only</code></td><td>The configuration makes this path possible. Nothing was observed.</td></tr>
+<tr><td><code>corroborated</code></td><td>Runtime activity matches the path&#39;s namespace, but no event named its own resource.</td></tr>
+<tr><td><code>observed</code></td><td>A runtime event named <em>this path&#39;s</em> resource.</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<span class="co-icon">&#8505;</span>
+<div class="co-body"><p>A runtime-only alert, one with no matching static finding, is
+reported as a runtime-only correlation and <strong>never</strong> manufactures a path of its
+own. Runtime evidence strengthens a path that already exists, it does not create one.</p></div>
+</div>
+</section>
+
+<section id="posture-history">
+<h2><span class="h2-title">Historical Posture &amp; Timeline Scoping</span></h2>
+<p class="lede"><code>k8smatrixwarden posture</code> answers &quot;did we get better or worse, and
+because of what?&quot;, new, resolved, persistent, regressed, plus MTTD and MTTR.</p>
+
+<p>Two honesty rules decide what may be called a fix:</p>
+<ul>
+<li>A finding is <code>resolved</code> only when the current scan actually <em>ran the rule
+that found it</em>. A narrower re-scan silently &quot;resolving&quot; everything it did not run is
+the classic false-green, so those land in <code>not_rescanned</code> instead.</li>
+<li>A <code>regression</code> is a finding that was seen, fixed, and is back. That needs
+history, so it is derived from the store&#39;s timeline rather than from two scans.</li>
+</ul>
+
+<h3>Scope identity</h3>
+<p>The timeline accumulates across scans and resolves whatever a scan did not re-observe.
+That is only sound <em>within one security context</em>: a namespace-scoped scan of
+<code>staging</code> must not mark a cluster-wide finding in <code>production</code> as
+fixed, and a scan of cluster B must not resolve cluster A&#39;s history. Every entry is
+therefore keyed by:</p>
+
+<pre><code>&lt;cluster&gt;@&lt;scope&gt;#&lt;rule_id&gt;|&lt;kind&gt;|&lt;name&gt;|&lt;namespace&gt;
+
+c1@cluster-wide#workload-privileged-container|Pod|payment-api|production</code></pre>
+
+<p>Both halves come from the existing model (<code>ScanResult.cluster_name</code> and
+<code>Scope.describe()</code>), no new concept was introduced. The resolve sweep only ever
+touches entries sharing the current scan&#39;s scope, and <code>posture</code> compares against
+the previous scan <em>of the same scope</em>, not merely the same cluster.</p>
+
+<p>Timeline records written before scoping existed have no prefix. They stay readable,
+remain visible to a scoped read (so an upgraded store keeps detecting regressions against
+the history it already had), and are never resolved by a scoped scan.</p>
+</section>
+
+<section id="llm">
+<h2><span class="h2-title">Optional LLM Layer, Provider- and Model-Agnostic</span></h2>
+<p class="lede">The scanner never needs an LLM. Every number this documentation quotes,
+findings, risk, coverage, threat matrix, attack paths, CIS and compliance status, is
+produced by deterministic Python with zero model involvement.</p>
+
+<p>The optional agent layer powers only the local <code>chat</code> REPL&#39;s multi-step tool
+chaining. An MCP client brings its own model and does not use this layer at all. Nothing
+about the provider or model is compiled in.</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Setting</th><th>Environment variable</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>provider</code></td><td><code>K8SMATRIXWARDEN_LLM_PROVIDER</code></td><td><code>anthropic</code>, <code>openai</code>, <code>azure-openai</code>, <code>openai-compatible</code>, <code>ollama</code></td></tr>
+<tr><td><code>model</code></td><td><code>K8SMATRIXWARDEN_LLM_MODEL</code></td><td>Any model id the endpoint serves. No model is mandatory and none is baked in.</td></tr>
+<tr><td><code>base_url</code></td><td><code>K8SMATRIXWARDEN_LLM_BASE_URL</code></td><td>Endpoint, for self-hosted, gateway or local servers.</td></tr>
+<tr><td><code>api_key_env</code></td><td><code>K8SMATRIXWARDEN_LLM_API_KEY_ENV</code></td><td>Name of the variable holding the key, so the key itself never goes in a file.</td></tr>
+<tr><td>&mdash;</td><td><code>K8SMATRIXWARDEN_LLM_API_KEY</code></td><td>The key directly, when a named variable is not wanted.</td></tr>
+<tr><td><code>extra</code></td><td><code>K8SMATRIXWARDEN_LLM_EXTRA</code> (JSON)</td><td>Per-provider extras: custom headers, Azure deployment / api-version.</td></tr>
+</tbody>
+</table></div>
+
+<p>The same settings live in the <code>&quot;llm&quot;</code> block of
+<code>k8smatrixwarden/config/agent.json</code>:</p>
+<pre><code>{
+  "llm": {
+    "provider": "openai-compatible",
+    "model": "llama3.1:70b",
+    "base_url": "http://localhost:11434/v1",
+    "api_key_env": "MY_LOCAL_KEY"
+  }
+}</code></pre>
+
+<h3>Deterministic selection</h3>
+<p>Precedence, highest first, and identical on every run:</p>
+<ol>
+<li>An explicit argument (a CLI flag or an API caller naming provider/model)</li>
+<li>Environment variables</li>
+<li>The <code>llm</code> block of <code>agent.json</code></li>
+<li>Controlled auto-detection, in this fixed order: <code>ANTHROPIC_API_KEY</code>,
+<code>OPENAI_API_KEY</code>, <code>AZURE_OPENAI_API_KEY</code>, <code>OLLAMA_HOST</code></li>
+</ol>
+
+<div class="callout">
+<span class="co-icon">&#9888;</span>
+<div class="co-body"><p>If auto-detection finds <strong>more than one</strong> candidate, the
+tool refuses to guess: it reports the ambiguity and asks for an explicit provider. Selection
+never depends on dictionary or environment iteration order.</p></div>
+</div>
+
+<h3>Adapters</h3>
+<p>Two, and adding a third means adding one class. It touches no rule, no evidence
+collection, no detection, no scoring, no matrix, no correlation and no reporting code.</p>
+<ul>
+<li><strong>Anthropic</strong>, via the Anthropic SDK (<code>pip install -e &quot;.[agent]&quot;</code>).</li>
+<li><strong>OpenAI-compatible</strong>, any server speaking the OpenAI chat-completions API:
+OpenAI, Azure OpenAI, OpenRouter, Together, Groq, vLLM, llama.cpp&#39;s server, LM Studio and
+Ollama&#39;s <code>/v1</code>. Uses the <code>openai</code> SDK when installed and plain stdlib
+HTTP when it is not, so a fully local model needs no third-party package at all.</li>
+</ul>
+
+<h3>Failure is never a scanner failure</h3>
+<pre><code>python -m k8smatrixwarden doctor            <span class="c-mut"># provider, model, how it was selected, validity</span>
+python -m k8smatrixwarden doctor --probe    <span class="c-mut"># also makes one tiny live call</span></code></pre>
+<p>No key, an invalid model, an unreachable endpoint, a rate limit, a missing SDK, an
+ambiguous configuration, every one of them is reported, and the tool falls back to its
+deterministic path. None of them can change what a scan found.</p>
+</section>
+
 <section id="safety">
 <h3>Safety controls — non-negotiable</h3>
 <div class="table-scroll"><table>
@@ -2297,9 +2574,9 @@ by a standing test that fails the build if any shard's role ever gains a write v
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">496</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">600</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
-<div class="stat"><div class="stat-n">10/10</div><div class="stat-l">shards loaded clean</div></div>
+<div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
 <div class="code-card">
   <div class="code-head"><span class="code-lang">bash</span><button class="copy-btn" data-copy>Copy</button></div>

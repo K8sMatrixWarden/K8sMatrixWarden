@@ -76,8 +76,13 @@ def test_a_configured_llm_is_reported_without_touching_the_network():
             os.environ.pop(k, None)
         restore()
     detail = {c.name: c.detail for c in llm.checks}
-    assert detail["provider"] == "openai" and detail["model"] == "some-model"
+    # The provider line names both the choice and HOW it was made, so an operator can see
+    # that an explicit setting won rather than an environment scan.
+    assert detail["provider"].startswith("openai")
+    assert "source: environment" in detail["provider"]
+    assert detail["model"] == "some-model"
     assert "not probed" in detail["connectivity"]
+    assert "deterministic" in detail["selection"]
 
 
 def test_optional_dependencies_never_fail_the_command():
@@ -137,3 +142,23 @@ def test_doctor_json_output_is_serialisable():
     import json
     payload = doc.summarize(doc.run_checks(build_platform()))
     assert json.loads(json.dumps(payload))["ok"] is True
+
+
+def test_an_ambiguous_llm_configuration_warns_and_does_not_fail_the_command():
+    """Two credentialed providers is a configuration the operator must settle. The agent
+    path declines until they do, the scanner is untouched, so doctor WARNs rather than
+    reporting the platform as broken."""
+    restore = _without_llm_env()
+    os.environ.update({"ANTHROPIC_API_KEY": "a", "OPENAI_API_KEY": "b"})
+    try:
+        llm = _sections()["LLM (optional)"]
+    finally:
+        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+            os.environ.pop(k, None)
+        restore()
+    by_name = {c.name: c for c in llm.checks}
+    assert by_name["selection"].status == doc.WARN
+    assert "ambiguous" in by_name["selection"].detail
+    assert all(c.status != doc.FAIL for c in llm.checks), \
+        "an optional-layer ambiguity must never FAIL the health check"
+    assert by_name["scanner functionality"].status == doc.PASS

@@ -246,11 +246,28 @@ def _llm(probe: bool) -> Section:
                   "'llm' block of config/agent.json"),
             Check("scanner functionality", PASS,
                   "AVAILABLE, the deterministic scanner does not require an LLM")])
+    # How the provider was chosen matters as much as which one: an operator with two API
+    # keys set needs to see that the choice was theirs (explicit/environment/config) and
+    # not a coin toss.
+    detected = info.get("autodetect_candidates") or []
+    ambiguous = info["status"] == "AMBIGUOUS"
+    # An ambiguity is a configuration the operator has to settle, not a broken tool: the
+    # agent path declines until they do, and the scanner is untouched either way. So it
+    # WARNs. FAIL is reserved for a configuration that is actually wrong (unknown provider,
+    # no model), which would fail whatever the operator intended.
     checks = [
-        Check("provider", PASS if info["status"] != "INVALID" else FAIL,
-              info["provider"] or "?"),
+        Check("provider",
+              WARN if ambiguous else (FAIL if info["status"] == "INVALID" else PASS),
+              f"{info['provider'] or '?'} (source: {info.get('provider_source', '?')})"),
         Check("model", PASS if info["model"] else FAIL, info["model"] or "not set"),
-        Check("configuration", FAIL if info["problems"] else PASS,
+        Check("selection", WARN if ambiguous else PASS,
+              (f"ambiguous: credentials present for {', '.join(detected)}; the agent path "
+               f"declines until one is named with K8SMATRIXWARDEN_LLM_PROVIDER")
+              if ambiguous
+              else (f"deterministic; auto-detect candidates: "
+                    f"{', '.join(detected) or 'none'}")),
+        Check("configuration",
+              PASS if not info["problems"] else (WARN if ambiguous else FAIL),
               "; ".join(info["problems"]) or "valid", info["problems"]),
         Check("connectivity",
               PASS if info["connectivity"] == "available"

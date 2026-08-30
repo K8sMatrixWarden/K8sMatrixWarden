@@ -959,6 +959,130 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 return {"error": f"scan failed: {exc}"}
         return attack_paths(_build(result, platform.registry.rules), result.runtime)
 
+    def analyze_rbac_paths(
+            principal: Annotated[Optional[str], _F(description=(
+                "Principal to analyse, as 'ServiceAccount/namespace/name' (or "
+                "'User/name' / 'Group/name', which are cluster-scoped). Omit to analyse "
+                "every ServiceAccount that has at least one escalation path."))] = None,
+            namespace: _Namespace = None,
+            max_hops: Annotated[int, _F(description=(
+                "Traversal depth cap (default 6). Each RBAC hop is one edge: principal -> "
+                "binding -> role -> capability -> next principal."))] = 6,
+            limit: Annotated[int, _F(description=(
+                "Maximum principals to report on when no principal is named."))] = 20,
+            mock: _Mock = True, fixture: _Fixture = None,
+            kubeconfig: _Kubeconfig = None, context: _Context = None) -> dict:
+        """Multi-hop RBAC escalation analysis: model the cluster's RBAC as a graph and
+        return the concrete, evidence-backed paths from a principal to a privilege.
+
+        Each path is a chain of edges, ServiceAccount -> (Cluster)RoleBinding ->
+        (Cluster)Role -> capability -> (optionally) another principal or an admin
+        ClusterRole, and every edge names the object it was read from and why it exists.
+        Paths are shortest-first; traversal is cycle-safe and depth-capped.
+
+        Only evidence supports a path: a capability whose target does not exist in this
+        cluster (e.g. 'can bind any role' with no admin ClusterRole collected) is reported
+        as a capability with no onward hop rather than as an escalation. Namespaces are
+        respected, a namespaced permission never reaches another namespace's identities.
+
+        Read-only: reads the same cluster snapshot a scan reads, and changes nothing."""
+        from ..core.models import Scope as _Scope, ScopeLevel as _SL
+        from ..core.rbac_graph import Node, RbacGraph
+
+        try:
+            collector = platform.make_collector(mock=mock, fixture=fixture,
+                                                kubeconfig=kubeconfig, context=context)
+            evidence = collector.collect(
+                {"ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding",
+                 "ServiceAccount"},
+                _Scope(_SL.NAMESPACE, namespace=namespace) if namespace
+                else _Scope(_SL.CLUSTER))
+        except (ValueError, RuntimeError) as exc:
+            return {"error": str(exc)}
+        graph = RbacGraph.from_evidence(evidence)
+
+        if principal:
+            parts = [p for p in str(principal).split("/") if p]
+            if len(parts) == 3:
+                node = Node(parts[0], parts[2], parts[1])
+            elif len(parts) == 2:
+                node = Node(parts[0], parts[1], namespace)
+            else:
+                return {"error": "principal must be 'Kind/namespace/name' or 'Kind/name'"}
+            summary, paths = graph.escalation_summary(node, max_hops=max_hops)
+            return {"principal": str(node), "escalates": bool(paths),
+                    "summary": summary or "no escalation path from this principal",
+                    "paths": [p.as_dict() for p in paths]}
+
+        out = []
+        for sa in graph.service_accounts:
+            meta = sa.get("metadata", {}) or {}
+            node = Node("ServiceAccount", meta.get("name", ""), meta.get("namespace"))
+            summary, paths = graph.escalation_summary(node, max_hops=max_hops)
+            if paths:
+                out.append({"principal": str(node), "summary": summary,
+                            "shortest_hops": paths[0].hops,
+                            "capabilities": sorted({p.capability for p in paths}),
+                            "paths": [p.as_dict() for p in paths[:5]]})
+        out.sort(key=lambda e: (e["shortest_hops"], e["principal"]))
+        return {"principals_with_escalation": len(out),
+                "principals": out[:limit],
+                "note": "shortest path first; a principal with no path is omitted"}
+
+    def analyze_network_policy(
+            pod: Annotated[Optional[str], _F(description=(
+                "Pod name to evaluate. Omit to evaluate every pod in scope."))] = None,
+            namespace: _Namespace = None,
+            limit: Annotated[int, _F(description=(
+                "Maximum pods to report on when no pod is named."))] = 25,
+            mock: _Mock = True, fixture: _Fixture = None,
+            kubeconfig: _Kubeconfig = None, context: _Context = None) -> dict:
+        """Evaluate NetworkPolicy for a pod (or every pod in scope), BOTH directions, with
+        full Kubernetes LabelSelector semantics.
+
+        Supports matchLabels and matchExpressions (operators In, NotIn, Exists,
+        DoesNotExist), podSelector and namespaceSelector on peers, ipBlock with `except`,
+        policyTypes defaulting, and the additive union across several policies.
+
+        Each direction returns a `status`: unrestricted (no policy governs it),
+        allow-all (a rule admits every peer), restricted (specific peers, which are
+        listed), deny-all (governed with no rules), partial (a selector this build cannot
+        evaluate, so the restriction is NOT confirmed), or unknown (no policy evidence).
+        `partial` is never reported as isolation, an unconfirmed restriction must not read
+        as protection.
+
+        Read-only."""
+        from ..core.models import Scope as _Scope, ScopeLevel as _SL
+        from ..core import netpol
+
+        try:
+            collector = platform.make_collector(mock=mock, fixture=fixture,
+                                                kubeconfig=kubeconfig, context=context)
+            evidence = collector.collect(
+                {"Pod", "NetworkPolicy", "Namespace"},
+                _Scope(_SL.NAMESPACE, namespace=namespace) if namespace
+                else _Scope(_SL.CLUSTER))
+        except (ValueError, RuntimeError) as exc:
+            return {"error": str(exc)}
+
+        policies = evidence.get("NetworkPolicy", all_scopes=True)
+        namespaces = evidence.get("Namespace", all_scopes=True)
+        out = []
+        for p in evidence.get("Pod"):
+            meta = p.get("metadata", {}) or {}
+            if pod and meta.get("name") != pod:
+                continue
+            ns = meta.get("namespace")
+            labels = meta.get("labels", {}) or {}
+            out.append({
+                "pod": meta.get("name"), "namespace": ns, "labels": labels,
+                "ingress": netpol.evaluate(policies, ns, labels, "Ingress", namespaces),
+                "egress": netpol.evaluate(policies, ns, labels, "Egress", namespaces)})
+        if pod and not out:
+            return {"error": f"no pod named {pod!r} in scope"}
+        return {"policies_in_scope": len(policies), "pods_evaluated": len(out),
+                "pods": out[:limit]}
+
     # ================================================================== #
     # LAYER 3, Reports: persist + list + export in any format (§16.4)
     # ================================================================== #
@@ -1225,6 +1349,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "list_runtime_detections": list_runtime_detections,
         "build_threat_matrix": build_threat_matrix,
         "build_attack_path": build_attack_path,
+        "analyze_rbac_paths": analyze_rbac_paths,
+        "analyze_network_policy": analyze_network_policy,
         # 3. reports / analysis of a stored scan
         "list_reports": list_reports,
         "download_report": download_report,

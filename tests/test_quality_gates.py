@@ -287,3 +287,101 @@ def test_readme_documents_every_cli_subcommand():
                and "scan" in a.choices)
     for name in sub.choices:
         assert re.search(rf"\b{name}\b", text), f"CLI command '{name}' is undocumented"
+
+
+# --------------------------------------------------------------------------- #
+# Drift detection, extended: the HTML manual and the LLM configuration surface.
+#
+# These read the repository and derive the expected values. Nothing here asserts on
+# formatting or wording, only that every thing the code exposes is documented somewhere.
+# --------------------------------------------------------------------------- #
+def _html_doc() -> str:
+    with open(os.path.join(ROOT, "K8sMatrixWarden-doc.html"), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_html_doc_mcp_tool_count_matches_the_server():
+    count = len(build_tools())
+    text = _html_doc()
+    assert f"{count} tools" in text, f"HTML doc does not state the real tool count ({count})"
+    assert "36 tools" not in text, "HTML doc still claims a stale tool count"
+
+
+def test_html_doc_names_every_mcp_tool():
+    text = _html_doc()
+    missing = [name for name in build_tools() if f"<code>{name}</code>" not in text]
+    assert missing == [], f"MCP tools missing from the HTML manual: {missing}"
+
+
+def test_html_doc_documents_every_cli_subcommand():
+    from k8smatrixwarden.cli.main import build_parser
+    text = _html_doc()
+    sub = next(a for a in build_parser()._actions if hasattr(a, "choices") and a.choices
+               and "scan" in a.choices)
+    missing = [n for n in sub.choices if f"<code>{n}</code>" not in text]
+    assert missing == [], f"CLI commands missing from the HTML manual: {missing}"
+
+
+def test_both_docs_document_every_llm_provider_key():
+    from k8smatrixwarden.agents.llm_provider import _PROVIDERS
+    readme, html = _readme(), _html_doc()
+    for provider in _PROVIDERS:
+        assert provider in readme, f"provider '{provider}' is undocumented in the README"
+        assert provider in html, f"provider '{provider}' is undocumented in the HTML manual"
+
+
+def test_both_docs_document_every_llm_environment_variable():
+    """The env vars the resolver actually reads, discovered from the source rather than
+    from a hand-kept list, so a new one cannot ship undocumented."""
+    import re as _re
+    src = os.path.join(ROOT, "k8smatrixwarden", "agents", "llm_provider.py")
+    with open(src, encoding="utf-8") as fh:
+        code = fh.read()
+    suffixes = set(_re.findall(r'_env\("([A-Z_]+)"\)', code))
+    variables = {f"K8SMATRIXWARDEN_LLM_{s}" for s in suffixes}
+    # The conventional per-provider credentials the auto-detector looks at.
+    variables |= set(_re.findall(r'os\.environ\.get\("([A-Z_]+)"\)', code))
+    readme, html = _readme(), _html_doc()
+    for var in sorted(variables):
+        assert var in readme or var in html, f"{var} is documented nowhere"
+
+
+def test_html_doc_covers_the_second_pass_analysis_sections():
+    """Every analysis surface a user can reach needs a section they can find."""
+    text = _html_doc()
+    for anchor in ("evidence-coverage", "rbac-graph", "netpol", "attack-layers",
+                   "posture-history", "llm"):
+        assert f'id="{anchor}"' in text, f"HTML manual has no #{anchor} section"
+        assert f'href="#{anchor}"' in text, f"#{anchor} is not linked from the sidebar"
+
+
+def test_the_report_format_list_is_the_same_everywhere():
+    """One list of formats, three consumers (engine, MCP validation, docs). They drift the
+    moment one is edited alone."""
+    from k8smatrixwarden.core.reporting import ReportingEngine
+    from k8smatrixwarden.mcp.server import _VALID_REPORT_FORMATS
+    engine = ReportingEngine()
+    for fmt in _VALID_REPORT_FORMATS:
+        assert hasattr(engine, fmt) or fmt == "terminal", \
+            f"MCP advertises format '{fmt}' the engine cannot render"
+
+
+def test_html_doc_headline_stats_match_the_repository():
+    """The manual's Testing & Quality stat row is a claim about this repository. Derive
+    both numbers and fail if either has drifted."""
+    import importlib
+    import re as _re
+    here = os.path.join(ROOT, "tests")
+    total = 0
+    for fname in sorted(os.listdir(here)):
+        if fname.startswith("test_") and fname.endswith(".py"):
+            mod = importlib.import_module(f"tests.{fname[:-3]}")
+            total += sum(1 for n in dir(mod)
+                         if n.startswith("test_") and callable(getattr(mod, n)))
+    text = _html_doc()
+    claimed = _re.search(r'stat-n">(\d+)</div><div class="stat-l">tests passing', text)
+    assert claimed and int(claimed.group(1)) == total, (
+        f"HTML manual claims {claimed.group(1) if claimed else '?'} tests, "
+        f"the suite has {total}")
+    shards = len(build_platform().registry.shard_names())
+    assert f'stat-n">{shards}/{shards}</div><div class="stat-l">shards loaded clean' in text

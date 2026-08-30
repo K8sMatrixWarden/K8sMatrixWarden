@@ -351,12 +351,18 @@ def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
     lands on the same tactic, which is what lifts a step's confidence from "possible" to
     "observed".
 
-    ponytail: kill-chain-order chaining, the ATT&CK-navigator convention, not a per-finding
-    causal graph. It answers "which tactics can an attacker actually string together here,
-    and does the chain reach Impact". Upgrade to true edge inference (this pod's
-    ServiceAccount can reach that binding) when a single-target path matters more than the
-    tactic-level overview.
+    This is the TACTIC layer: kill-chain-order chaining, the ATT&CK-navigator convention.
+    It answers "which tactics can an attacker actually string together here, and does the
+    chain reach Impact", and it deliberately claims no causal link between the findings in
+    two different tactics.
+
+    The causal claim lives in `resource_paths`, returned alongside it: real hop chains
+    (Internet -> Service -> Pod -> ServiceAccount -> RoleBinding -> Role -> privilege) that
+    reachability and the RBAC graph read off actual cluster objects. Both layers are
+    returned, and `layers` names them explicitly, so a reader never mistakes a tactic
+    adjacency for an attack path.
     """
+    from .attack_path import resource_paths, path_confidence
     by_tactic = _runtime_by_tactic(runtime)
     steps = []
     for col in matrix.columns:                       # already kill-chain ordered
@@ -385,6 +391,12 @@ def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
             "internet_reachable": any(f["internet_reachable"] for f in supporting),
         })
     reaches_impact = any(s["tactic"] == "Impact" for s in steps)
+    # The causal layer, built from the same findings this matrix was built from, so the two
+    # views can never disagree about what the scan saw.
+    findings = sorted({f.dedup_key(): f for col in matrix.columns
+                       for cell in col.cells for f in cell.findings}.values(),
+                      key=lambda f: (f.severity.order, f.score, f.rule_id), reverse=True)
+    resources = resource_paths(findings, runtime)
     return {
         "scan_id": matrix.scan_id,
         "scope": matrix.scope,
@@ -394,6 +406,19 @@ def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
         "reaches_impact": reaches_impact,
         "tactic_count": len(steps),
         "confidence": _path_confidence(steps),
+        # Resource-level causal paths, and a named index of the layers so a consumer can
+        # tell a tactic adjacency from an evidence-backed route without guessing.
+        "resource_paths": resources,
+        "resource_path_count": len(resources),
+        "resource_confidence": path_confidence(resources),
+        "layers": {
+            "tactic": "steps, tactics with findings in kill-chain order (adjacency, not "
+                      "causality)",
+            "resource": "resource_paths, hop chains read off Services/NetworkPolicies/"
+                        "RBAC bindings (causal, evidence-backed)",
+            "runtime": "runtime_evidence on each layer, events that named the same "
+                       "resource or namespace",
+        },
         "reference": REDGUARD_MATRIX_URL,
     }
 

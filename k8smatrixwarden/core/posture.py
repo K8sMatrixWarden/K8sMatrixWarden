@@ -106,14 +106,19 @@ def compare(previous: Optional[ScanResult], current: ScanResult,
 
 def _regressions(new_keys: list, cur: dict, timeline: Optional[dict]) -> list[dict]:
     """A new-in-this-scan finding that the timeline shows was resolved before. That is a
-    regression, materially different from something being found for the first time."""
+    regression, materially different from something being found for the first time.
+
+    Both resolution fields are consulted. `resolved_at` is set while the finding is gone;
+    once it comes back the store moves that date to `last_resolved_at`, so by the time this
+    comparison runs against the CURRENT scan the evidence lives there."""
     if not timeline:
         return []
     out = []
     for key in new_keys:
-        entry = timeline.get(key)
-        if entry and entry.get("resolved_at"):
-            out.append({**_view(cur[key]), "resolved_at": entry["resolved_at"],
+        entry = timeline.get(key) or {}
+        was_resolved = entry.get("resolved_at") or entry.get("last_resolved_at")
+        if was_resolved:
+            out.append({**_view(cur[key]), "resolved_at": was_resolved,
                         "first_seen": entry.get("first_seen")})
     return out
 
@@ -145,18 +150,24 @@ def _summary(previous, current, new_keys, resolved_keys, persistent_keys,
 
 
 def latest_change(store, scan_id: Optional[str] = None) -> dict:
-    """Posture change for a stored scan against the previous scan OF THE SAME CLUSTER.
+    """Posture change for a stored scan against the previous scan OF THE SAME SCOPE.
 
-    Comparing across clusters would be meaningless, and comparing against a differently
-    scoped scan of the same cluster is what `not_rescanned` guards. Returns {} when the
-    store has nothing to compare."""
+    "Same scope" means same cluster AND same resource scope (`cluster-wide`,
+    `namespace/production`, ...). Comparing across clusters is meaningless, and comparing a
+    namespace-scoped scan against a cluster-wide one manufactures a wave of fake
+    resolutions, everything outside the namespace simply was not looked at. The timeline
+    used for regression detection is filtered to the same scope for the same reason.
+
+    Returns {} when the store has nothing to compare."""
     reports = store.list()
     if not reports:
         return {}
     target = scan_id if any(r.scan_id == scan_id for r in reports) else reports[0].scan_id
     index = next(i for i, r in enumerate(reports) if r.scan_id == target)
-    cluster = reports[index].cluster
-    earlier = next((r for r in reports[index + 1:] if r.cluster == cluster), None)
+    here = reports[index]
+    scope = store.scope_key_of(here.cluster, here.scope)
+    earlier = next((r for r in reports[index + 1:]
+                    if store.scope_key_of(r.cluster, r.scope) == scope), None)
     current = store.load(target)
     previous = store.load(earlier.scan_id) if earlier else None
-    return compare(previous, current, timeline=store.raw_timeline())
+    return compare(previous, current, timeline=store.raw_timeline(scope=scope))

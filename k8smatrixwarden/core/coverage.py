@@ -35,9 +35,40 @@ _DOMAINS = {
     "CloudIAM": "Cloud IAM", "Namespace": "Cluster inventory",
 }
 
-#: How much a read outcome counts toward coverage. `partial` is a real read that returned
-#: an incomplete list, so it counts for half rather than being rounded to a clean pass.
+#: Fallback weight per status, used only when the collector recorded no estimate of its
+#: own. `ok` and `skipped` are exact. `partial` without an estimate is the one genuinely
+#: unknown case, and the 0.5 it gets is labelled `heuristic` everywhere it surfaces, so a
+#: reader is never shown a guess formatted like a measurement.
 _WEIGHT = {"ok": 1.0, "partial": 0.5, "skipped": 0.0}
+
+#: Ranked worst-first: the aggregate basis is the weakest basis any kind contributed,
+#: because a total containing one guess is not a measurement.
+_BASIS_RANK = ["unknown", "heuristic", "estimated", "measured"]
+
+
+def _weight(info: dict) -> float:
+    """How much this kind contributes to coverage, preferring the collector's own estimate
+    over the status fallback."""
+    est = info.get("estimated_coverage")
+    if isinstance(est, (int, float)):
+        return float(est)
+    return _WEIGHT.get(info.get("status"), 0.0)
+
+
+def _basis(info: dict) -> str:
+    """How this kind's number was arrived at. A `partial` with no estimate is heuristic,
+    which is exactly the case that used to be indistinguishable from a real measurement."""
+    recorded = info.get("coverage_basis")
+    if recorded:
+        return recorded
+    if info.get("status") == "partial":
+        return "heuristic"
+    return "measured"
+
+
+def _aggregate_basis(bases) -> str:
+    ranks = [(_BASIS_RANK.index(b) if b in _BASIS_RANK else 0) for b in bases]
+    return _BASIS_RANK[min(ranks)] if ranks else "unknown"
 
 
 def _pct(n: float, total: float) -> float:
@@ -52,19 +83,30 @@ def build_coverage(collector) -> dict:
     if not raw:
         return {}
 
-    kinds = {kind: dict(info) for kind, info in sorted(raw.items())}
-    earned = sum(_WEIGHT.get(i["status"], 0.0) for i in kinds.values())
+    kinds = {}
+    for kind, info in sorted(raw.items()):
+        entry = dict(info)
+        # Normalise: every kind carries both numbers explicitly, so no consumer has to
+        # re-derive them (and none can re-derive them differently).
+        entry["estimated_coverage"] = _weight(info)
+        entry["coverage_basis"] = _basis(info)
+        kinds[kind] = entry
+
+    earned = sum(i["estimated_coverage"] for i in kinds.values())
     coverage_pct = _pct(earned, len(kinds))
+    basis = _aggregate_basis(i["coverage_basis"] for i in kinds.values())
 
     domains: dict[str, dict] = {}
     for kind, info in kinds.items():
         d = domains.setdefault(_DOMAINS.get(kind, kind),
-                               {"kinds": [], "earned": 0.0, "total": 0})
+                               {"kinds": [], "earned": 0.0, "total": 0, "bases": []})
         d["kinds"].append(kind)
-        d["earned"] += _WEIGHT.get(info["status"], 0.0)
+        d["earned"] += info["estimated_coverage"]
         d["total"] += 1
+        d["bases"].append(info["coverage_basis"])
     for d in domains.values():
         d["coverage_pct"] = _pct(d.pop("earned"), d.pop("total"))
+        d["coverage_basis"] = _aggregate_basis(d.pop("bases"))
 
     unread = sorted(k for k, i in kinds.items() if i["status"] == "skipped")
     partial = sorted(k for k, i in kinds.items() if i["status"] == "partial")
@@ -72,6 +114,9 @@ def build_coverage(collector) -> dict:
     confidence_pct = 0.0 if degraded else coverage_pct
     return {
         "coverage_pct": coverage_pct,
+        # How the percentage above was arrived at: `measured` when every kind was counted
+        # exactly, degrading to `estimated`/`heuristic`/`unknown` if any kind was not.
+        "coverage_basis": basis,
         "confidence_pct": confidence_pct,
         "confidence_label": confidence_label(confidence_pct, evidence_ok=not degraded),
         "kinds": kinds,
@@ -101,5 +146,8 @@ def summary_line(coverage: dict) -> str:
     """One-line rendering shared by the terminal, text and markdown reports."""
     if not coverage:
         return ""
-    return (f"Evidence coverage {coverage['coverage_pct']}%  ·  assessment confidence "
-            f"{coverage['confidence_pct']}% ({coverage['confidence_label']})")
+    basis = coverage.get("coverage_basis", "measured")
+    qualifier = "" if basis == "measured" else f" [{basis}]"
+    return (f"Evidence coverage {coverage['coverage_pct']}%{qualifier}  ·  assessment "
+            f"confidence {coverage['confidence_pct']}% "
+            f"({coverage['confidence_label']})")

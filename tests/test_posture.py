@@ -158,8 +158,13 @@ def test_timeline_tracks_open_and_resolved_findings():
     tl = store.timeline()
     assert tl["open"] == 1 and tl["resolved"] == 1
     assert tl["oldest_open_days"] == 4.0
-    raw = store.raw_timeline()
+    # Timeline entries are keyed by scope identity as well as finding identity, so one
+    # store can hold several clusters/scopes without them resolving each other. Reading a
+    # scope back gives the bare finding keys.
+    scope = store.scope_key_of("c1", "cluster-wide")
+    raw = store.raw_timeline(scope=scope)
     assert raw["r2|Pod|pod-b|default"]["resolved_at"]
+    assert raw["r2|Pod|pod-b|default"]["scope"] == scope
 
 
 def test_posture_history_tool_matches_the_module():
@@ -174,3 +179,116 @@ def test_posture_history_tool_matches_the_module():
     assert out["current_scan_id"] == "s2"
     assert [f["rule_id"] for f in out["new"]] == ["r2"]
     assert "timeline" in out
+
+
+# --------------------------------------------------------------------------- #
+# Timeline scope identity: one store, several security contexts.
+#
+# The index accumulates across scans and resolves whatever a scan did not re-observe.
+# That is only sound within ONE context, so entries are keyed by cluster + scope and the
+# resolve sweep never crosses that boundary.
+# --------------------------------------------------------------------------- #
+def _scoped(findings, cluster, scope, scan_id, when="2026-01-01T00:00:00+05:30",
+            rules=None):
+    risk = RiskScoringEngine().score(findings)
+    level = ScopeLevel.NAMESPACE if scope != "cluster-wide" else ScopeLevel.CLUSTER
+    ns = scope.split("/", 1)[1] if scope.startswith("namespace/") else None
+    return ScanResult(
+        request=ScanRequest(scope=Scope(level, namespace=ns), selector=Selector(),
+                            mode=ScanMode.SYNC),
+        findings=findings, risk=risk,
+        resolved_rule_ids=rules if rules is not None
+        else sorted({f.rule_id for f in findings}),
+        counts={s.label: sum(1 for f in findings if f.severity is s) for s in Severity},
+        scan_id=scan_id, cluster_name=cluster, generated_at=when)
+
+
+def test_two_clusters_do_not_resolve_each_others_findings():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a")], "cluster-a", "cluster-wide", "a1"))
+    # Cluster B has none of cluster A's findings. That is not evidence they were fixed.
+    store.save(_scoped([_f("r9", "pod-z")], "cluster-b", "cluster-wide", "b1",
+                       when="2026-01-02T00:00:00+05:30"))
+    a = store.raw_timeline(scope=store.scope_key_of("cluster-a", "cluster-wide"))
+    assert a["r1|Pod|pod-a|default"]["resolved_at"] is None
+
+
+def test_two_namespaces_in_one_cluster_do_not_collide():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a", ns="prod")], "c1", "namespace/prod", "p1"))
+    store.save(_scoped([_f("r1", "pod-a", ns="staging")], "c1", "namespace/staging", "s1",
+                       when="2026-01-02T00:00:00+05:30"))
+    prod = store.raw_timeline(scope=store.scope_key_of("c1", "namespace/prod"))
+    staging = store.raw_timeline(scope=store.scope_key_of("c1", "namespace/staging"))
+    assert prod["r1|Pod|pod-a|prod"]["resolved_at"] is None
+    assert staging["r1|Pod|pod-a|staging"]["resolved_at"] is None
+    assert len(store.raw_timeline()) == 2       # both live in one store, separately keyed
+
+
+def test_a_finding_resolves_within_its_own_scope():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a"), _f("r2", "pod-b")], "c1", "cluster-wide", "s1"))
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "s2",
+                       when="2026-01-05T00:00:00+05:30", rules=["r1", "r2"]))
+    tl = store.raw_timeline(scope=store.scope_key_of("c1", "cluster-wide"))
+    assert tl["r2|Pod|pod-b|default"]["resolved_at"]
+    assert tl["r1|Pod|pod-a|default"]["resolved_at"] is None
+
+
+def test_previous_scan_resolution_matches_scope_not_just_cluster():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "wide1"))
+    store.save(_scoped([_f("r1", "pod-a", ns="prod")], "c1", "namespace/prod", "ns1",
+                       when="2026-01-02T00:00:00+05:30"))
+    # The newest scan is the namespace one; its predecessor must be a namespace scan of the
+    # same namespace, not the cluster-wide scan (which looked at different objects).
+    out = latest_change(store)
+    assert out["current_scan_id"] == "ns1"
+    assert out["previous_scan_id"] is None, "no earlier scan of this scope exists"
+    assert out["resolved"] == []
+
+
+def test_timeline_can_be_narrowed_to_one_scope():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "a1"))
+    store.save(_scoped([_f("r2", "pod-b")], "c2", "cluster-wide", "b1",
+                       when="2026-01-02T00:00:00+05:30"))
+    assert store.timeline()["open"] == 2
+    assert store.timeline(scope=store.scope_key_of("c1", "cluster-wide"))["open"] == 1
+
+
+def test_legacy_unscoped_timeline_entries_survive_and_are_never_swept():
+    """A store written before scoping existed has 4-field keys. They must stay readable,
+    stay visible to a scoped read, and must NOT be marked resolved by a scoped scan."""
+    import json
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    legacy = {"r-old|Pod|legacy|default": {
+        "rule_id": "r-old", "title": "old", "severity": "HIGH",
+        "resource": "Pod/legacy (default)", "first_seen": "2025-12-01T00:00:00+05:30",
+        "last_seen": "2025-12-01T00:00:00+05:30", "resolved_at": None}}
+    with open(os.path.join(d, "_timeline.json"), "w", encoding="utf-8") as fh:
+        json.dump(legacy, fh)
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "s1"))
+    raw = store.raw_timeline()
+    assert raw["r-old|Pod|legacy|default"]["resolved_at"] is None
+    scoped = store.raw_timeline(scope=store.scope_key_of("c1", "cluster-wide"))
+    assert "r-old|Pod|legacy|default" in scoped, "legacy history stays usable after upgrade"
+
+
+def test_regression_detection_uses_the_scoped_timeline():
+    d = tempfile.mkdtemp()
+    store = ReportStore(d)
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "s1"))
+    store.save(_scoped([], "c1", "cluster-wide", "s2", when="2026-01-02T00:00:00+05:30",
+                       rules=["r1"]))                        # r1 fixed
+    store.save(_scoped([_f("r1", "pod-a")], "c1", "cluster-wide", "s3",
+                       when="2026-01-03T00:00:00+05:30"))    # and back again
+    out = latest_change(store)
+    assert [r["rule_id"] for r in out["regressed"]] == ["r1"]
+    assert out["new"] == [], "a regression is not reported as a first-time finding"

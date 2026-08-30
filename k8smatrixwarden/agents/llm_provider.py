@@ -95,6 +95,14 @@ class LLMConfig:
     #: Deliberately untyped: providers do not expose the same knobs, and inventing a
     #: lowest-common-denominator schema would either lose settings or invent fake ones.
     extra: dict = field(default_factory=dict)
+    #: Where the provider came from: explicit | environment | config | auto-detected |
+    #: none. Reported by `doctor` so an operator can see WHY a provider was chosen, which
+    #: is the whole point of making selection deterministic.
+    provider_source: str = "none"
+    #: Providers whose credentials are present but which were NOT chosen. Non-empty only
+    #: when selection fell through to auto-detection with more than one candidate, which
+    #: is treated as an error, not silently resolved.
+    ambiguous_with: list = field(default_factory=list)
 
     @property
     def configured(self) -> bool:
@@ -108,6 +116,13 @@ class LLMConfig:
             return [f"unknown provider {self.provider!r} "
                     f"(supported: {', '.join(sorted(_PROVIDERS))})"]
         out = []
+        if self.ambiguous_with:
+            # Several providers are credentialed and none was named. Guessing here is how a
+            # tool silently sends a security assessment to the wrong vendor, so it refuses.
+            out.append(
+                f"ambiguous LLM configuration: credentials found for "
+                f"{', '.join([self.provider] + list(self.ambiguous_with))}. Set "
+                f"{_ENV_PREFIX}PROVIDER (or the config file's llm.provider) to choose one")
         if not self.model:
             out.append(f"no model configured for provider {self.provider!r} "
                        f"(set {_ENV_PREFIX}MODEL)")
@@ -122,6 +137,8 @@ class LLMConfig:
         return {"provider": self.provider or None, "model": self.model or None,
                 "base_url": self.base_url or None,
                 "credentials": "present" if self.api_key else "absent",
+                "provider_source": self.provider_source,
+                "ambiguous_with": list(self.ambiguous_with),
                 "extra": {k: v for k, v in self.extra.items() if "key" not in k.lower()}}
 
 
@@ -129,26 +146,65 @@ def _env(name: str) -> str:
     return (os.environ.get(_ENV_PREFIX + name) or "").strip()
 
 
-def _autodetect_provider() -> str:
-    """Pick a provider from whichever conventional credential is present. Deterministic
-    order so two configured keys always resolve the same way."""
-    for name in ("anthropic", "openai"):
-        if os.environ.get(_PROVIDERS[name]["key_env"]):
-            return name
-    return ""
+#: Auto-detection candidates, in fixed precedence order. This is a LIST, not a dict scan:
+#: iteration order is part of the contract, not an implementation accident, and the order
+#: is documented in the README. A provider is a candidate when the operator has done
+#: something concrete for it (its conventional credential, or its endpoint variable).
+_AUTODETECT = (
+    ("anthropic", lambda: bool(os.environ.get("ANTHROPIC_API_KEY"))),
+    ("openai", lambda: bool(os.environ.get("OPENAI_API_KEY"))),
+    ("azure-openai", lambda: bool(os.environ.get("AZURE_OPENAI_API_KEY"))),
+    ("ollama", lambda: bool(os.environ.get("OLLAMA_HOST"))),
+)
 
 
-def resolve_config(config: Optional[dict] = None) -> LLMConfig:
-    """Build the effective LLM configuration. Never raises, an unusable configuration is
-    reported through `LLMConfig.problems()` so `doctor` can show it and the agent path can
-    decline cleanly."""
+def autodetect_candidates() -> list:
+    """Every provider the environment supplies credentials/endpoint for, in precedence
+    order. More than one is an ambiguity the operator has to resolve, not a race we win."""
+    return [name for name, present in _AUTODETECT if present()]
+
+
+def resolve_config(config: Optional[dict] = None,
+                   provider: Optional[str] = None,
+                   model: Optional[str] = None) -> LLMConfig:
+    """Build the effective LLM configuration.
+
+    Precedence, highest first, and the same on every run:
+
+        1. explicit argument       , a CLI flag or an API caller naming the provider/model
+        2. environment             , K8SMATRIXWARDEN_LLM_PROVIDER / _MODEL / ...
+        3. configuration file      , the `llm` block of config/agent.json
+        4. controlled auto-detection, a single credentialed provider from a fixed list
+
+    Auto-detection deliberately refuses to choose between two credentialed providers: the
+    ambiguity is recorded and surfaces through `problems()`, so the run declines with an
+    explanation instead of silently picking one.
+
+    Never raises; an unusable configuration is reported through `LLMConfig.problems()` so
+    `doctor` can show it and the agent path can decline cleanly.
+    """
     block = dict((config or {}).get("llm") or {})
-    provider = (_env("PROVIDER") or str(block.get("provider") or "")
-                or _autodetect_provider()).strip().lower()
-    meta = _PROVIDERS.get(provider, {})
+    explicit = (provider or "").strip().lower()
+    env_provider = _env("PROVIDER").lower()
+    cfg_provider = str(block.get("provider") or "").strip().lower()
 
-    model = (_env("MODEL") or str(block.get("model") or "")
-             or str(meta.get("default_model") or "")).strip()
+    ambiguous: list = []
+    if explicit:
+        chosen, source = explicit, "explicit"
+    elif env_provider:
+        chosen, source = env_provider, "environment"
+    elif cfg_provider:
+        chosen, source = cfg_provider, "config"
+    else:
+        candidates = autodetect_candidates()
+        chosen = candidates[0] if candidates else ""
+        source = "auto-detected" if chosen else "none"
+        ambiguous = candidates[1:]
+    provider_name = chosen
+    meta = _PROVIDERS.get(provider_name, {})
+
+    model_name = ((model or "").strip() or _env("MODEL") or str(block.get("model") or "")
+                  or str(meta.get("default_model") or "")).strip()
     base_url = (_env("BASE_URL") or str(block.get("base_url") or "")
                 or str(meta.get("default_base_url") or "")).strip()
 
@@ -165,8 +221,9 @@ def resolve_config(config: Optional[dict] = None) -> LLMConfig:
                 extra.update(parsed)
         except ValueError:
             pass                      # a malformed extra blob must not break resolution
-    return LLMConfig(provider=provider, model=model, base_url=base_url,
-                     api_key=api_key, extra=extra)
+    return LLMConfig(provider=provider_name, model=model_name, base_url=base_url,
+                     api_key=api_key, extra=extra, provider_source=source,
+                     ambiguous_with=ambiguous)
 
 
 # --------------------------------------------------------------------------- #
@@ -320,9 +377,11 @@ def as_provider(obj, *, model: str = "") -> LLMProvider:
 
 
 def get_provider(cfg: Optional[LLMConfig] = None,
-                 config: Optional[dict] = None) -> LLMProvider:
+                 config: Optional[dict] = None,
+                 provider: Optional[str] = None,
+                 model: Optional[str] = None) -> LLMProvider:
     """Build the configured provider, or raise LLMUnavailable explaining why not."""
-    cfg = cfg or resolve_config(config)
+    cfg = cfg or resolve_config(config, provider=provider, model=model)
     problems = cfg.problems()
     if problems:
         raise LLMUnavailable("; ".join(problems))
@@ -331,14 +390,19 @@ def get_provider(cfg: Optional[LLMConfig] = None,
     return OpenAICompatibleProvider(cfg)
 
 
-def status(config: Optional[dict] = None, *, probe: bool = False) -> dict:
+def status(config: Optional[dict] = None, *, probe: bool = False,
+           provider: Optional[str] = None, model: Optional[str] = None) -> dict:
     """LLM health for `doctor`. Never raises. `probe=True` makes one tiny live call to
     verify credentials and model name; without it no network is touched."""
-    cfg = resolve_config(config)
+    cfg = resolve_config(config, provider=provider, model=model)
     out = {**cfg.redacted(), "configured": cfg.configured,
-           "problems": cfg.problems(), "connectivity": "not probed"}
+           "problems": cfg.problems(), "connectivity": "not probed",
+           "autodetect_candidates": autodetect_candidates()}
     if not cfg.configured:
         out["status"] = "NOT CONFIGURED"
+        return out
+    if cfg.ambiguous_with:
+        out["status"] = "AMBIGUOUS"
         return out
     if out["problems"]:
         out["status"] = "INVALID"

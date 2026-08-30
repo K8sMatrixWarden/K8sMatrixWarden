@@ -23,16 +23,27 @@ rule's static REMOTE flag is what makes this fire on real app vulns: an RCE-clas
 secret-in-env finding is tagged LOCAL by the rule, but if its pod sits behind a NodePort it
 is very much internet-reachable. Reads the shared Evidence snapshot -- no new fetches.
 
-ponytail: matchLabels/flat-selector match, ingress direction only; egress and RBAC-chain
-tagging are a later pass. Exposure is computed once per workload and cached across its
-findings.
+Two engines do the actual reasoning, and both are used here rather than reimplemented:
+
+  core/netpol.py     , full LabelSelector semantics (matchLabels AND matchExpressions,
+                        In/NotIn/Exists/DoesNotExist, namespaceSelector) evaluated in BOTH
+                        directions. A policy this build cannot evaluate yields `partial`,
+                        which is NOT treated as isolation -- an unconfirmed restriction
+                        must never downgrade an exposure.
+  core/rbac_graph.py , RBAC as a graph, so "this SA can reach cluster-admin" comes with the
+                        binding, the role and the hop sequence that prove it, including
+                        multi-hop routes (read a token -> become that SA -> its permissions).
+
+Exposure is computed once per workload and cached across its findings.
 """
 from __future__ import annotations
 
 from typing import Optional
 
+from . import netpol
 from .evidence import Evidence
 from .models import Finding, ResourceRef
+from .rbac_graph import RbacGraph, principal_for_workload
 
 # Attack-vector tags for Finding.exploitable_by (shared vocabulary).
 EXPLOIT_INGRESS = "ingress"              # reachable from outside the cluster now
@@ -60,34 +71,6 @@ def _pod_labels(workload: dict) -> dict:
     return (workload.get("metadata", {}) or {}).get("labels", {}) or {}
 
 
-def _selects(policy: dict, pod_labels: dict) -> bool:
-    """True if `policy`'s podSelector selects a pod with these labels. Empty selector
-    ({}) selects every pod in the namespace (k8s semantics)."""
-    match = Evidence.dig(policy, "spec.podSelector.matchLabels", {}) or {}
-    return all(pod_labels.get(k) == v for k, v in match.items())
-
-
-def _ingress_governs(policy: dict) -> bool:
-    """Does this policy put ingress under a default-deny? k8s: if policyTypes is omitted,
-    Ingress always applies; otherwise it applies only when listed."""
-    types = Evidence.dig(policy, "spec.policyTypes", None)
-    return types is None or "Ingress" in types
-
-
-def _allows_all_ingress(policy: dict) -> bool:
-    """True if any ingress rule admits traffic from anywhere (empty `from`, or an
-    0.0.0.0/0 ipBlock) -- which means the pod is NOT isolated from remote sources."""
-    for rule in Evidence.dig(policy, "spec.ingress", []) or []:
-        froms = rule.get("from")
-        if not froms:                       # empty/absent `from` == allow all sources
-            return True
-        for peer in froms:
-            cidr = (peer.get("ipBlock") or {}).get("cidr", "")
-            if cidr in _ALLOW_ALL_CIDRS:
-                return True
-    return False
-
-
 def _resolve_workload(rref: ResourceRef, evidence: Evidence) -> Optional[dict]:
     if not rref.name or rref.kind not in _WORKLOAD_KINDS:
         return None
@@ -98,24 +81,29 @@ def _resolve_workload(rref: ResourceRef, evidence: Evidence) -> Optional[dict]:
     return None
 
 
-def _ingress_isolated(workload: dict, namespace: Optional[str],
-                      policies: list[dict]) -> Optional[str]:
-    """Return a reason string if the workload is isolated from remote ingress, else None.
-
-    Isolated == selected by >=1 ingress-governing policy AND no selecting policy opens it
-    to all sources. Policies are additive (union of allows), so a single allow-all defeats
-    isolation.
-    """
+def _network_context(workload: dict, namespace: Optional[str], policies: list[dict],
+                     namespaces: Optional[list[dict]]) -> dict:
+    """Both directions of this pod's NetworkPolicy posture, as structured data."""
     labels = _pod_labels(workload)
-    selecting = [p for p in policies
-                 if Evidence.dig(p, "metadata.namespace") == namespace and _selects(p, labels)]
-    governing = [p for p in selecting if _ingress_governs(p)]
-    if not governing:
+    return {
+        "ingress": netpol.evaluate(policies, namespace, labels, "Ingress", namespaces),
+        "egress": netpol.evaluate(policies, namespace, labels, "Egress", namespaces),
+    }
+
+
+def _ingress_isolated(network: dict) -> Optional[str]:
+    """Reason string if ingress is CONFIRMED isolated, else None.
+
+    Only `restricted` and `deny-all` count. A `partial` evaluation (a policy using a
+    construct this build cannot evaluate) is deliberately not isolation: claiming a pod is
+    protected on the strength of a policy we could not read is exactly the false negative
+    this module exists to avoid.
+    """
+    ing = network.get("ingress", {})
+    if not netpol.isolates(ing):
         return None
-    if any(_allows_all_ingress(p) for p in governing):
-        return None
-    names = ", ".join(sorted(Evidence.dig(p, "metadata.name", "?") for p in governing))
-    return f"ingress isolated by NetworkPolicy {names}"
+    return (f"ingress isolated by NetworkPolicy {', '.join(ing['policies'])}"
+            if ing.get("policies") else ing.get("reason", "ingress isolated"))
 
 
 def _service_selects(service: dict, pod_labels: dict) -> bool:
@@ -164,82 +152,23 @@ def _external_exposure(workload: dict, namespace: Optional[str],
     return None
 
 
-def _binds_sa(binding: dict, sa: str, ns: Optional[str]) -> bool:
-    # exact (name, namespace) match -- a ServiceAccount subject always carries a namespace,
-    # so no is-None fallback: a "reaches cluster-admin" claim must not match loosely.
-    for s in binding.get("subjects", []) or []:
-        if (s.get("kind") == "ServiceAccount"
-                and s.get("name") == sa and s.get("namespace") == ns):
-            return True
-    return False
-
-
-def _sa_rules(workload: dict, ns: Optional[str], evidence: Evidence) -> list[dict]:
-    """All RBAC policy rules granted to the workload's ServiceAccount, via its Cluster/Role
-    bindings. Reused-per-pod; the caller caches."""
-    sa = Evidence.pod_spec(workload).get("serviceAccountName", "default")
-    croles = {Evidence.dig(r, "metadata.name"): r
-              for r in evidence.get("ClusterRole", all_scopes=True)}
-    roles = {(Evidence.dig(r, "metadata.name"), Evidence.dig(r, "metadata.namespace")): r
-             for r in evidence.get("Role", all_scopes=True)}
-    rules: list[dict] = []
-
-    def add(roleref: dict, binding_ns: Optional[str]):
-        name = roleref.get("name")
-        role = croles.get(name) if roleref.get("kind") == "ClusterRole" \
-            else roles.get((name, binding_ns))
-        if role:
-            rules.extend(role.get("rules", []) or [])
-
-    for crb in evidence.get("ClusterRoleBinding", all_scopes=True):
-        if _binds_sa(crb, sa, ns):
-            add(crb.get("roleRef", {}) or {}, None)
-    for rb in evidence.get("RoleBinding", all_scopes=True):
-        if _binds_sa(rb, sa, ns):
-            add(rb.get("roleRef", {}) or {}, Evidence.dig(rb, "metadata.namespace"))
-    return rules
-
-
-def _escalation_chain(rules: list[dict]) -> Optional[str]:
-    """Name the cluster-admin escalation levers this SA's rules grant, or None.
-
-    ponytail: single-level primitive detection, not a real shortest-path graph. It flags the
-    known escalation verbs an SA holds -- enough to say "this SA can reach cluster-admin".
-    Upgrade to true multi-hop chaining (KubeHound/IceKube style) only if customers need the
-    exact hop sequence rather than "an escalation lever exists here".
-    """
-    def grants(verbs: set, resources: set) -> bool:
-        for r in rules:
-            rv, rr = set(r.get("verbs", []) or []), set(r.get("resources", []) or [])
-            if (verbs & rv or "*" in rv) and (resources & rr or "*" in rr):
-                return True
-        return False
-
-    if grants({"*"}, {"*"}):
-        return "SA already holds cluster-admin-equivalent (verbs=* on resources=*)"
-    steps = []
-    if grants({"bind", "escalate"}, {"clusterroles", "roles"}):
-        steps.append("bind/escalate roles → grant itself cluster-admin")
-    if grants({"impersonate"}, {"users", "groups", "serviceaccounts"}):
-        steps.append("impersonate a higher-privileged identity")
-    if grants({"create"}, {"pods", "deployments", "daemonsets"}):
-        steps.append("create a workload with any SA / privileged → node → cluster")
-    if grants({"get", "list"}, {"secrets"}):
-        steps.append("read secrets → steal another identity's token")
-    return "; ".join(steps) or None
-
-
 def _node(kind: str, name: str, detail: str = "") -> dict:
     return {"kind": kind, "name": name, "detail": detail}
 
 
 def _build_path(workload: dict, namespace: Optional[str], exposure: Optional[str],
-                isolated: Optional[str], chain: Optional[str]) -> list[dict]:
+                isolated: Optional[str], chain: Optional[str],
+                rbac_path=None) -> list[dict]:
     """The structural hop chain behind the prose reason (§9).
 
-    Internet -> Service/Ingress -> Pod -> ServiceAccount -> RBAC escalation, with the hops
-    that do not apply simply absent. Same inputs as the reason string, so the two can never
-    disagree; this one is machine-readable, for the dashboard, MCP, reports and the agent.
+    Internet -> Service/Ingress -> Pod -> ServiceAccount -> RoleBinding -> Role -> the
+    privilege it grants, with the hops that do not apply simply absent. Same inputs as the
+    reason string, so the two can never disagree; this one is machine-readable, for the
+    dashboard, MCP, reports and the agent.
+
+    The RBAC tail is no longer a single synthetic "escalation" node: when the graph found a
+    concrete shortest path, its real hops (the binding, the role, the capability) are spliced
+    in, so a reader sees WHICH binding grants it rather than only that something does.
     """
     meta = workload.get("metadata", {}) or {}
     sa = Evidence.pod_spec(workload).get("serviceAccountName", "default")
@@ -256,16 +185,25 @@ def _build_path(workload: dict, namespace: Optional[str], exposure: Optional[str
     path.append(_node(workload.get("kind") or "Pod", meta.get("name", ""), namespace or ""))
     if chain:
         path.append(_node("ServiceAccount", sa, f"{namespace or ''}/{sa}".strip("/")))
-        path.append(_node("RBAC", "cluster-admin escalation", chain))
+        if rbac_path is not None:
+            # Skip the principal node the graph starts from, it is the ServiceAccount hop
+            # just appended; every following hop carries the edge's own reason.
+            for edge in rbac_path.edges:
+                path.append(_node(edge.target.kind, edge.target.name, edge.reason))
+        else:
+            path.append(_node("RBAC", "cluster-admin escalation", chain))
     return path
 
 
 def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
-              evidence: Evidence) -> tuple[list[str], str, list[dict]]:
-    """(tags, analyst-facing reason, structural path) for a workload: external exposure
-    plus RBAC escalation."""
+              evidence: Evidence, graph: Optional[RbacGraph] = None,
+              namespaces: Optional[list[dict]] = None) -> tuple:
+    """(tags, analyst-facing reason, structural path, network context, rbac paths) for a
+    workload: external exposure, NetworkPolicy posture in both directions, and multi-hop
+    RBAC escalation."""
     exposure = _external_exposure(workload, namespace, evidence)
-    isolated = _ingress_isolated(workload, namespace, policies)   # reason str or None
+    network = _network_context(workload, namespace, policies, namespaces)
+    isolated = _ingress_isolated(network)                         # reason str or None
 
     if exposure and not isolated:
         tags, reason = [EXPLOIT_INGRESS], (
@@ -285,13 +223,32 @@ def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
             f"executing in a pod (assume-breach / lateral movement). Still remediate for "
             f"defense-in-depth; treat as lower urgency than internet-reachable findings.")
 
-    chain = _escalation_chain(_sa_rules(workload, namespace, evidence))
+    graph = graph or RbacGraph.from_evidence(evidence)
+    principal = principal_for_workload(workload, namespace)
+    chain, rbac_paths = graph.escalation_summary(principal)
     if chain:
-        sa = Evidence.pod_spec(workload).get("serviceAccountName", "default")
         tags.append(EXPLOIT_RBAC_ESCALATION)
-        reason += (f" ⚠ RBAC escalation: this pod's ServiceAccount '{sa}' can reach "
-                   f"cluster-admin — {chain}. A breach here isn't contained to the pod.")
-    return tags, reason, _build_path(workload, namespace, exposure, isolated, chain)
+        reason += (f" ⚠ RBAC escalation: this pod's ServiceAccount "
+                   f"'{principal.name}' can reach cluster-admin — {chain}. A breach here "
+                   f"isn't contained to the pod.")
+
+    # Egress is context, never a tag: a pod with unrestricted egress is not "more exposed"
+    # to an inbound attacker, it is more useful to one who is already inside. Say so where
+    # it changes the analyst's next move, and stay quiet where it does not.
+    egress = network.get("egress", {})
+    if egress.get("status") == netpol.UNRESTRICTED:
+        reason += (" Egress is unrestricted, so a compromised process here can reach any "
+                   "in-cluster service and the internet (exfiltration / C2 path).")
+    elif netpol.isolates(egress):
+        reason += f" Egress is constrained: {egress.get('reason', '')}"
+    elif egress.get("status") == netpol.PARTIAL:
+        reason += (" Egress restriction could not be fully evaluated, treat it as "
+                   "unconfirmed rather than as containment.")
+
+    shortest = rbac_paths[0] if rbac_paths else None
+    return (tags, reason,
+            _build_path(workload, namespace, exposure, isolated, chain, shortest),
+            network, [p.as_dict() for p in rbac_paths[:10]])
 
 
 def inventory(evidence: Evidence) -> dict:
@@ -303,11 +260,13 @@ def inventory(evidence: Evidence) -> dict:
     internet+admin > internet > admin > internal. Reuses _classify -- same tags, no new logic.
     """
     policies = evidence.get("NetworkPolicy", all_scopes=True)
+    namespaces = evidence.get("Namespace", all_scopes=True)
     pods = evidence.get("Pod")                       # scope-filtered, same as the rules saw
+    graph = RbacGraph.from_evidence(evidence)        # built once for the whole inventory
     buckets = {"internet_admin": 0, "internet": 0, "admin": 0, "internal": 0}
     for pod in pods:
-        tags, _, _ = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
-                               policies, evidence)
+        tags = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
+                         policies, evidence, graph, namespaces)[0]
         ingress, admin = EXPLOIT_INGRESS in tags, EXPLOIT_RBAC_ESCALATION in tags
         key = ("internet_admin" if ingress and admin else "internet" if ingress
                else "admin" if admin else "internal")
@@ -326,6 +285,8 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
     across all its findings.
     """
     policies = evidence.get("NetworkPolicy", all_scopes=True)
+    namespaces = evidence.get("Namespace", all_scopes=True)
+    graph = RbacGraph.from_evidence(evidence)   # one index, reused for every workload
     cache: dict[tuple, tuple] = {}
     for f in findings:
         workload = _resolve_workload(f.resource, evidence)
@@ -333,9 +294,12 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
             continue                          # non-pod finding -> different fix lever, skip
         key = (f.resource.kind, f.resource.name, f.resource.namespace)
         if key not in cache:
-            cache[key] = _classify(workload, f.resource.namespace, policies, evidence)
-        tags, reason, path = cache[key]
+            cache[key] = _classify(workload, f.resource.namespace, policies, evidence,
+                                   graph, namespaces)
+        tags, reason, path, network, rbac_paths = cache[key]
         f.exploitable_by = list(tags)
         f.path_reason = reason
         f.exploit_path = [dict(node) for node in path]
+        f.network_context = network
+        f.rbac_paths = rbac_paths
     return findings

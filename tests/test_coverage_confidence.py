@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from k8smatrixwarden.agents.scanner import ScannerAgent
 from k8smatrixwarden.bootstrap import build_platform
-from k8smatrixwarden.core.coverage import build_coverage, confidence_label
+from k8smatrixwarden.core.coverage import (build_coverage, confidence_label,
+                                            summary_line)
 from k8smatrixwarden.core.evidence import EvidenceCollector, default_fixture_path
 from k8smatrixwarden.core.models import ScanMode, ScanRequest, Scope, ScopeLevel, Selector
 from k8smatrixwarden.core.results import ScanResult
@@ -144,3 +145,100 @@ def test_coverage_reaches_the_report_and_the_mcp_layer():
     out = build_tools()["get_cluster_coverage"](reports_dir=reports_dir)
     assert out["coverage"]["coverage_pct"] == 100.0
     assert out["evidence_ok"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Coverage BASIS: a measurement, an estimate and a guess must not look alike.
+# --------------------------------------------------------------------------- #
+class _Recorder:
+    """Minimal stand-in for a collector: only `coverage` and `degraded` are read."""
+
+    def __init__(self, coverage, degraded=False):
+        self.coverage = coverage
+        self.degraded = degraded
+
+
+def test_a_clean_read_is_measured_at_full_coverage():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "ok", "count": 3, "reason": "",
+                "estimated_coverage": 1.0, "coverage_basis": "measured"}}))
+    assert cov["coverage_pct"] == 100.0
+    assert cov["coverage_basis"] == "measured"
+    assert cov["kinds"]["Pod"]["estimated_coverage"] == 1.0
+
+
+def test_a_skipped_kind_is_measured_at_zero_not_unknown():
+    # We know exactly how much of it we read: none. That is a measurement, not a guess.
+    cov = build_coverage(_Recorder({
+        "Secret": {"status": "skipped", "count": 0, "reason": "HTTP 403",
+                   "estimated_coverage": 0.0, "coverage_basis": "measured"}}))
+    assert cov["coverage_pct"] == 0.0 and cov["coverage_basis"] == "measured"
+    assert cov["unread_kinds"] == ["Secret"]
+
+
+def test_a_truncated_read_with_a_remaining_count_is_estimated():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "partial", "count": 750, "reason": "cap",
+                "estimated_coverage": 0.75, "coverage_basis": "estimated"}}))
+    assert cov["coverage_pct"] == 75.0
+    assert cov["coverage_basis"] == "estimated"
+
+
+def test_a_truncated_read_with_no_remaining_count_is_unknown_not_a_number():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "partial", "count": 500, "reason": "cap",
+                "estimated_coverage": None, "coverage_basis": "unknown"}}))
+    assert cov["kinds"]["Pod"]["coverage_basis"] == "unknown"
+    assert cov["coverage_basis"] == "unknown"
+    assert "[unknown]" in summary_line(cov)
+
+
+def test_a_legacy_entry_without_a_basis_falls_back_to_heuristic_and_says_so():
+    # Reports stored before the basis existed carry status only. The 0.5 they get is
+    # labelled heuristic rather than being presented as a measured half.
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "partial", "count": 10, "reason": "cap"}}))
+    assert cov["kinds"]["Pod"]["estimated_coverage"] == 0.5
+    assert cov["kinds"]["Pod"]["coverage_basis"] == "heuristic"
+    assert "[heuristic]" in summary_line(cov)
+
+
+def test_the_aggregate_basis_is_the_weakest_contributor():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "ok", "count": 1, "reason": "",
+                "estimated_coverage": 1.0, "coverage_basis": "measured"},
+        "Secret": {"status": "partial", "count": 1, "reason": "cap",
+                   "estimated_coverage": 0.5, "coverage_basis": "heuristic"}}))
+    assert cov["coverage_basis"] == "heuristic", "one guess makes the total a guess"
+    assert cov["coverage_pct"] == 75.0
+
+
+def test_domains_carry_their_own_basis():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "ok", "count": 1, "reason": "",
+                "estimated_coverage": 1.0, "coverage_basis": "measured"},
+        "Secret": {"status": "partial", "count": 1, "reason": "cap",
+                   "estimated_coverage": 0.5, "coverage_basis": "estimated"}}))
+    assert cov["domains"]["Workloads"]["coverage_basis"] == "measured"
+    assert cov["domains"]["Secrets"]["coverage_basis"] == "estimated"
+    assert cov["domains"]["Secrets"]["coverage_pct"] == 50.0
+
+
+def test_a_measured_total_is_not_annotated_in_the_summary_line():
+    cov = build_coverage(_Recorder({
+        "Pod": {"status": "ok", "count": 1, "reason": "",
+                "estimated_coverage": 1.0, "coverage_basis": "measured"}}))
+    assert "[" not in summary_line(cov)
+
+
+def test_partial_coverage_never_suppresses_confidence_below_a_degraded_scan():
+    """A partial read still produces findings and a real confidence number; only a scan
+    that could not read the cluster at all drops to zero."""
+    partial = build_coverage(_Recorder({
+        "Pod": {"status": "partial", "count": 1, "reason": "cap",
+                "estimated_coverage": 0.5, "coverage_basis": "estimated"}}))
+    dead = build_coverage(_Recorder({
+        "Pod": {"status": "skipped", "count": 0, "reason": "401",
+                "estimated_coverage": 0.0, "coverage_basis": "measured"}}, degraded=True))
+    assert partial["confidence_pct"] == 50.0
+    assert dead["confidence_pct"] == 0.0 and dead["confidence_label"] == "None"

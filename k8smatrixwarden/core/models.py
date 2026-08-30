@@ -325,6 +325,16 @@ class Finding:
     #: Each node is {kind, name, detail}. Empty when the finding is not on a workload or
     #: reachability was not analysed. Descriptive context, never a severity input.
     exploit_path: list = field(default_factory=list)
+    #: Evaluated NetworkPolicy posture for this finding's pod, both directions
+    #: (core/netpol.py): {"ingress": {...}, "egress": {...}}, each carrying a status of
+    #: unrestricted | allow-all | restricted | deny-all | partial | unknown plus the
+    #: policies and peers behind it. `partial`/`unknown` are first-class: an unevaluable
+    #: policy is reported as unconfirmed, never as isolation and never as wide open.
+    network_context: dict = field(default_factory=dict)
+    #: Multi-hop RBAC escalation paths for the pod's ServiceAccount (core/rbac_graph.py),
+    #: each an evidence-backed chain of edges. Empty when the SA escalates nowhere, or
+    #: when the finding is not on a workload.
+    rbac_paths: list = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
     score: float = 0.0                      # filled in by RiskScoringEngine
     #: The four factors whose product IS `score`, published so the number is reproducible
@@ -376,6 +386,8 @@ class Finding:
             "exploitable_by": list(self.exploitable_by),
             "path_reason": self.path_reason,
             "exploit_path": list(self.exploit_path),
+            "network_context": self.network_context,
+            "rbac_paths": list(self.rbac_paths),
             "evidence": self.evidence,
             "score": round(self.score, 3),
             "score_breakdown": self.score_breakdown,
@@ -409,6 +421,8 @@ class Finding:
         f.exploitable_by = list(d.get("exploitable_by", []) or [])
         f.path_reason = d.get("path_reason")
         f.exploit_path = list(d.get("exploit_path", []) or [])
+        f.network_context = d.get("network_context", {}) or {}
+        f.rbac_paths = list(d.get("rbac_paths", []) or [])
         f.score = float(d.get("score", 0.0))
         f.score_breakdown = d.get("score_breakdown", {}) or {}
         return f

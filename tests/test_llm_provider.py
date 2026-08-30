@@ -230,3 +230,175 @@ def test_raw_client_is_wrapped_without_importing_an_sdk():
     raw = types.SimpleNamespace(messages=types.SimpleNamespace(create=lambda **_: resp))
     out = lp.as_provider(raw, model="m").chat(system="", messages=[], tools=[])
     assert out.text == "hi" and not out.wants_tools
+
+
+# --------------------------------------------------------------------------- #
+# Deterministic provider selection.
+#
+# Several providers may be credentialed at once. The tool must never quietly pick one,
+# and which one it picks must not depend on dict or environment iteration order.
+# --------------------------------------------------------------------------- #
+_LLM_ENV = ("K8SMATRIXWARDEN_LLM_PROVIDER", "K8SMATRIXWARDEN_LLM_MODEL",
+            "K8SMATRIXWARDEN_LLM_BASE_URL", "K8SMATRIXWARDEN_LLM_API_KEY",
+            "K8SMATRIXWARDEN_LLM_API_KEY_ENV", "K8SMATRIXWARDEN_LLM_EXTRA",
+            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
+            "OLLAMA_HOST")
+
+
+def _clean_env(**overrides):
+    """Clear every LLM-related variable, apply overrides, return a restore callable."""
+    saved = {k: os.environ.get(k) for k in _LLM_ENV}
+    for k in _LLM_ENV:
+        os.environ.pop(k, None)
+    os.environ.update(overrides)
+
+    def restore():
+        for k in _LLM_ENV:
+            os.environ.pop(k, None)
+            if saved[k] is not None:
+                os.environ[k] = saved[k]
+    return restore
+
+
+def test_nothing_configured_is_not_configured_not_an_error():
+    restore = _clean_env()
+    try:
+        cfg = lp.resolve_config()
+        assert cfg.configured is False
+        assert cfg.provider_source == "none"
+        assert lp.status()["status"] == "NOT CONFIGURED"
+    finally:
+        restore()
+
+
+def test_a_single_credential_auto_detects_that_provider():
+    restore = _clean_env(ANTHROPIC_API_KEY="k")
+    try:
+        cfg = lp.resolve_config()
+        assert cfg.provider == "anthropic" and cfg.provider_source == "auto-detected"
+        assert cfg.ambiguous_with == [] and cfg.problems() == []
+    finally:
+        restore()
+
+
+def test_an_openai_compatible_credential_auto_detects_openai():
+    restore = _clean_env(OPENAI_API_KEY="k", K8SMATRIXWARDEN_LLM_MODEL="m")
+    try:
+        assert lp.resolve_config().provider == "openai"
+    finally:
+        restore()
+
+
+def test_a_local_endpoint_variable_is_an_auto_detect_candidate():
+    restore = _clean_env(OLLAMA_HOST="http://localhost:11434")
+    try:
+        cfg = lp.resolve_config()
+        assert cfg.provider == "ollama"
+        assert cfg.base_url == "http://localhost:11434/v1"
+        # A local server needs no key, only a model name.
+        assert cfg.problems() == [f"no model configured for provider 'ollama' "
+                                  f"(set K8SMATRIXWARDEN_LLM_MODEL)"]
+    finally:
+        restore()
+
+
+def test_two_credentials_are_ambiguous_and_refuse_to_guess():
+    restore = _clean_env(ANTHROPIC_API_KEY="a", OPENAI_API_KEY="b")
+    try:
+        cfg = lp.resolve_config()
+        assert cfg.ambiguous_with == ["openai"]
+        assert any("ambiguous" in p for p in cfg.problems())
+        assert lp.status()["status"] == "AMBIGUOUS"
+        try:
+            lp.get_provider()
+            assert False, "an ambiguous configuration must not silently resolve"
+        except lp.LLMUnavailable as exc:
+            assert "ambiguous" in str(exc)
+    finally:
+        restore()
+
+
+def test_auto_detection_order_is_fixed_not_environment_dependent():
+    """Same two keys, inserted in the opposite order: the choice must not move."""
+    first = _clean_env(ANTHROPIC_API_KEY="a", OPENAI_API_KEY="b")
+    try:
+        a = lp.resolve_config().provider
+    finally:
+        first()
+    second = _clean_env(OPENAI_API_KEY="b", ANTHROPIC_API_KEY="a")
+    try:
+        b = lp.resolve_config().provider
+    finally:
+        second()
+    assert a == b == "anthropic"
+    assert lp.autodetect_candidates.__doc__          # documented, not incidental
+
+
+def test_an_explicit_provider_beats_the_environment_and_clears_ambiguity():
+    restore = _clean_env(ANTHROPIC_API_KEY="a", OPENAI_API_KEY="b",
+                         K8SMATRIXWARDEN_LLM_PROVIDER="anthropic")
+    try:
+        env_cfg = lp.resolve_config()
+        assert env_cfg.provider_source == "environment"
+        assert env_cfg.ambiguous_with == [] and env_cfg.problems() == []
+        arg_cfg = lp.resolve_config(provider="openai", model="gpt-x")
+        assert arg_cfg.provider == "openai" and arg_cfg.provider_source == "explicit"
+    finally:
+        restore()
+
+
+def test_config_file_provider_is_used_when_the_environment_is_silent():
+    restore = _clean_env()
+    try:
+        cfg = lp.resolve_config({"llm": {"provider": "openai", "model": "m",
+                                         "base_url": "http://x/v1"}})
+        assert cfg.provider_source == "config"
+        assert cfg.model == "m" and cfg.problems() == []
+    finally:
+        restore()
+
+
+def test_environment_beats_the_config_file():
+    restore = _clean_env(K8SMATRIXWARDEN_LLM_PROVIDER="anthropic",
+                         K8SMATRIXWARDEN_LLM_MODEL="env-model",
+                         K8SMATRIXWARDEN_LLM_API_KEY="k")
+    try:
+        cfg = lp.resolve_config({"llm": {"provider": "openai", "model": "cfg-model"}})
+        assert cfg.provider == "anthropic" and cfg.model == "env-model"
+    finally:
+        restore()
+
+
+def test_an_explicit_model_overrides_every_other_source():
+    restore = _clean_env(K8SMATRIXWARDEN_LLM_PROVIDER="anthropic",
+                         K8SMATRIXWARDEN_LLM_MODEL="env-model",
+                         K8SMATRIXWARDEN_LLM_API_KEY="k")
+    try:
+        assert lp.resolve_config(model="chosen").model == "chosen"
+    finally:
+        restore()
+
+
+def test_an_unknown_provider_is_reported_not_guessed_at():
+    restore = _clean_env()
+    try:
+        cfg = lp.resolve_config(provider="does-not-exist")
+        assert cfg.problems() and "unknown provider" in cfg.problems()[0]
+        assert lp.status(provider="does-not-exist")["status"] == "INVALID"
+    finally:
+        restore()
+
+
+def test_the_selected_provider_is_visible_without_touching_the_network():
+    restore = _clean_env(K8SMATRIXWARDEN_LLM_PROVIDER="openai",
+                         K8SMATRIXWARDEN_LLM_MODEL="m",
+                         K8SMATRIXWARDEN_LLM_API_KEY="k")
+    try:
+        info = lp.status()
+        assert info["provider"] == "openai" and info["model"] == "m"
+        assert info["provider_source"] == "environment"
+        assert info["connectivity"] == "not probed"
+        assert info["credentials"] == "present"
+        assert "k" not in str(info), "the key itself must never be echoed"
+    finally:
+        restore()

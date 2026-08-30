@@ -133,10 +133,26 @@ class EvidenceCollector:
         clean cluster and must never be rendered as a passing score."""
         return bool(self.warnings) and not self.fetched_ok
 
-    def _record(self, kind: str, status: str, count: int = 0, reason: str = "") -> None:
-        """Record how one resource type's read went. Called by `_fetch` for anything other
-        than a clean read; `collect` fills in the clean case."""
-        self.coverage[kind] = {"status": status, "count": count, "reason": reason}
+    def _record(self, kind: str, status: str, count: int = 0, reason: str = "",
+                estimated: Optional[float] = None, basis: str = "measured") -> None:
+        """Record how one resource type's read went.
+
+        Three separate facts, deliberately not collapsed into one number:
+          status            , ok | partial | skipped, what happened
+          estimated_coverage, 0.0-1.0, or None when there is genuinely no basis to estimate
+          basis             , measured | estimated | heuristic | unknown, HOW that number
+                              was arrived at, so a report never presents a guess as a
+                              measurement
+
+        `ok` and `skipped` are measured (1.0 and 0.0, both known exactly). A truncated read
+        is `estimated` when the API told us how much was left, and `heuristic` when it did
+        not, in which case the fallback fraction is flagged as such rather than displayed
+        as if it were counted.
+        """
+        if estimated is None and status in ("ok", "skipped"):
+            estimated = 1.0 if status == "ok" else 0.0
+        self.coverage[kind] = {"status": status, "count": count, "reason": reason,
+                               "estimated_coverage": estimated, "coverage_basis": basis}
 
     def collect(self, needs: set[str], scope: Scope) -> Evidence:
         for kind in needs:
@@ -147,7 +163,8 @@ class EvidenceCollector:
                 # `_fetch` records its own outcome when the read was degraded; anything it
                 # did not record was a clean read.
                 self.coverage.setdefault(
-                    kind, {"status": "ok", "count": len(items), "reason": ""})
+                    kind, {"status": "ok", "count": len(items), "reason": "",
+                           "estimated_coverage": 1.0, "coverage_basis": "measured"})
         return Evidence(self._cache, scope)
 
     def _fetch(self, kind: str, bucket: str) -> list[dict]:  # pragma: no cover - overridden
@@ -370,6 +387,10 @@ class LiveEvidenceCollector(EvidenceCollector):
     #: default so a collector built without __init__ (tests substituting a fake API) still
     #: has it.
     _page_capped = False
+    #: `metadata.remainingItemCount` from the last page read, when the API supplied it.
+    #: None means the cluster did not say, which is reported as an unknown rather than
+    #: being filled in with a plausible-looking number.
+    _page_remaining = None
 
     def __init__(self, kubeconfig: Optional[str] = None, context: Optional[str] = None):
         super().__init__()
@@ -596,7 +617,12 @@ class LiveEvidenceCollector(EvidenceCollector):
             if not isinstance(data, dict):
                 break
             items.extend(data.get("items", []) or [])
-            cont = (data.get("metadata") or {}).get("continue") or ""
+            meta = data.get("metadata") or {}
+            cont = meta.get("continue") or ""
+            # Kubernetes reports how many objects are still unread when it knows, which is
+            # the difference between estimating coverage and guessing it.
+            remaining = meta.get("remainingItemCount")
+            self._page_remaining = int(remaining) if isinstance(remaining, int) else None
             if not cont:
                 return items
         # Hit the page cap with a continue token still outstanding, partial, and we say so
@@ -665,8 +691,18 @@ class LiveEvidenceCollector(EvidenceCollector):
             return []
         if self._page_capped:
             self._page_capped = False
-            self._record(kind, "partial", len(items),
-                         "hit the pagination cap; results for this type are incomplete")
+            remaining, self._page_remaining = self._page_remaining, None
+            if remaining is not None and (len(items) + remaining) > 0:
+                total = len(items) + remaining
+                self._record(kind, "partial", len(items),
+                             f"hit the pagination cap; read {len(items)} of ~{total} "
+                             f"objects the API reported",
+                             estimated=round(len(items) / total, 3), basis="estimated")
+            else:
+                self._record(kind, "partial", len(items),
+                             "hit the pagination cap; the API did not report how many "
+                             "objects remain, so the read fraction is not known",
+                             estimated=None, basis="unknown")
         self.fetched_ok = True
         for it in items:
             it.setdefault("kind", kind)

@@ -19,6 +19,7 @@ ALL_TOOLS = {
     "correlate_runtime",
     "detect_drift", "deploy_falco", "list_runtime_detections",
     "build_threat_matrix", "build_attack_path",
+    "analyze_rbac_paths", "analyze_network_policy",
     "list_reports", "download_report", "federation_blast_radius",
     "get_rule", "explain_finding", "get_cluster_coverage", "posture_history",
     "generate_rbac_manifest",
@@ -495,3 +496,66 @@ def test_pdf_is_a_valid_output_format_choice():
                           output_format="pdf")
     assert r.get("error") != ("unknown output_format 'pdf', valid values: html, "
                               "json, markdown, sarif, terminal, text")
+
+
+def test_graph_analysis_tools_are_read_only_and_evidence_backed():
+    """The RBAC-graph and NetworkPolicy tools reason over the same snapshot a scan reads.
+    They must not write to the cluster, the store, or the fixture they were given."""
+    import hashlib
+    import shutil
+    import tempfile
+    from k8smatrixwarden.core.evidence import default_fixture_path
+
+    fixture = os.path.join(tempfile.mkdtemp(), "cluster.json")
+    shutil.copy(default_fixture_path(), fixture)
+    before = hashlib.sha256(open(fixture, "rb").read()).hexdigest()
+
+    tools = build_tools()
+    rbac = tools["analyze_rbac_paths"](mock=True, fixture=fixture)
+    net = tools["analyze_network_policy"](mock=True, fixture=fixture)
+
+    after = hashlib.sha256(open(fixture, "rb").read()).hexdigest()
+    assert before == after, "analysis must not modify the evidence it reads"
+    assert "principals_with_escalation" in rbac
+    assert "pods_evaluated" in net and net["pods_evaluated"] > 0
+
+
+def test_rbac_path_tool_returns_evidence_backed_edges():
+    tools = build_tools()
+    out = tools["analyze_rbac_paths"](mock=True)
+    assert out["principals_with_escalation"] >= 1
+    path = out["principals"][0]["paths"][0]
+    kinds = [n["kind"] for n in path["nodes"]]
+    assert kinds[0] == "ServiceAccount"
+    assert "ClusterRoleBinding" in kinds or "RoleBinding" in kinds
+    # Every edge names the object it was read from, so a claim can be checked by hand.
+    assert all(e["evidence"] and e["reason"] for e in path["edges"])
+
+
+def test_rbac_path_tool_accepts_an_explicit_principal():
+    tools = build_tools()
+    out = tools["analyze_rbac_paths"](principal="ServiceAccount/kube-system/default",
+                                      mock=True)
+    assert out["principal"] == "ServiceAccount/kube-system/default"
+    assert out["escalates"] is True and out["paths"]
+
+
+def test_rbac_path_tool_rejects_a_malformed_principal():
+    out = build_tools()["analyze_rbac_paths"](principal="nonsense", mock=True)
+    assert "error" in out
+
+
+def test_network_policy_tool_reports_both_directions_with_a_status():
+    from k8smatrixwarden.core import netpol
+    out = build_tools()["analyze_network_policy"](mock=True)
+    valid = {netpol.UNRESTRICTED, netpol.ALLOW_ALL, netpol.RESTRICTED,
+             netpol.DENY_ALL, netpol.PARTIAL, netpol.UNKNOWN}
+    for pod in out["pods"]:
+        assert pod["ingress"]["status"] in valid
+        assert pod["egress"]["status"] in valid
+        assert pod["ingress"]["reason"] and pod["egress"]["reason"]
+
+
+def test_network_policy_tool_reports_an_unknown_pod_clearly():
+    out = build_tools()["analyze_network_policy"](pod="does-not-exist", mock=True)
+    assert "error" in out
