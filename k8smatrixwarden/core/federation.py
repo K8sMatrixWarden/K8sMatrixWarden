@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .correlation import belongs_to
 from .results import ScanResult
 
 # Kinds whose (kind, name) is a durable identity worth correlating across clusters. A Pod or
@@ -122,7 +123,10 @@ def _observed_in(by_cluster: dict, name: str) -> set:
             if c.get("confidence") != "confirmed":
                 continue
             resource = str(c.get("resource") or "")
-            if resource == name or resource.startswith(name + "-"):
+            # Same ownership test the correlator uses. A loose prefix match here would
+            # promote a shared identity to `confirmed` on the strength of an event about a
+            # differently-named workload that merely shares a prefix.
+            if belongs_to(resource, name):
                 hits.add(cname)
     return hits
 

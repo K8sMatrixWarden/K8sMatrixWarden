@@ -153,7 +153,9 @@ def test_timeline_tracks_open_and_resolved_findings():
     store = ReportStore(d)
     store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], scan_id="s1",
                        generated_at="2026-01-01T00:00:00+05:30"))
-    store.save(_result([_f("r1", "pod-a")], scan_id="s2",
+    # Both rules ran on the second scan; r2 simply found nothing. That distinction is the
+    # whole point: the timeline only resolves a finding whose rule actually re-ran.
+    store.save(_result([_f("r1", "pod-a")], rules=["r1", "r2"], scan_id="s2",
                        generated_at="2026-01-05T00:00:00+05:30"))
     tl = store.timeline()
     assert tl["open"] == 1 and tl["resolved"] == 1

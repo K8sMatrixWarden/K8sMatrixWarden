@@ -87,10 +87,12 @@ class Evidence:
 
     @staticmethod
     def containers(resource: dict) -> list[dict]:
-        """All containers (regular + init + ephemeral) of a pod/workload."""
-        spec = resource.get("spec", {}) or {}
-        if "template" in spec:
-            spec = (spec.get("template", {}) or {}).get("spec", {}) or {}
+        """All containers (regular + init + ephemeral) of a pod/workload.
+
+        Init and ephemeral containers are included deliberately: a privileged
+        initContainer is exactly as much of a host-escape primitive as a privileged
+        long-running one, and an ephemeral (debug) container is a live one."""
+        spec = Evidence.pod_spec(resource)
         out = []
         out.extend(spec.get("containers", []) or [])
         out.extend(spec.get("initContainers", []) or [])
@@ -99,9 +101,29 @@ class Evidence:
 
     @staticmethod
     def pod_spec(resource: dict) -> dict:
+        """The PodSpec inside any workload kind.
+
+        Kubernetes nests the pod template at a different depth per kind:
+
+            Pod                              spec
+            Deployment/DaemonSet/StatefulSet/
+            ReplicaSet/Job/ReplicationController
+                                             spec.template.spec
+            CronJob                          spec.jobTemplate.spec.template.spec
+
+        Unwrapping only `spec.template` silently returned the CronJob's *jobTemplate*
+        wrapper as if it were a PodSpec, which has no `containers` key, so every workload
+        rule saw a CronJob as an empty pod and reported nothing. A privileged container in
+        a CronJob was invisible, which matters: a CronJob is the Persistence technique the
+        threat matrix names outright.
+        """
         spec = resource.get("spec", {}) or {}
-        if "template" in spec:
-            return (spec.get("template", {}) or {}).get("spec", {}) or {}
+        job_template = spec.get("jobTemplate")
+        if isinstance(job_template, dict):                       # CronJob
+            spec = (job_template.get("spec", {}) or {})
+        template = spec.get("template")
+        if isinstance(template, dict):                           # controller pod template
+            return template.get("spec", {}) or {}
         return spec
 
 

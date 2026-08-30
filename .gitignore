@@ -97,3 +97,7 @@ k8s-wiz-capability-analysis.html
 mcp-orchestration-advantage.html
 # Generated per-scan reports
 k8smatrixwarden-report-scan-*.md
+
+# Local web-server runtime logs (not source)
+.demo-reports/*.log
+.demo-reports/*.err.log

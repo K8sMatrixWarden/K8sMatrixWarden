@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-60-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-632%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-686%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -93,7 +93,7 @@ said so — it did not silently render as "nothing is being exploited".
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (632/632 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (686/686 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -461,6 +461,42 @@ declared resource needs. **No engine change.** New MITRE technique? Add its id t
 python -m tests.run_tests          # bundled stdlib runner (no pytest needed)
 python -m pytest tests/            # also works if pytest is installed
 ```
+
+## Kubernetes semantics: what is actually validated
+
+RBAC and NetworkPolicy are where a scanner most easily invents or misses a finding, so the
+exact semantics are pinned by an adversarial suite
+([`tests/test_adversarial.py`](tests/test_adversarial.py)) whose tests are written to make
+the tool wrong. Support is claimed only where a test proves it.
+
+**RBAC** — `Role` and `ClusterRole`; `RoleBinding` and `ClusterRoleBinding`; **a
+RoleBinding referencing a ClusterRole grants only inside that namespace** and is labelled
+as such, never as cluster-admin; `apiGroups` are honoured, so a CustomResource named
+`secrets` is not a core Secret; `resourceNames` limit a grant to those objects and never
+establish a blanket capability; subresource identity is exact (`pods/exec` ≠ `pods`);
+`nonResourceURLs` grant no resource access; wildcards on one axis are not wildcards on the
+other; identical ServiceAccount names in different namespaces stay distinct; cycles
+terminate.
+*Not resolved:* an aggregated ClusterRole's effective rules — reported as **unknown**, never
+as empty. *Not traversed:* `User`/`Group` subjects resolve but have no onward hop.
+
+**NetworkPolicy** — `matchLabels` and `matchExpressions` (`In`/`NotIn`/`Exists`/
+`DoesNotExist`, with a missing key satisfying `NotIn`); `podSelector` and
+`namespaceSelector` peers, including both on one peer (AND) versus separate peers (OR);
+`ipBlock` with `except`; `policyTypes` defaulting (omitted ⇒ Ingress only, plus Egress only
+when egress rules exist); the additive union across policies, where one allow-all rule
+defeats every strict sibling; ingress **and** egress.
+*Not modelled:* ports. They are carried and displayed as data, but a port-443-only policy
+is treated exactly like an all-ports one — narrowing reachability by port without a port
+model would be false precision.
+
+**Workloads** — the same rule fires on `Pod`, `Deployment`, `DaemonSet`, `StatefulSet`,
+`ReplicaSet`, `Job` **and `CronJob`** (whose PodSpec nests one level deeper), across
+regular, `init` and `ephemeral` containers.
+
+**Pod security** — pod-level settings are defaults a container can override, so a promise
+holds only when every container keeps it; an omitted field is never read as an explicit
+safe value.
 
 ## Confidence, and what the tool refuses to claim
 

@@ -71,14 +71,29 @@ def _pod_labels(workload: dict) -> dict:
     return (workload.get("metadata", {}) or {}).get("labels", {}) or {}
 
 
-def _resolve_workload(rref: ResourceRef, evidence: Evidence) -> Optional[dict]:
+def _workload_index(evidence: Evidence) -> dict:
+    """(kind, name, namespace) -> object, built once per scan.
+
+    Resolving each finding's workload by scanning every object of that kind is O(findings
+    x objects), which on a 2000-pod cluster meant ~16k scans over 2000 pods, about 35
+    million dictionary lookups and 15 of the scan's 20 seconds. The evidence snapshot is
+    already collected once; indexing it once follows the same principle.
+    """
+    index: dict = {}
+    for kind in _WORKLOAD_KINDS:
+        for r in evidence.get(kind, all_scopes=True):
+            md = r.get("metadata", {}) or {}
+            index.setdefault((kind, md.get("name"), md.get("namespace")), r)
+    return index
+
+
+def _resolve_workload(rref: ResourceRef, evidence: Evidence,
+                      index: Optional[dict] = None) -> Optional[dict]:
     if not rref.name or rref.kind not in _WORKLOAD_KINDS:
         return None
-    for r in evidence.get(rref.kind, all_scopes=True):
-        md = r.get("metadata", {}) or {}
-        if md.get("name") == rref.name and md.get("namespace") == rref.namespace:
-            return r
-    return None
+    if index is not None:
+        return index.get((rref.kind, rref.name, rref.namespace))
+    return _workload_index(evidence).get((rref.kind, rref.name, rref.namespace))
 
 
 def _network_context(workload: dict, namespace: Optional[str], policies: list[dict],
@@ -293,9 +308,10 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
     policies = evidence.get("NetworkPolicy", all_scopes=True)
     namespaces = evidence.get("Namespace", all_scopes=True)
     graph = RbacGraph.from_evidence(evidence)   # one index, reused for every workload
+    index = _workload_index(evidence)          # one lookup table, likewise
     cache: dict[tuple, tuple] = {}
     for f in findings:
-        workload = _resolve_workload(f.resource, evidence)
+        workload = _resolve_workload(f.resource, evidence, index)
         if workload is None:
             continue                          # non-pod finding -> different fix lever, skip
         key = (f.resource.kind, f.resource.name, f.resource.namespace)

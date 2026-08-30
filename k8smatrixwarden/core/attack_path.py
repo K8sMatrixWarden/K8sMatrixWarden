@@ -192,25 +192,50 @@ def _sev_rank(label: str) -> int:
     return _SEV_RANK.get(label, 0)
 
 
+#: Hop kinds a static finding is ABOUT. A finding names a workload, never the binding or
+#: capability further down the chain, so it attaches only here.
+_WORKLOAD_HOPS = {"Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job",
+                  "CronJob", "ReplicationController"}
+
+
+def _observes(evidence: list, node: dict) -> list:
+    """The runtime evidence that names THIS hop, which is the only evidence entitled to
+    mark it observed.
+
+    A shell spawned in a pod is evidence about the pod. It is not evidence that the
+    ServiceAccount's token was used, nor that the RoleBinding after it was exercised, and
+    marking those hops observed would turn one alert into a witnessed multi-hop breach.
+    Identity is tested with the same ownership rule the correlator uses.
+    """
+    from .correlation import belongs_to
+    name = str(node.get("name") or "")
+    if not name or node.get("kind") not in _WORKLOAD_HOPS:
+        return []
+    return [e for e in evidence if belongs_to(str(e.get("resource") or ""), name)]
+
+
 def _step(nodes: list, index: int, findings: list, evidence: list,
           confidence: str) -> dict:
     """One hop, with the reason the previous hop reaches it.
 
-    Findings and runtime evidence attach to the hop they are ABOUT: the workload hop, since
-    that is the object a finding names and an event reports on. Network and RBAC hops carry
-    their own reason string, which reachability and the RBAC graph already wrote.
+    Findings attach to the workload hop, since that is the object a rule names. Runtime
+    evidence attaches only to the hop it actually named, so a hop's confidence reflects
+    what was observed AT IT rather than inheriting the strongest claim on the path.
     """
     node = nodes[index]
-    is_workload_hop = node.get("kind") not in (
-        "Internet", "Service", "Foothold", "Capability", "RBAC")
+    is_workload_hop = node.get("kind") in _WORKLOAD_HOPS
+    observed_here = _observes(evidence, node)
     return {
         "node": node.get("name", ""),
         "node_type": node.get("kind", ""),
         "relationship": "entry" if index == 0 else "reaches",
         "reason": node.get("detail", ""),
         "supporting_findings": [f.rule_id for f in findings] if is_workload_hop else [],
-        "runtime_evidence": evidence if (is_workload_hop and evidence) else [],
-        "confidence": confidence if is_workload_hop else CONFIG_ONLY,
+        "runtime_evidence": observed_here,
+        "confidence": (confidence if observed_here
+                       else (CORROBORATED if (is_workload_hop and evidence
+                                              and confidence == CORROBORATED)
+                             else CONFIG_ONLY)),
     }
 
 

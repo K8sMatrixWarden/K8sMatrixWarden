@@ -218,8 +218,13 @@ class Scope:
 
 
 def _all_containers(resource: dict) -> list[dict]:
-    spec = resource.get("spec", {}) or {}
-    pod_spec = spec.get("template", {}).get("spec", spec) if "template" in spec else spec
+    """Every container in any workload kind, used by image-scope matching.
+
+    Shares Evidence's pod-template unwrapping (Pod / controller template / CronJob's
+    doubly-nested jobTemplate) so an `--image` scope cannot match a Deployment while
+    silently missing the identical image in a CronJob."""
+    from .evidence import Evidence
+    pod_spec = Evidence.pod_spec(resource)
     out = []
     out.extend(pod_spec.get("containers", []) or [])
     out.extend(pod_spec.get("initContainers", []) or [])

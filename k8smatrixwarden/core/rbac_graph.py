@@ -40,22 +40,28 @@ from typing import Iterable, Optional
 #: against a principal's effective policy rules.
 #: Sub-resource forms are included where Kubernetes uses them (`pods/exec` is a distinct
 #: resource string from `pods`, and only the former grants execution).
+#: (capability, verbs, resources, apiGroups, why). `apiGroups` matters: a CustomResource
+#: called "secrets" in someone's own API group is not a core Kubernetes Secret, and
+#: treating it as one manufactures an escalation that does not exist. "" is the core group,
+#: and a rule's apiGroups must intersect (or be "*") for the grant to be the one we mean.
 ESCALATION_PRIMITIVES = [
-    ("cluster-admin", {"*"}, {"*"},
+    ("cluster-admin", {"*"}, {"*"}, {"*"},
      "holds verbs=* on resources=*, this principal already IS cluster-admin"),
     ("bind-roles", {"bind", "escalate"}, {"clusterroles", "roles"},
+     {"rbac.authorization.k8s.io"},
      "can bind/escalate roles, so it can grant itself any role in the cluster"),
-    ("impersonate", {"impersonate"}, {"users", "groups", "serviceaccounts"},
+    ("impersonate", {"impersonate"}, {"users", "groups", "serviceaccounts"}, {""},
      "can impersonate another identity and inherit its permissions"),
     ("create-workload", {"create"}, {"pods", "deployments", "daemonsets", "statefulsets",
-                                    "jobs", "cronjobs", "replicasets"},
+                                     "jobs", "cronjobs", "replicasets"},
+     {"", "apps", "batch"},
      "can create a workload, and a workload can run as any ServiceAccount in its namespace"),
-    ("exec-pods", {"create", "get"}, {"pods/exec", "pods/attach"},
+    ("exec-pods", {"create", "get"}, {"pods/exec", "pods/attach"}, {""},
      "can exec into running pods and use their mounted ServiceAccount tokens"),
-    ("read-secrets", {"get", "list"}, {"secrets"},
+    ("read-secrets", {"get", "list"}, {"secrets"}, {""},
      "can read Secrets, which include other identities' ServiceAccount tokens"),
     ("modify-bindings", {"create", "update", "patch"},
-     {"rolebindings", "clusterrolebindings"},
+     {"rolebindings", "clusterrolebindings"}, {"rbac.authorization.k8s.io"},
      "can write (Cluster)RoleBindings, so it can bind any role to itself"),
 ]
 
@@ -153,9 +159,58 @@ def _norm(values: Iterable) -> set:
     return {str(v) for v in (values or [])}
 
 
-def _rule_grants(rule: dict, verbs: set, resources: set) -> bool:
+def _rule_grants(rule: dict, verbs: set, resources: set,
+                 api_groups: Optional[set] = None) -> bool:
+    """Does this PolicyRule grant `verbs` on `resources` in `api_groups`, unrestricted?
+
+    Three Kubernetes details that a naive verb/resource intersection gets wrong, each of
+    which manufactures an escalation that does not exist:
+
+      apiGroups     , a rule is scoped to an API group. `resources: ["secrets"]` under
+                      `apiGroups: ["vendor.example.com"]` is somebody's CustomResource,
+                      NOT a core Secret. Ignoring the group let any CRD borrow the name of
+                      a sensitive built-in and inherit its escalation meaning.
+      resourceNames , a rule carrying `resourceNames` grants access to THOSE OBJECTS ONLY.
+                      "can get secrets" restricted to one named secret is not "can read
+                      every ServiceAccount token in the namespace", which is the claim the
+                      read-secrets capability makes. A named-resource grant therefore never
+                      establishes a blanket capability here; `restricted_grant` reports it
+                      separately so it is visible rather than silently dropped.
+      nonResourceURLs, a rule with only nonResourceURLs (/healthz, /metrics) grants no
+                      resource access at all. It has no `resources`, so it cannot match,
+                      which is already correct and is asserted by test.
+    """
     rv, rr = _norm(rule.get("verbs")), _norm(rule.get("resources"))
-    return bool((verbs & rv or "*" in rv) and (resources & rr or "*" in rr))
+    if rule.get("resourceNames"):
+        return False                      # object-scoped: never a blanket capability
+    if not (verbs & rv or "*" in rv):
+        return False
+    if not (resources & rr or "*" in rr):
+        return False
+    if api_groups is None or "*" in api_groups:
+        return True
+    rg = _norm(rule.get("apiGroups"))
+    if not rg:
+        # A resource rule without apiGroups is malformed (the API server rejects it on
+        # create), so this only happens with hand-written or synthetic evidence. Absence is
+        # not evidence AGAINST the grant, and silently dropping the rule would be a false
+        # negative on a real escalation. A claim is only downgraded when the evidence
+        # positively contradicts it, which an absent field does not.
+        return True
+    return bool("*" in rg or api_groups & rg)
+
+
+def restricted_grant(rule: dict, verbs: set, resources: set,
+                     api_groups: Optional[set] = None) -> bool:
+    """True when the rule WOULD grant the capability but is limited to named objects.
+
+    Reported as a restricted grant, not as an escalation: it may well be dangerous (if the
+    named object is the sensitive one) but the evidence does not establish the blanket
+    capability, and claiming it would be an over-claim."""
+    if not rule.get("resourceNames"):
+        return False
+    probe = {k: v for k, v in rule.items() if k != "resourceNames"}
+    return _rule_grants(probe, verbs, resources, api_groups)
 
 
 class RbacGraph:
@@ -171,6 +226,8 @@ class RbacGraph:
         self.service_accounts = list(service_accounts or [])
         #: Set by a traversal when it stops at a bound; read by escalation_analysis.
         self._truncated_reason: Optional[str] = None
+        #: Grants limited by `resourceNames`, collected by _capabilities.
+        self._restricted: list = []
 
     # -- construction ---------------------------------------------------- #
     @classmethod
@@ -233,8 +290,9 @@ class RbacGraph:
         return (obj, Node("Role", name, binding_namespace)) if obj else (None, None)
 
     def grant_edges(self, principal: Node) -> list[tuple]:
-        """[(binding_edge, role_edge, role_object, role_node)] for every role this
-        principal holds. Two edges per grant, so the binding that made it is never lost."""
+        """[(binding_edge, role_edge, role_object, role_node, grant_namespace)] for every
+        role this principal holds. Two edges per grant, so the binding that made it is
+        never lost, plus the namespace the grant is confined to (None = cluster-wide)."""
         out = []
         for binding, is_cluster in self.bindings_for(principal):
             bkind = "ClusterRoleBinding" if is_cluster else "RoleBinding"
@@ -243,7 +301,14 @@ class RbacGraph:
             role_obj, rnode = self.role_for(binding.get("roleRef", {}) or {}, bns)
             if role_obj is None:
                 continue          # dangling roleRef: no evidence for what it grants, skip
-            scope = "cluster-wide" if is_cluster else f"in namespace {bns}"
+            # EFFECTIVE SCOPE, not the role's own kind. Kubernetes: a RoleBinding grants
+            # its roleRef's rules ONLY inside the binding's namespace, even when that
+            # roleRef is a ClusterRole. Reading the ClusterRole and reporting cluster-wide
+            # power is the single most dangerous over-claim this module can make: binding
+            # `cluster-admin` into one team namespace is a normal delegation pattern, and
+            # calling it "this principal IS cluster-admin" is simply false.
+            grant_ns = None if is_cluster else bns
+            scope = "cluster-wide" if is_cluster else f"in namespace {bns} only"
             out.append((
                 Edge(principal, bnode, "bound-by",
                      f"{bkind} {self._name(binding)} names {principal} as a subject",
@@ -251,7 +316,7 @@ class RbacGraph:
                 Edge(bnode, rnode, "grants",
                      f"roleRef points at {rnode}, granting its rules {scope}",
                      evidence=f"{bkind}/{self._name(binding)}"),
-                role_obj, rnode))
+                role_obj, rnode, grant_ns))
         return out
 
     def effective_rules(self, principal: Node) -> list[dict]:
@@ -260,7 +325,7 @@ class RbacGraph:
         aggregationRule-built ClusterRoles are read from their materialised `rules` (which
         is what the controller writes back and what the API returns)."""
         rules: list[dict] = []
-        for _b, _r, role_obj, _n in self.grant_edges(principal):
+        for _b, _r, role_obj, _n, _ns in self.grant_edges(principal):
             rules.extend(role_obj.get("rules", []) or [])
         return rules
 
@@ -272,9 +337,9 @@ class RbacGraph:
         secrets/get?", and the answer names the binding and the role, not just "yes".
         """
         out = []
-        for bind_edge, role_edge, role_obj, rnode in self.grant_edges(principal):
+        for bind_edge, role_edge, role_obj, rnode, _ns in self.grant_edges(principal):
             for rule in role_obj.get("rules", []) or []:
-                if not _rule_grants(rule, {verb}, {resource}):
+                if not _rule_grants(rule, {verb}, {resource}, api_groups={"*"}):
                     continue
                 pnode = Node("Permission", f"{resource}/{verb}")
                 out.append(Path(
@@ -290,19 +355,44 @@ class RbacGraph:
 
     # -- escalation ------------------------------------------------------- #
     def _capabilities(self, principal: Node) -> list[tuple]:
-        """[(capability, prefix_edges, rule)] the principal holds, each with the concrete
-        binding -> role -> permission edges that prove it."""
-        found = []
-        for bind_edge, role_edge, role_obj, rnode in self.grant_edges(principal):
-            for cap, verbs, resources, why in ESCALATION_PRIMITIVES:
+        """[(capability, prefix_edges, rule, grant_namespace)] the principal holds, each
+        with the concrete binding -> role -> permission edges that prove it.
+
+        `grant_namespace` is None for a cluster-wide grant and a namespace name when the
+        grant came through a RoleBinding, which confines it. Onward traversal uses it, so a
+        namespace-confined admin cannot reach identities outside that namespace.
+
+        Grants limited by `resourceNames` are recorded in `restricted` rather than treated
+        as capabilities: they are real permissions but not the blanket access the
+        capability asserts.
+        """
+        found, self._restricted = [], []
+        for bind_edge, role_edge, role_obj, rnode, grant_ns in self.grant_edges(principal):
+            for cap, verbs, resources, groups, why in ESCALATION_PRIMITIVES:
+                matched = False
                 for rule in role_obj.get("rules", []) or []:
-                    if not _rule_grants(rule, verbs, resources):
-                        continue
-                    cnode = Node("Capability", cap)
-                    edges = [bind_edge, role_edge,
-                             Edge(rnode, cnode, "enables", why, evidence=str(rnode))]
-                    found.append((cap, edges, rule))
-                    break
+                    if _rule_grants(rule, verbs, resources, groups):
+                        where = ("" if grant_ns is None
+                                 else f" (within namespace {grant_ns} only)")
+                        cnode = Node("Capability", cap, grant_ns)
+                        edges = [bind_edge, role_edge,
+                                 Edge(rnode, cnode, "enables", why + where,
+                                      evidence=str(rnode))]
+                        found.append((cap, edges, rule, grant_ns))
+                        matched = True
+                        break
+                if matched:
+                    continue
+                for rule in role_obj.get("rules", []) or []:
+                    if restricted_grant(rule, verbs, resources, groups):
+                        self._restricted.append({
+                            "capability": cap, "role": str(rnode),
+                            "namespace": grant_ns,
+                            "resource_names": sorted(_norm(rule.get("resourceNames"))),
+                            "note": (f"grants {cap} but only on named object(s); this is a "
+                                     f"real permission, not the blanket capability, so no "
+                                     f"escalation path is claimed from it")})
+                        break
         return found
 
     def _admin_roles(self) -> list[Node]:
@@ -331,21 +421,57 @@ class RbacGraph:
             out.append(Node("ServiceAccount", self._name(sa), ns))
         return out
 
+    def unevaluable_grants(self, principal: Node) -> list[dict]:
+        """Roles held by this principal whose effective permissions cannot be read.
+
+        The case that matters is an **aggregated ClusterRole**: its `rules` are filled in
+        by the controller from every ClusterRole matching its `aggregationRule` selectors.
+        If a snapshot catches it before that happens, or the selectors match roles outside
+        what was collected, the role looks empty. Reporting "no escalation" there is a
+        false negative dressed as a clean result, so it is reported as UNKNOWN instead.
+
+        Aggregation is not resolved by this build: the honest answer is that the effective
+        permission set is unknown, not that it is empty.
+        """
+        out = []
+        for _b, _r, role_obj, rnode, grant_ns in self.grant_edges(principal):
+            agg = role_obj.get("aggregationRule")
+            if agg and not (role_obj.get("rules") or []):
+                out.append({
+                    "role": str(rnode), "namespace": grant_ns, "reason": "aggregated",
+                    "selectors": (agg or {}).get("clusterRoleSelectors", []),
+                    "note": ("aggregated ClusterRole whose rules were not populated in "
+                             "this snapshot; its effective permissions are UNKNOWN, not "
+                             "empty, and no escalation conclusion is drawn either way")})
+        return out
+
     def escalation_analysis(self, principal: Node,
                             *, max_hops: int = MAX_HOPS) -> dict:
-        """`escalation_paths` plus an honest statement of whether the walk was exhaustive.
+        """`escalation_paths` plus an honest statement of what the walk could and could
+        not establish.
 
-        Both bounds (the edge budget and the per-capability target cap) can silently hide
-        real paths. A caller must be able to tell "there is nothing else" from "we stopped
-        looking", so the walk records which bound it hit and why."""
+        Three separate honesty signals, none of which may be collapsed into "no path":
+          analysis_status  , did a bound stop the walk (truncated) or not (complete)?
+          restricted_grants, permissions limited by `resourceNames`, real but not blanket
+          unevaluable_roles, roles whose effective rules are unknown (aggregation)
+        """
         self._truncated_reason = None
+        self._restricted = []
         paths = self.escalation_paths(principal, max_hops=max_hops)
         reason = self._truncated_reason
+        unevaluable = self.unevaluable_grants(principal)
+        restricted = list(self._restricted)
         return {
             "principal": str(principal),
             "paths": paths,
             "analysis_status": TRUNCATED if reason else COMPLETE,
             "truncation_reason": reason,
+            "restricted_grants": restricted,
+            "unevaluable_roles": unevaluable,
+            # "No path found" only means something when everything was readable. When a
+            # role's rules are unknown, the correct answer is `unknown`, not `none`.
+            "escalation_verdict": ("unknown" if (unevaluable and not paths)
+                                   else ("escalates" if paths else "none")),
             "limits": {"max_hops": max_hops,
                        "max_onward_targets": MAX_ONWARD_TARGETS},
         }
@@ -368,14 +494,14 @@ class RbacGraph:
                 if len(prefix) >= max_hops:
                     self._note_truncation("edge_limit")
                     continue
-                for cap, edges, _rule in self._capabilities(current):
+                for cap, edges, _rule, grant_ns in self._capabilities(current):
                     full = prefix + edges
                     if len(full) > max_hops:
                         self._note_truncation("edge_limit")
                         continue
                     paths.append(Path(edges=full, capability=cap,
-                                      summary=_capability_summary(cap, current)))
-                    for target_edge, target_node in self._onward(cap, current):
+                                      summary=_capability_summary(cap, current, grant_ns)))
+                    for target_edge, target_node in self._onward(cap, current, grant_ns):
                         if len(full) + 1 > max_hops:
                             self._note_truncation("edge_limit")
                             continue
@@ -385,7 +511,7 @@ class RbacGraph:
                             # a role is not a principal and holds no bindings of its own.
                             paths.append(Path(
                                 edges=full + [target_edge], capability=cap,
-                                summary=f"{_capability_summary(cap, current)} "
+                                summary=f"{_capability_summary(cap, current, grant_ns)} "
                                         f"(reaches {target_node})"))
                             continue
                         if target_node.id in seen:
@@ -399,15 +525,25 @@ class RbacGraph:
         return sorted(paths, key=lambda p: (p.hops, _CAP_ORDER.get(p.capability, 99),
                                             p.render()))
 
-    def _onward(self, capability: str, current: Node) -> list[tuple]:
+    def _onward(self, capability: str, current: Node,
+                grant_ns: Optional[str] = None) -> list[tuple]:
         """[(edge, next_node)] a capability actually reaches, given THIS cluster's objects.
 
         Empty when nothing in the evidence can be reached, which is the difference between
         "holds a dangerous verb" and "has a path to a specific privilege here".
+
+        `grant_ns` confines the walk. A capability granted through a RoleBinding exists
+        only inside that namespace, so it can neither bind a role cluster-wide nor take
+        over an identity living somewhere else.
         """
-        cnode = Node("Capability", capability)
+        cnode = Node("Capability", capability, grant_ns)
         out = []
         if capability in ("bind-roles", "modify-bindings"):
+            if grant_ns is not None:
+                # Namespace-confined: the principal can create RoleBindings in its own
+                # namespace, which grants the role's rules THERE. That is real, but it is
+                # not "becomes cluster-admin", so no cluster-wide privilege hop is emitted.
+                return out
             for role in self._admin_roles():
                 out.append((Edge(cnode, role, "reaches",
                                  f"{role} exists in this cluster and can be bound to this "
@@ -418,7 +554,11 @@ class RbacGraph:
                    "create-workload": "can run a workload as this ServiceAccount",
                    "exec-pods": "can exec into a pod running as this ServiceAccount",
                    "read-secrets": "can read this ServiceAccount's token Secret"}[capability]
-            for other in self._other_principals(current.namespace):
+            # A namespaced grant reaches only its own namespace's identities; a
+            # cluster-wide one reaches the principal's namespace (where its workloads and
+            # tokens live). Neither ever crosses into an unrelated namespace.
+            scope_ns = grant_ns if grant_ns is not None else current.namespace
+            for other in self._other_principals(scope_ns):
                 if other.id == current.id:
                     continue
                 out.append((Edge(cnode, other, "reaches", how, evidence=str(other)), other))
@@ -449,7 +589,8 @@ class RbacGraph:
         return "; ".join(parts), paths
 
 
-def _capability_summary(capability: str, principal: Node) -> str:
+def _capability_summary(capability: str, principal: Node,
+                        grant_ns: Optional[str] = None) -> str:
     text = {
         "cluster-admin": "already holds cluster-admin-equivalent (verbs=* on resources=*)",
         "bind-roles": "bind/escalate roles, grant itself cluster-admin",
@@ -460,6 +601,10 @@ def _capability_summary(capability: str, principal: Node) -> str:
         "exec-pods": "exec into another pod and use its ServiceAccount token",
         "read-secrets": "read secrets, steal another identity's token",
     }.get(capability, capability)
+    if grant_ns is not None:
+        # The scope belongs in the sentence, not in a footnote: "IS cluster-admin" and
+        # "is admin inside team-a" are different security statements.
+        text += f" (within namespace {grant_ns} only)"
     return text
 
 

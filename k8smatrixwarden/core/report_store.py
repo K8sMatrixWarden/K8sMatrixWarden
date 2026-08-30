@@ -186,6 +186,12 @@ class ReportStore:
                     e.update(last_seen=ts, resolved_at=None, scope=scope,
                              cluster=result.cluster_name,
                              severity=f.severity.label)   # reappeared / refresh
+            # A finding is only "fixed" when a scan that ACTUALLY LOOKED FOR IT did not
+            # find it. `posture.compare()` has always applied that rule; the timeline did
+            # not, so a narrower scan silently stamped `resolved_at` on everything it never
+            # ran, and the finding's next appearance was then reported as a REGRESSION that
+            # never happened. Both halves have to hold: same scope, and the rule re-ran.
+            rescanned = set(result.resolved_rule_ids or [])
             for k, e in tl.items():
                 # Only sweep the scope this scan actually covered. Another cluster's or
                 # another namespace's entries were not re-examined, so their absence here
@@ -193,8 +199,11 @@ class ReportStore:
                 # likewise left alone rather than being resolved by a scoped scan.
                 if self._entry_scope(k) != scope:
                     continue
-                if k not in current and not e.get("resolved_at"):
-                    e["resolved_at"] = ts               # gone this scan == fixed
+                if k in current or e.get("resolved_at"):
+                    continue
+                if rescanned and e.get("rule_id") not in rescanned:
+                    continue                            # not looked for, so not fixed
+                e["resolved_at"] = ts                   # looked for and gone == fixed
             _atomic_write_json(self._timeline_path(), tl)
 
     def raw_timeline(self, scope: Optional[str] = None) -> dict:

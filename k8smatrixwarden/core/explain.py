@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .correlation import belongs_to
 from .finding_context import build_finding_context
 from .models import Finding
 from .reachability import (EXPLOIT_INGRESS, EXPLOIT_POD_PRIVILEGE,
@@ -100,7 +101,7 @@ def _runtime_for(finding: Finding, runtime: Optional[dict]) -> dict:
         pod = str(c.get("resource") or "")
         if not pod or (ns and c.get("namespace") and c["namespace"] != ns):
             continue
-        if pod == name or pod.startswith(name + "-"):
+        if belongs_to(pod, name):
             correlations.append({"level": c.get("confidence"),
                                  "timestamp": c.get("timestamp", ""),
                                  "tactic": c.get("tactic"),
@@ -110,7 +111,7 @@ def _runtime_for(finding: Finding, runtime: Optional[dict]) -> dict:
         pod = str(d.get("pod") or "")
         if ns and d.get("namespace") and d["namespace"] != ns:
             continue
-        if pod == name or pod.startswith(name + "-"):
+        if belongs_to(pod, name):
             drift.append({"policy": d.get("policy"), "declared": d.get("declared"),
                           "observed": d.get("observed"),
                           "timestamp": d.get("timestamp", ""),

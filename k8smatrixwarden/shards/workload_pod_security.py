@@ -7,11 +7,19 @@ from ..core.models import (BlastRadius, DetectionMethod as DM, Exploitability as
 from .base import DomainShard, ref as _base_ref
 
 SHARD_NAME = "workload_pod_security"
-WORKLOAD_KINDS = ["Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job"]
-#: extra kinds only needed to resolve a Pod's owner chain one hop further than
-#: shards/base.py's generic single-hop ref() can (ReplicaSet->Deployment, Job->CronJob), 
-#: not iterated as scan targets themselves (see _iter), only looked up by name.
-OWNER_LOOKUP_KINDS = WORKLOAD_KINDS + ["CronJob"]
+#: Every kind that carries a PodSpec of its own, and is therefore a scan target.
+#:
+#: CronJob belongs here. It was previously owner-lookup-only, on the reasoning that the
+#: Jobs it spawns get scanned anyway. That leaves a real blind spot: a CronJob that has not
+#: fired yet, or whose Jobs have been garbage-collected, has no Job to inherit the finding,
+#: while its template still defines the privileged container that will run on the next
+#: tick. "Kubernetes CronJob" is a Persistence technique in the threat matrix precisely
+#: because the schedule outlives the pods.
+WORKLOAD_KINDS = ["Pod", "Deployment", "DaemonSet", "StatefulSet", "ReplicaSet", "Job",
+                  "CronJob"]
+#: Kinds looked up by name to resolve a Pod's owner chain one hop further than
+#: shards/base.py's generic single-hop ref() can (ReplicaSet->Deployment, Job->CronJob).
+OWNER_LOOKUP_KINDS = list(WORKLOAD_KINDS)
 
 
 def _iter(ev: Evidence):

@@ -352,7 +352,12 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         try:
             level = ScopeLevel(key)
         except ValueError:
-            level = ScopeLevel.CLUSTER
+            # Silently defaulting to a cluster-wide scan is the wrong failure mode: a
+            # caller that asked for `namesapce` (or anything else unrecognised) would get
+            # the WHOLE cluster back, believing it had scoped the request. Refuse instead.
+            raise ValueError(
+                f"unknown scope_level {scope_level!r}; valid values: "
+                f"{', '.join(sorted(l.value for l in ScopeLevel))}") from None
         return Scope(level=level, namespace=namespace, name=name, kind=kind, image=image)
 
     def _make_selector(tactics, techniques, modules, rule_ids, aliases, frameworks,
@@ -376,8 +381,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         cluster or running anything, the plan-before-you-scan step (mirrors `scan
         --dry-run` / the chat's confirmation prompt). Call this first, show the user
         what would run, then call run_scan with the same arguments to execute it."""
-        scope = _make_scope(scope_level, namespace, name, kind, image)
         try:
+            scope = _make_scope(scope_level, namespace, name, kind, image)
             selector = _make_selector(tactics, techniques, modules, rule_ids, aliases,
                                       frameworks, severity_min)
             resolved = platform.mapping.resolve(selector)
@@ -435,8 +440,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             return {"error": f"unknown output_format {output_format!r}, valid values: "
                              f"{', '.join(sorted(_VALID_REPORT_FORMATS))}"}
 
-        scope = _make_scope(scope_level, namespace, name, kind, image)
         try:
+            scope = _make_scope(scope_level, namespace, name, kind, image)
             selector = _make_selector(tactics, techniques, modules, rule_ids, aliases,
                                       frameworks, severity_min)
         except ValueError as exc:
@@ -445,8 +450,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         try:
             collector = platform.make_collector(mock=mock, fixture=fixture,
                                                 kubeconfig=kubeconfig, context=context)
-        except RuntimeError as exc:
-            return {"error": str(exc)}
+        except (RuntimeError, ValueError, OSError) as exc:
+            # A malformed or unreadable fixture is bad input, not a crash: an MCP caller
+            # gets a structured error the same as for any other bad argument.
+            return {"error": f"could not load evidence source: {exc}"}
 
         request = ScanRequest(scope=scope, selector=selector, mode=ScanMode.SYNC)
         try:
@@ -550,7 +557,11 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         request = interp.request
         # Explicit scope args win over what the query inferred.
         if any((namespace, name, kind, image)) or (scope_level and scope_level != "cluster"):
-            request.scope = _make_scope(scope_level or "cluster", namespace, name, kind, image)
+            try:
+                request.scope = _make_scope(scope_level or "cluster", namespace, name,
+                                            kind, image)
+            except ValueError as exc:
+                return {"error": str(exc)}
         try:
             result = orch.run(request, collector,
                               mode_label="mock" if mock else "live",
@@ -724,13 +735,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 return {"error": f"no stored reports in {reports_dir!r}"}
         else:
             from ..agents.scanner import ScannerAgent
-            scope = _make_scope(scope_level, namespace, name, kind, image)
             try:
+                scope = _make_scope(scope_level, namespace, name, kind, image)
                 selector = _make_selector(tactics, techniques, modules, rule_ids, aliases,
                                           frameworks, severity_min)
                 collector = platform.make_collector(mock=mock, fixture=fixture,
                                                     kubeconfig=kubeconfig, context=context)
-            except (ValueError, RuntimeError) as exc:
+            except (ValueError, RuntimeError, OSError) as exc:
                 return {"error": str(exc)}
             request = ScanRequest(scope=scope, selector=selector, mode=ScanMode.SYNC)
             try:
@@ -894,13 +905,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             return _build(result, platform.registry.rules).as_dict()
 
         from ..agents.scanner import ScannerAgent
-        scope = _make_scope(scope_level, namespace, name, kind, image)
         try:
+            scope = _make_scope(scope_level, namespace, name, kind, image)
             selector = _make_selector(tactics, techniques, modules, rule_ids, aliases,
                                       frameworks, severity_min)
             collector = platform.make_collector(mock=mock, fixture=fixture,
                                                 kubeconfig=kubeconfig, context=context)
-        except (ValueError, RuntimeError) as exc:
+        except (ValueError, RuntimeError, OSError) as exc:
             return {"error": str(exc)}
         request = ScanRequest(scope=scope, selector=selector, mode=ScanMode.SYNC)
         try:
@@ -943,13 +954,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 return {"error": f"no stored reports in {reports_dir!r}"}
         else:
             from ..agents.scanner import ScannerAgent
-            scope = _make_scope(scope_level, namespace, name, kind, image)
             try:
+                scope = _make_scope(scope_level, namespace, name, kind, image)
                 selector = _make_selector(tactics, techniques, modules, rule_ids, aliases,
                                           frameworks, severity_min)
                 collector = platform.make_collector(mock=mock, fixture=fixture,
                                                     kubeconfig=kubeconfig, context=context)
-            except (ValueError, RuntimeError) as exc:
+            except (ValueError, RuntimeError, OSError) as exc:
                 return {"error": str(exc)}
             request = ScanRequest(scope=scope, selector=selector, mode=ScanMode.SYNC)
             try:

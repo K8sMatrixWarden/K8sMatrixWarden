@@ -43,18 +43,76 @@ def _event_pod(event: dict) -> str:
     return str(event.get("pod") or event.get("k8s.pod.name") or "").strip()
 
 
+#: Kubernetes' generated pod-name suffix alphabet: base-32 with vowels and easily-confused
+#: digits removed, exactly 5 characters (k8s.io/apimachinery/pkg/util/rand). A segment
+#: drawn from it is a generated suffix; an English word is not.
+_RAND_ALPHABET = set("bcdfghjklmnpqrstvwxz2456789")
+
+
+def _looks_generated(segment: str) -> bool:
+    """Is this pod-name segment a Kubernetes-generated suffix rather than part of a name?
+
+    Three shapes occur in practice:
+      * `9zskz`      , the 5-char rand suffix every generated pod carries
+      * `5f9586cd5b` , a ReplicaSet's pod-template hash
+      * `0`, `12`    , a StatefulSet's ordinal
+    A human-authored word such as `server` matches none of them.
+    """
+    if not segment:
+        return False
+    if segment.isdigit():                                   # StatefulSet ordinal
+        return True
+    # Kubernetes emits exactly 5; 3-5 is accepted so a shortened or synthetic name is not
+    # a false negative. The alphabet is the discriminator, not the length: it excludes
+    # every vowel, so an English word such as `server` can never match.
+    if 3 <= len(segment) <= 5 and set(segment) <= _RAND_ALPHABET:  # generated pod suffix
+        return True
+    # ReplicaSet template hash: alphanumeric, of hash length, and containing a digit,
+    # which is what separates `5f9586cd5b` from `deployment`.
+    return (5 <= len(segment) <= 11 and segment.isalnum() and segment.islower()
+            and any(c.isdigit() for c in segment))
+
+
+def belongs_to(pod: str, workload: str) -> bool:
+    """Is `pod` an instance of the workload named `workload`?
+
+    Kubernetes names generated pods `<workload>-<suffix>` (Job, DaemonSet, StatefulSet) or
+    `<workload>-<template-hash>-<suffix>` (Deployment, via its ReplicaSet). A bare prefix
+    test gets this dangerously wrong: `api-server-7d9f-xk2` starts with `api-`, so a
+    finding on workload `api` was reported as CONFIRMED EXPLOITATION on the strength of an
+    event about the unrelated workload `api-server`. Confirmed exploitation is the
+    strongest claim this tool makes, so the suffix must actually look generated.
+    """
+    if pod == workload:
+        return True
+    if not workload or not pod.startswith(workload + "-"):
+        return False
+    suffix = pod[len(workload) + 1:]
+    segments = suffix.split("-")
+    if not 1 <= len(segments) <= 2:      # deeper nesting means a different workload name
+        return False
+    return all(_looks_generated(seg) for seg in segments)
+
+
 def _resource_matched(pod: str, ns: str, statics: list) -> list:
     """Static findings whose resource IS the pod the runtime event names, or the workload
-    that pod belongs to (pods are <workload>-<rs>-<hash>). Same-namespace required. This is
-    the resource-level link that alone justifies 'confirmed exploitation'."""
-    if not pod:
+    that pod belongs to. This is the resource-level link that alone justifies 'confirmed
+    exploitation', so both halves of the identity must hold:
+
+      name      , the pod is that resource, or a generated instance of it (`_belongs_to`)
+      namespace , the event names the SAME namespace the finding is in
+
+    An event that carries no namespace cannot establish the second half. Two clusters, or
+    two namespaces, routinely run identically named workloads, so confirming without a
+    namespace is a guess. Such an event still correlates, as `corroborated`.
+    """
+    if not pod or not ns:
         return []
     out = []
     for f in statics:
-        if ns and f.resource.namespace and f.resource.namespace != ns:
+        if f.resource.namespace and f.resource.namespace != ns:
             continue
-        rn = f.resource.name or ""
-        if rn and (pod == rn or pod.startswith(rn + "-")):
+        if belongs_to(pod, f.resource.name or ""):
             out.append(f)
     return out
 
