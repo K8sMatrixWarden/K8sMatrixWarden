@@ -269,7 +269,10 @@ class WebApp:
             pods = collector.collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
         except RuntimeError:
             pods = []
-        return _json({"correlation": correlate(result.findings, alerts),
+        from ..core.timeutil import ist_timestamp
+        return _json({"correlation": correlate(result.findings, alerts,
+                                               cluster=result.cluster_name,
+                                               now=ist_timestamp()),
                       "drift": detect_drift(pods, events)})
 
     def _api_finding(self, q: dict) -> Response:

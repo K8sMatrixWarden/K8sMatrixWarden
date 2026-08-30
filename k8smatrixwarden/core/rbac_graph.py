@@ -187,9 +187,18 @@ def _rule_grants(rule: dict, verbs: set, resources: set,
         return False
     if not (resources & rr or "*" in rr):
         return False
-    if api_groups is None or "*" in api_groups:
-        return True
+    if api_groups is None:
+        return True                       # caller does not constrain the group
     rg = _norm(rule.get("apiGroups"))
+    if api_groups == {"*"}:
+        # The CALLER demands every API group, which only `cluster-admin` does. A rule
+        # scoped to one group is broad WITHIN it and is not cluster-admin:
+        # `apiGroups: ["apps"], resources: ["*"], verbs: ["*"]` is total control of
+        # Deployments and nothing else, and reporting it as cluster-admin is a false
+        # positive on the most serious claim the graph makes.
+        return "*" in rg or not rg
+    if "*" in api_groups:
+        return True
     if not rg:
         # A resource rule without apiGroups is malformed (the API server rejects it on
         # create), so this only happens with hand-written or synthetic evidence. Absence is
@@ -198,6 +207,33 @@ def _rule_grants(rule: dict, verbs: set, resources: set,
         # positively contradicts it, which an absent field does not.
         return True
     return bool("*" in rg or api_groups & rg)
+
+
+#: Resources that exist outside any namespace. Kubernetes: a RoleBinding grants its
+#: roleRef's rules only for NAMESPACED resources in the binding's namespace, so listing a
+#: cluster-scoped resource in a Role has no effect at all. Treating such a grant as real
+#: would claim node or PV access that the API server would refuse.
+CLUSTER_SCOPED_RESOURCES = {
+    "nodes", "namespaces", "persistentvolumes", "clusterroles", "clusterrolebindings",
+    "storageclasses", "customresourcedefinitions", "mutatingwebhookconfigurations",
+    "validatingwebhookconfigurations", "certificatesigningrequests", "priorityclasses",
+    "apiservices", "csidrivers", "csinodes", "volumeattachments",
+    "runtimeclasses", "ingressclasses", "nodes/proxy", "nodes/stats",
+}
+
+
+def grant_is_effective(resources: set, grant_namespace: Optional[str]) -> bool:
+    """Can a grant confined to `grant_namespace` actually convey `resources`?
+
+    False when every resource asked about is cluster-scoped and the grant came through a
+    RoleBinding: those rules are inert. A wildcard resource set is namespaced-effective, so
+    it stays True.
+    """
+    if grant_namespace is None:                     # cluster-wide grant: always effective
+        return True
+    if "*" in resources:
+        return True
+    return bool(resources - CLUSTER_SCOPED_RESOURCES)
 
 
 def restricted_grant(rule: dict, verbs: set, resources: set,
@@ -337,9 +373,13 @@ class RbacGraph:
         secrets/get?", and the answer names the binding and the role, not just "yes".
         """
         out = []
-        for bind_edge, role_edge, role_obj, rnode, _ns in self.grant_edges(principal):
+        for bind_edge, role_edge, role_obj, rnode, grant_ns in self.grant_edges(principal):
+            if not grant_is_effective({resource}, grant_ns):
+                # A namespaced binding cannot convey a cluster-scoped resource, however the
+                # Role is written. The rule is inert, so it proves no permission.
+                continue
             for rule in role_obj.get("rules", []) or []:
-                if not _rule_grants(rule, {verb}, {resource}, api_groups={"*"}):
+                if not _rule_grants(rule, {verb}, {resource}, api_groups=None):
                     continue
                 pnode = Node("Permission", f"{resource}/{verb}")
                 out.append(Path(
@@ -369,6 +409,8 @@ class RbacGraph:
         found, self._restricted = [], []
         for bind_edge, role_edge, role_obj, rnode, grant_ns in self.grant_edges(principal):
             for cap, verbs, resources, groups, why in ESCALATION_PRIMITIVES:
+                if not grant_is_effective(resources, grant_ns):
+                    continue          # namespaced binding, cluster-scoped resources: inert
                 matched = False
                 for rule in role_obj.get("rules", []) or []:
                     if _rule_grants(rule, verbs, resources, groups):

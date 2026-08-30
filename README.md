@@ -8,9 +8,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
-  <img src="https://img.shields.io/badge/rules-60-orange"/>
+  <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-686%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-709%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -22,7 +22,7 @@
 
 ## What it does in 90 seconds
 
-1. **Scan** — 60 detection rules across 11 domain shards (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
+1. **Scan** — 62 detection rules across 11 domain shards (cluster control plane, RBAC, network, secrets, admission control, supply chain, compliance, etc.)
 2. **Correlate** — joins static findings to live Falco/audit runtime events → **confirmed** (the event names the exact resource a finding is on — actively exploited), **corroborated** (same tactic/namespace, no resource link), or **runtime-only** (novel behavior)
 3. **Reach** — tags every workload finding with its live attack vector without ever lowering severity: **🔴 internet-reachable** (a NodePort/LoadBalancer/Ingress fronts the pod and no NetworkPolicy isolates it — fix now), **🟡 post-breach only** (reachable only after an attacker is already in a pod), and **⚠ rbac-escalation** (the pod's ServiceAccount can reach cluster-admin). Turns a flat finding list into a triage queue — e.g. *368 findings → 74 fix-now, 270 deprioritizable* — with nothing hidden. See [`core/reachability.py`](k8smatrixwarden/core/reachability.py).
 4. **Visualize** — interactive dashboard with a **pod-exposure inventory bar** (every pod bucketed worst-wins: internet+admin / internet-reachable / cluster-admin SA / post-breach-only, over an honest pod-count denominator), threat matrix heatmap, kill-chain exploit path, attack map (chain + vulnerable resources), MTTD/MTTR timeline, runtime readiness
@@ -93,7 +93,7 @@ said so — it did not silently render as "nothing is being exploited".
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (686/686 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (709/709 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`

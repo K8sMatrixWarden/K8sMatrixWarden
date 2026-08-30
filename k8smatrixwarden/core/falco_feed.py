@@ -85,10 +85,20 @@ def build_runtime_feed(collector, findings, scope, *, namespace: str = "falco",
         pods = collector.collect({"Pod"}, scope).get("Pod")
     except Exception:
         pods = []
-    return {"source": "falco-logs", "collected_at": ist_timestamp(),
+    collected_at = ist_timestamp()
+    try:
+        cluster_label = collector.cluster_label() or ""
+    except Exception:
+        cluster_label = ""
+    return {"source": "falco-logs", "collected_at": collected_at,
+            "cluster": cluster_label,
             "falco_namespace": namespace, "since_seconds": since_seconds,
             "events_seen": len(events),
-            "correlation": correlate(findings, alerts),
+            # The scan's own cluster and timestamp: without them a foreign cluster's
+            # event could confirm a finding here, and a week-old alert would read as a
+            # current observation.
+            "correlation": correlate(findings, alerts, cluster=cluster_label,
+                                     now=collected_at),
             "drift": detect_drift(pods or [], events)}
 
 

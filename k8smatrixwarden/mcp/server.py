@@ -141,6 +141,13 @@ _Events = Annotated[list[dict], _F(description=(
     "namespace/count)."))]
 
 
+def _ist_now() -> str:
+    """Now, as the scan clock sees it. Used to age runtime events so a stale alert is
+    labelled `historical` rather than presented as a current observation."""
+    from ..core.timeutil import ist_timestamp
+    return ist_timestamp()
+
+
 def _encode_report(content) -> dict:
     """content is `str` for every format except pdf, where it's `bytes`. Return the
     right shape for either: {"content": "..."} for text formats, or
@@ -750,7 +757,9 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             except Exception as exc:
                 return {"error": f"scan failed: {exc}"}
         alerts = RuntimeAgent().evaluate_stream(normalize_events(events or []))
-        return correlate(result.findings, alerts)
+        return correlate(result.findings, alerts,
+                         cluster=result.cluster_name,
+                         now=_ist_now())
 
     def detect_drift(events: _Events, namespace: _Namespace = None,
                      mock: _Mock = True, fixture: _Fixture = None,

@@ -550,6 +550,39 @@ FINDING_CONTEXT: dict[str, dict] = {
         "validation": ["kubectl get clusterrole,role -A -o json | "
                       "jq '.items[] | select(.rules[]?.resources[]?==\"*\") | .metadata.name'"],
     },
+    "rbac-broad-subject-admin": {
+        "summary": "A high-privilege role (`cluster-admin`, `admin`, `edit`, or a "
+                   "ClusterRole granting `*` on every axis) is bound to a Kubernetes "
+                   "system group or user that stands for a whole population rather than "
+                   "one identity, such as `system:authenticated`, `system:unauthenticated` "
+                   "or `system:anonymous`.",
+        "impact": "The privilege is held by everyone in that class, not by an "
+                  "administrator. Bound to `system:authenticated` it belongs to every "
+                  "ServiceAccount in every namespace, so any compromised pod in the "
+                  "cluster inherits it; bound to `system:anonymous` or "
+                  "`system:unauthenticated` it belongs to anyone who can reach the API "
+                  "server at all, with no credential, which is unauthenticated cluster "
+                  "takeover.",
+        "validation": ["kubectl get clusterrolebindings,rolebindings -A -o json | "
+                       "jq '.items[] | select(.subjects[]?.name | test(\"^system:"
+                       "(anonymous|authenticated|unauthenticated|serviceaccounts|masters)"
+                       "\")) | {name:.metadata.name, role:.roleRef.name, "
+                       "subjects:.subjects}'",
+                       "kubectl auth can-i --list --as=system:anonymous"],
+    },
+    "rbac-cluster-admin-user-binding": {
+        "summary": "`cluster-admin` is bound cluster-wide to a named User or Group. This "
+                   "is how human administrators are legitimately granted access, so it is "
+                   "reported as an inventory item to confirm rather than as a "
+                   "misconfiguration.",
+        "impact": "Each such identity holds unrestricted control of the cluster and every "
+                  "workload and Secret in it. The risk is not the binding itself but the "
+                  "set growing unreviewed: a departed engineer, a shared account, or a "
+                  "credential with no MFA behind it is full cluster compromise.",
+        "validation": ["kubectl get clusterrolebinding -o json | "
+                       "jq '.items[] | select(.roleRef.name==\"cluster-admin\") | "
+                       "{name:.metadata.name, subjects:.subjects}'"],
+    },
     "rbac-cluster-admin-default-sa": {
         "summary": "The `cluster-admin` ClusterRole is bound to a namespace's `default` "
                    "ServiceAccount, the identity every pod in that namespace gets "

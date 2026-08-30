@@ -80,6 +80,131 @@ def _cluster_admin_default_sa(rule, ev, scope):
                     evidence={"subject": subj})
 
 
+#: Subjects that are not one identity but a whole population. Binding a privileged role to
+#: any of these grants it to every request that reaches the API server in that class, which
+#: is why they are called out separately from a named user or ServiceAccount.
+#:
+#:   system:anonymous / system:unauthenticated , every request with NO credentials at all
+#:   system:authenticated                       , every request with ANY valid credential,
+#:                                                which on most clusters includes every
+#:                                                ServiceAccount in every namespace
+#:   system:serviceaccounts                     , every ServiceAccount cluster-wide
+#:
+#: `system:masters` is deliberately NOT here. Kubernetes ships a `cluster-admin`
+#: ClusterRoleBinding to that group on every cluster ever built, and the API server
+#: hard-codes the group to full access regardless, so the binding is not what grants it and
+#: deleting the binding would change nothing. Membership comes from the client certificate's
+#: O field, not from RBAC, so there is no RBAC remediation to point at. Reporting it would
+#: put an unactionable CRITICAL on 100% of scans, which is how a real anonymous-admin
+#: finding gets scrolled past. Who holds a `system:masters` certificate is a PKI question,
+#: outside what the API server can show a read-only scanner.
+_BROAD_SUBJECTS = {
+    "system:anonymous": "every unauthenticated request",
+    "system:unauthenticated": "every unauthenticated request",
+    "system:authenticated": "every authenticated principal, including every ServiceAccount",
+    "system:serviceaccounts": "every ServiceAccount in the cluster",
+}
+
+#: Roles whose grant is (near) total. `cluster-admin` is unrestricted by definition; `admin`
+#: and `edit` are namespace-scoped but still allow creating workloads and reading secrets.
+_HIGH_PRIVILEGE_ROLES = {"cluster-admin", "admin", "edit"}
+
+
+def _grants_everything(obj) -> bool:
+    """Does this role grant unrestricted access on EVERY axis (verbs, resources, groups)?
+
+    All three must be `*`. A rule that is `*` on only one axis, `apiGroups: ["apps"]` with
+    `resources: ["*"]` for instance, is broad within that group but is not cluster-admin,
+    and calling it so would be a false positive.
+    """
+    for r in obj.get("rules", []) or []:
+        if ("*" in set(r.get("verbs", []) or [])
+                and "*" in set(r.get("resources", []) or [])
+                and "*" in set(r.get("apiGroups", []) or [])):
+            return True
+    return False
+
+
+def _role_is_high_privilege(ev, role_ref) -> bool:
+    name = (role_ref or {}).get("name", "")
+    if name in _HIGH_PRIVILEGE_ROLES:
+        return True
+    for cr in ev.get("ClusterRole", all_scopes=True):
+        if Evidence.dig(cr, "metadata.name") == name:
+            return _grants_everything(cr)
+    return False
+
+
+def _broad_subject_binding(rule, ev, scope):
+    """A privileged role bound to a whole population rather than to an identity.
+
+    The case this exists for: a ClusterRoleBinding granting `cluster-admin` to
+    `system:authenticated`, or worse to `system:anonymous`. Nothing in the rule set looked
+    at User or Group subjects at all, so a cluster in which every unauthenticated request
+    is cluster-admin produced zero RBAC findings.
+
+    Both binding kinds are checked. A RoleBinding confines the grant to its own namespace,
+    which is materially less severe than a cluster-wide one but is still a whole population
+    holding admin over that namespace, so it is reported with the smaller blast radius
+    rather than skipped.
+    """
+    for kind in ("ClusterRoleBinding", "RoleBinding"):
+        for binding in ev.get(kind, all_scopes=True):
+            role_ref = binding.get("roleRef", {}) or {}
+            if not _role_is_high_privilege(ev, role_ref):
+                continue
+            cluster_wide = kind == "ClusterRoleBinding"
+            ns = Evidence.dig(binding, "metadata.namespace")
+            for subj in binding.get("subjects", []) or []:
+                name = subj.get("name", "")
+                if subj.get("kind") not in ("User", "Group"):
+                    continue
+                who = _BROAD_SUBJECTS.get(name)
+                if who is None and not name.startswith("system:serviceaccounts"):
+                    continue
+                who = who or "every ServiceAccount in that namespace"
+                where = "cluster-wide" if cluster_wide else "in namespace " + str(ns)
+                anonymous = name in ("system:anonymous", "system:unauthenticated")
+                yield rule.finding(
+                    ref(binding),
+                    f"{kind} grants {role_ref.get('name')!r} {where} to "
+                    f"{subj.get('kind')} {name!r}, which is {who}",
+                    severity=S.CRITICAL if cluster_wide else S.HIGH,
+                    blast_radius=BR.CLUSTER if cluster_wide else BR.NAMESPACE,
+                    exploitability=EX.REMOTE if anonymous else EX.ADJACENT,
+                    evidence={"subject": subj, "roleRef": role_ref,
+                              "binding_namespace": ns})
+
+
+def _cluster_admin_user_binding(rule, ev, scope):
+    """cluster-admin bound cluster-wide to a NAMED User or Group.
+
+    Distinct from the broad-subject rule: this is a specific human or team, which is often
+    legitimate, so it is reported as something to confirm rather than as a
+    misconfiguration. It is reported at all because a cluster's admin bindings are exactly
+    what an auditor needs enumerated, and nothing else in the rule set surfaces a
+    non-ServiceAccount subject.
+    """
+    for binding in ev.get("ClusterRoleBinding", all_scopes=True):
+        role_ref = binding.get("roleRef", {}) or {}
+        if (role_ref.get("name") or "") != "cluster-admin":
+            continue
+        if _is_builtin_role(binding):
+            continue                     # Kubernetes' own bootstrap binding
+        for subj in binding.get("subjects", []) or []:
+            name = subj.get("name", "")
+            if subj.get("kind") not in ("User", "Group"):
+                continue
+            if name in _BROAD_SUBJECTS or name.startswith("system:"):
+                continue                 # broad subjects belong to the rule above
+            yield rule.finding(
+                ref(binding),
+                f"cluster-admin is bound cluster-wide to {subj.get('kind')} {name!r}; "
+                f"confirm this identity still requires unrestricted access",
+                blast_radius=BR.CLUSTER, exploitability=EX.ADJACENT,
+                evidence={"subject": subj, "roleRef": role_ref})
+
+
 def _bind_escalate(rule, ev, scope):
     for cr in _roles(ev):
         for r in cr.get("rules", []) or []:
@@ -143,6 +268,24 @@ class RbacIdentityShard(DomainShard):
                  ["ClusterRoleBinding"], S.CRITICAL, DM.RBAC, _cluster_admin_default_sa,
                  mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],
                  owasp="K02", cis=["5.1.1"], evidence_needs=need),
+            Rule("rbac-broad-subject-admin", "Privileged role bound to a whole population",
+                 self.name, ["ClusterRoleBinding", "RoleBinding"], S.CRITICAL, DM.RBAC,
+                 _broad_subject_binding,
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],
+                 owasp="K02", cis=["5.1.1"], evidence_needs=need,
+                 references=["https://kubernetes.io/docs/reference/access-authn-authz/"
+                             "rbac/#default-roles-and-role-bindings"],
+                 false_positive_notes=(
+                     "Kubernetes' own bootstrap bindings grant system:authenticated a few "
+                     "harmless discovery roles; only high-privilege roles match here.")),
+            Rule("rbac-cluster-admin-user-binding", "cluster-admin bound to a User/Group",
+                 self.name, ["ClusterRoleBinding"], S.HIGH, DM.RBAC,
+                 _cluster_admin_user_binding,
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],
+                 owasp="K02", cis=["5.1.1"], evidence_needs=need, confidence="medium",
+                 false_positive_notes=(
+                     "A named administrator legitimately holding cluster-admin is normal; "
+                     "this is an inventory item to confirm, not a misconfiguration.")),
             Rule("rbac-bind-escalate-verbs", "bind/escalate/impersonate verbs", self.name,
                  ["ClusterRole", "Role"], S.CRITICAL, DM.RBAC, _bind_escalate,
                  mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],

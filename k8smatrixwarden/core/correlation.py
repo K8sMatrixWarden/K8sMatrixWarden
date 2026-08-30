@@ -29,6 +29,8 @@ already on each Finding and RuntimeAlert.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from .evidence import Evidence
 from .models import Finding, Severity
 
@@ -94,6 +96,25 @@ def belongs_to(pod: str, workload: str) -> bool:
     return all(_looks_generated(seg) for seg in segments)
 
 
+def _event_cluster(event: dict) -> str:
+    """Cluster the runtime event came from, if the feed labelled it.
+
+    Falco does not emit this natively, but a multi-cluster falcosidekick deployment
+    routinely adds it (`customfields`, or a `cluster` output field), and one endpoint
+    receiving several clusters' alerts is a normal topology. When the label IS present and
+    names a different cluster than the scan, the event is about a different cluster's pod
+    that merely shares a name, so it cannot confirm anything here.
+    """
+    return str(event.get("cluster") or event.get("k8s.cluster.name") or "").strip()
+
+
+def _cluster_conflicts(event: dict, cluster: str) -> bool:
+    """True only when both sides name a cluster AND they disagree. An unlabelled event is
+    not evidence of a mismatch, so it is not treated as one."""
+    seen = _event_cluster(event)
+    return bool(seen and cluster and seen != cluster)
+
+
 def _resource_matched(pod: str, ns: str, statics: list) -> list:
     """Static findings whose resource IS the pod the runtime event names, or the workload
     that pod belongs to. This is the resource-level link that alone justifies 'confirmed
@@ -135,7 +156,35 @@ def _finding_view(f: Finding) -> dict:
             "resource": str(f.resource), "shard": f.owning_shard}
 
 
-def correlate(findings: list[Finding], alerts: list) -> dict:
+#: How old a runtime event may be before it stops counting as a CURRENT observation.
+#: An event that genuinely happened is never discarded, it is relabelled: `historical`
+#: evidence tells a responder the behaviour was seen, without asserting it is happening
+#: now. Seven days is a deliberate, documented choice, not a Kubernetes constant.
+RUNTIME_FRESHNESS_DAYS = 7
+
+
+def _age_days(timestamp: str, now: str) -> Optional[float]:
+    """Age of an event in days, or None when either side cannot be parsed. Unparseable
+    means unknown, and unknown must not be treated as fresh OR as stale."""
+    import datetime as _dt
+
+    def _parse(value):
+        try:
+            return _dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+    a, b = _parse(timestamp), _parse(now)
+    if a is None or b is None:
+        return None
+    if a.tzinfo is None:
+        a = a.replace(tzinfo=_dt.timezone.utc)
+    if b.tzinfo is None:
+        b = b.replace(tzinfo=_dt.timezone.utc)
+    return (b - a).total_seconds() / 86400.0
+
+
+def correlate(findings: list[Finding], alerts: list, cluster: str = "",
+              now: str = "") -> dict:
     """Cross-reference static scan findings with live runtime alerts. Returns the
     correlations worst-first plus the headline counts a responder/leader reads first."""
     by_tactic: dict[str, list[Finding]] = {}
@@ -147,7 +196,14 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
     for a in alerts:
         statics = by_tactic.get(a.tactic, [])
         ns, pod = _event_ns(a.event), _event_pod(a.event)
-        resource_hit = _resource_matched(pod, ns, statics)
+        # A feed aggregating several clusters can deliver an event about a pod that merely
+        # shares a name with one here. When the event names a cluster and it is not this
+        # one, resource identity does not hold, so it cannot confirm.
+        foreign = _cluster_conflicts(a.event, cluster)
+        stamp = _event_time(a.event)
+        age = _age_days(stamp, now) if now else None
+        stale = age is not None and age > RUNTIME_FRESHNESS_DAYS
+        resource_hit = [] if foreign else _resource_matched(pod, ns, statics)
         ns_scoped = [f for f in statics if ns and f.resource.namespace == ns]
         if not statics:
             conf, verdict, matched = ("runtime-only",
@@ -155,6 +211,11 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
         elif resource_hit:
             conf, verdict, matched = ("confirmed",
                 "static weakness on this resource is being actively exploited", resource_hit)
+        elif foreign:
+            conf, verdict, matched = ("corroborated",
+                f"event is labelled cluster {_event_cluster(a.event)!r}, not "
+                f"{cluster!r}; a same-named pod in another cluster cannot confirm this "
+                f"finding", ns_scoped or statics)
         else:
             # same tactic (± namespace) but no resource-level link, aligns, not proven.
             conf, verdict, matched = ("corroborated",
@@ -171,8 +232,15 @@ def correlate(findings: list[Finding], alerts: list) -> dict:
             "verdict": verdict,
             "reason": _reason(conf, pod, ns, matched),
             "severity": sev.label,
-            "timestamp": _event_time(a.event),
+            "timestamp": stamp,
+            # Freshness is reported, never used to silently discard evidence: an event that
+            # happened, happened. `historical` says the behaviour WAS seen without
+            # asserting it is happening now, which is what "observed" would imply.
+            "age_days": None if age is None else round(age, 2),
+            "freshness": ("unknown" if age is None
+                          else ("historical" if stale else "recent")),
             "source": a.source,
+            "cluster": _event_cluster(a.event) or (cluster or None),
             "resource": pod,
             "namespace": ns,
             "runtime": _alert_view(a),

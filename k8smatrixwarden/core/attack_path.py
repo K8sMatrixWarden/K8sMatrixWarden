@@ -87,6 +87,22 @@ def _runtime_index(runtime: Optional[dict]) -> tuple:
     return by_resource, by_namespace
 
 
+def _evidence_for(node_name: str, by_resource: dict) -> list:
+    """Runtime evidence naming this node, or a generated pod belonging to it.
+
+    Uses the correlator's own ownership test so the path layer and the correlation layer
+    can never disagree about whether an event is about this resource.
+    """
+    from .correlation import belongs_to
+    if not node_name:
+        return []
+    out = []
+    for resource, entries in by_resource.items():
+        if resource == node_name or belongs_to(resource, node_name):
+            out.extend(entries)
+    return out
+
+
 def _pod_name(nodes: list) -> str:
     """The workload node in a reachability chain, which is the resource a runtime event
     would name. Reachability always places it directly after the entry hop."""
@@ -129,7 +145,12 @@ def resource_paths(findings: list, runtime: Optional[dict] = None,
     for group in groups.values():
         nodes = group["nodes"]
         pod = _pod_name(nodes)
-        observed = by_resource.get(pod, [])
+        # Match by pod OWNERSHIP, not by dictionary key. A Falco event names a running pod
+        # (`api-7d9f4c8b21-lrw5s`) while the finding, and therefore the path node, names the
+        # workload (`api`). Keying on string equality meant a correlation the correlator had
+        # already CONFIRMED still left its own path merely `corroborated`, understating
+        # evidence the scan actually held.
+        observed = _evidence_for(pod, by_resource)
         corroborating = [] if observed else by_namespace.get(group["namespace"] or "", [])
         confidence = (OBSERVED if observed
                       else CORROBORATED if corroborating else CONFIG_ONLY)
