@@ -232,7 +232,7 @@ def _attack_rows(result: ScanResult) -> list:
     try:
         from .threat_matrix import build_threat_matrix, attack_paths
         tm = build_threat_matrix(result, None)
-        ap = attack_paths(tm)
+        ap = attack_paths(tm, result.runtime)
         reaches = "yes" if ap.get("reaches_impact") else "no"
         out = []
         for i, s in enumerate(ap.get("steps", []), 1):

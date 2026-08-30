@@ -150,6 +150,12 @@ class ReportStore:
                     e["resolved_at"] = ts               # gone this scan == fixed
             _atomic_write_json(self._timeline_path(), tl)
 
+    def raw_timeline(self) -> dict:
+        """The per-finding first/last-seen index itself, keyed by the same stable finding
+        identity `core/posture.py` compares on. `timeline()` is the aggregated view; this
+        is the raw one, needed to tell a regression from a first-time finding."""
+        return self._load_timeline()
+
     def timeline(self) -> dict:
         """Open/resolved finding ages against the latest scan. `age_days` is a
         scan-cadence-granular MTTD proxy; `resolved` with a `resolved_at` gives MTTR."""
@@ -201,7 +207,10 @@ class ReportStore:
                 or _fallback_display_name(d.get("name", ""), scan_id,
                                           d.get("generated_at", "")),
                 cluster=d.get("cluster", "target-cluster")))
-        out.sort(key=lambda r: r.generated_at, reverse=True)
+        # Newest first, with scan_id as the tiebreaker: two scans can share a timestamp
+        # (same second), and an unstable order there would make "the previous scan" a
+        # coin flip for the posture diff.
+        out.sort(key=lambda r: (r.generated_at, r.scan_id), reverse=True)
         return out[:limit] if limit else out
 
     # -- load ------------------------------------------------------------- #

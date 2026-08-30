@@ -550,7 +550,7 @@ footer.site-footer {
     <input id="search" type="text" placeholder="Filter the docs…" autocomplete="off" spellcheck="false">
   </div>
   <div class="topbar-right">
-    <span class="badge-version">v1.0 · 60 rules · 32 MCP tools · IST</span>
+    <span class="badge-version">v1.0 · 60 rules · 36 MCP tools · IST</span>
     <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">◐</button>
   </div>
 </div>
@@ -755,7 +755,7 @@ footer.site-footer {
 <h1>Overview</h1>
 <p class="lede">K8sMatrixWarden is an <strong>MCP-native</strong> Kubernetes security platform.
 Its whole surface — scanning, the CIS benchmark, the threat matrix, kill-chain attack paths,
-and scan×runtime correlation — is exposed as <strong>32 MCP tools</strong>, so an AI agent
+and scan×runtime correlation — is exposed as <strong>36 MCP tools</strong>, so an AI agent
 (Claude, Cursor, VS&nbsp;Code, Windsurf) drives it conversationally. The <a href="#cli">CLI</a>
 and <a href="#web">web dashboard</a> run the same engine for anyone not on an MCP client. It is
 <em>detect-and-report only</em> — read-only on every surface, no apply/remediate path.</p>
@@ -1762,7 +1762,7 @@ same engine. Pick whichever fits the moment.</p>
 <tr><td><code>roles</code></td><td>Print per-shard least-privilege RBAC</td></tr>
 <tr><td><code>report list / download</code></td><td>List saved scans; re-render any of them in any format</td></tr>
 <tr><td><code>doctor</code></td><td>Validate the whole platform's wiring</td></tr>
-<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 32 tools</td></tr>
+<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 36 tools</td></tr>
 </tbody>
 </table></div>
 
@@ -2042,7 +2042,7 @@ path-traversal-guarded, and <code>--no-scan</code> serves existing reports fully
 
 <section id="mcp-connect">
 <h1>MCP Server</h1>
-<p class="lede">This is the intended way to run K8sMatrixWarden. 32 tools across four layers
+<p class="lede">This is the intended way to run K8sMatrixWarden. 36 tools across four layers
 let any MCP-compatible AI agent — Claude, Cursor, VS&nbsp;Code, Windsurf — do everything the CLI
 can: scan, audit, project the threat matrix and kill-chain, correlate a live runtime feed against
 static findings, and export reports. Every tool's docstring and all 150 parameters carry their own
@@ -2068,7 +2068,7 @@ setup — there is nothing to write and no path to fill in.</p>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">02</div><div class="fs-t">Open the folder</div><div class="fs-d">Open the repo root in Cursor, Claude Code, or VS&nbsp;Code. The config is found automatically.</div></div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 32 tools load.</div></div>
+  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 36 tools load.</div></div>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">04</div><div class="fs-t">Ask in plain English</div><div class="fs-d">Open the agent chat and describe the scan you want — no flags.</div></div>
 </div>
@@ -2076,7 +2076,7 @@ setup — there is nothing to write and no path to fill in.</p>
 <p>Per-client where to check that step 3 worked:</p>
 <ul>
 <li><strong>Cursor</strong> — <em>Settings → Tools &amp; MCP</em>. <code>k8smatrixwarden</code> should
-be listed and toggled on, with 32 tools underneath it.</li>
+be listed and toggled on, with 36 tools underneath it.</li>
 <li><strong>Claude Code</strong> — run <code>/mcp</code>. A project-scoped
 <code>.mcp.json</code> asks for approval the first time you open the folder; approve it, then the
 server shows as <em>connected</em>.</li>
@@ -2144,13 +2144,13 @@ explicit <code>"type": "stdio"</code>, while everyone else uses <code>mcpServers
 clients converge on a shared path, three small files is the floor for zero-config support, and the
 two global-config clients need the one-time paste above. The upside: the <em>server</em> never
 forks — all five clients run the identical <code>k8smatrixwarden mcp</code> process and see the
-identical 32 tools.</p></div>
+identical 36 tools.</p></div>
 </div>
 
 <h3>Verify, then talk to it</h3>
 <div class="code-card">
   <div class="code-head"><span class="code-lang">bash</span><button class="copy-btn" data-copy>Copy</button></div>
-  <pre><code><span class="c-mut"># lists all 32 tools without starting the server — the fastest wiring check</span>
+  <pre><code><span class="c-mut"># lists all 36 tools without starting the server — the fastest wiring check</span>
 python -m k8smatrixwarden mcp --list-tools
 
 <span class="c-mut"># start it over stdio yourself (this is what the client runs for you)</span>
@@ -2297,7 +2297,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">270</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">496</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">10/10</div><div class="stat-l">shards loaded clean</div></div>
 </div>

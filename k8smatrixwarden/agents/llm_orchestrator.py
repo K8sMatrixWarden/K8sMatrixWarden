@@ -1,20 +1,26 @@
 """
 Optional LLM-powered orchestration for the local `chat` REPL (§7.4 extension).
 
-When driven from an MCP client (Claude Desktop / Cursor), the CLIENT already orchestrates, 
-it reads the 30 tool schemas and chains them. The one surface with no external orchestrator
-is the standalone `chat` command, which parses with regex and can't chain. This module fills
-exactly that gap, and nothing else.
+When driven from an MCP client (Claude Desktop / Cursor / VS Code), the CLIENT already
+orchestrates, it reads the tool schemas and chains them. The one surface with no external
+orchestrator is the standalone `chat` command, which parses with regex and can't chain.
+This module fills exactly that gap, and nothing else.
 
 Reuse, don't rebuild, two existing seams do all the work:
-  * ``mcp.server.build_tools()``     -> the same 30 callables MCP exposes (the tool catalog)
+  * ``mcp.server.build_tools()``     -> the same callables MCP exposes (the tool catalog)
   * their ``Annotated[...]`` hints    -> already on every parameter for FastMCP; reused here
                                          to generate the tool JSON-schemas
 
-Everything else (plan -> call -> observe -> repeat -> final answer) is the Anthropic SDK's
-tool-use loop below. There is no planner, DAG, state machine, or workflow engine here, just
-the documented tool dispatch loop wired onto the existing catalog. Regex interpretation stays
-the fallback and the offline default; this path only runs when ANTHROPIC_API_KEY is set.
+Everything else (plan -> call -> observe -> repeat -> final answer) is the documented tool
+dispatch loop below, wired onto the existing catalog. There is no planner, DAG, state
+machine, or workflow engine here.
+
+PROVIDER- AND MODEL-AGNOSTIC (§4). This module names no model and no vendor. Which provider
+and model to use is resolved at call time by `agents.llm_provider` from the operator's
+environment / config, so changing either is a configuration change, never a source change.
+Regex interpretation stays the fallback and the offline default; this path runs only when
+an LLM is actually configured, and any failure raises `LLMUnavailable`, which every caller
+treats as "use the deterministic path".
 """
 from __future__ import annotations
 
@@ -26,20 +32,14 @@ import re
 import time
 from typing import Any, Callable, Union, get_args, get_origin
 
-MODEL_DEFAULT = "claude-opus-4-8"
 _MAX_STEPS = 12  # hard cap so a runaway tool loop can't spin forever
 
 log = logging.getLogger("k8smatrixwarden.llm")
 
+from .llm_provider import (LLMUnavailable, as_provider,  # noqa: E402,F401 (re-export)
+                           get_provider, resolve_config)
 from .security_profile import SECURITY_SYSTEM_PROMPT  # noqa: E402 (default system prompt)
 from .tool_registry import enrich_schemas             # noqa: E402 (Phase 7)
-
-
-class LLMUnavailable(RuntimeError):
-    """The agentic path can't run (no key, SDK missing, or the API call failed).
-
-    The chat REPL catches this and falls back to the regex interpreter, so the LLM path is
-    always strictly additive, its absence or failure never breaks offline behaviour."""
 
 
 # --------------------------------------------------------------------------- #
@@ -151,65 +151,59 @@ def _dispatch(tools: dict[str, Callable], name: str, args: dict) -> tuple[str, b
 # --------------------------------------------------------------------------- #
 # The agentic entry point.
 # --------------------------------------------------------------------------- #
-def run_agentic(query: str, platform=None, *, model: str = MODEL_DEFAULT,
+def run_agentic(query: str, platform=None, *, model: str = "",
                 system: str = None, prelude: str = "", client=None,
-                trace: list = None, max_steps: int = _MAX_STEPS, memory=None) -> str:
-    """Answer a request by letting Claude pick and chain the existing tools (the raw loop).
+                trace: list = None, max_steps: int = _MAX_STEPS, memory=None,
+                config: dict = None) -> str:
+    """Answer a request by letting the configured model pick and chain the existing tools.
 
     The extra knobs are used by investigate() and default to today's behaviour:
+      model    , override the configured model for this run (optional; normally the
+                 operator's configuration decides, no source change needed)
       system   , system prompt (defaults to the security profile, Phase 1)
       prelude  , text prepended to the first user message (retrieved memory, Phase 3)
-      client   , reuse an Anthropic client so the critic shares one; built if None
+      client   , reuse a provider (or a raw SDK client) so the critic shares one
       trace    , if a list, each dispatched tool name is appended (for lesson-saving)
       max_steps, tool-iteration cap (config.max_tool_iterations)
-    Raises LLMUnavailable if the key/SDK is missing or the API fails, so the caller can fall
-    back to the regex interpreter. The tool dispatcher itself is unchanged."""
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise LLMUnavailable("ANTHROPIC_API_KEY is not set")
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise LLMUnavailable("the 'anthropic' package is not installed, run "
-                             "`pip install -e \".[agent]\"` to enable LLM chat") from exc
+    Raises LLMUnavailable when no LLM is configured, the SDK/credentials are missing, or the
+    provider fails, so the caller can fall back to the regex interpreter. The tool
+    dispatcher itself is provider-independent."""
+    provider = as_provider(client, model=model) if client is not None \
+        else _build_provider(model=model, config=config)
 
     from ..mcp.server import build_tools
     tools = build_tools()
     schemas = enrich_schemas([_schema(name, fn) for name, fn in tools.items()])
-    if client is None:
-        client = anthropic.Anthropic()
     user = f"{prelude}\n\n{query}" if prelude else query
     messages: list[dict] = [{"role": "user", "content": user}]
     system = system or SECURITY_SYSTEM_PROMPT
-    log.info("agentic run: model=%s tools=%d prelude=%d", model, len(schemas), len(prelude))
+    log.info("agentic run: provider=%s model=%s tools=%d prelude=%d",
+             provider.cfg.provider, provider.cfg.model, len(schemas), len(prelude))
 
-    try:
-        for _ in range(max_steps):
-            resp = client.messages.create(model=model, max_tokens=4096, system=system,
-                                          tools=schemas, messages=messages)
-            if resp.stop_reason != "tool_use":
-                return _final_text(resp)
-            messages.append({"role": "assistant", "content": resp.content})
-            results = []
-            for block in resp.content:
-                if getattr(block, "type", None) != "tool_use":
-                    continue
-                if trace is not None:
-                    trace.append(block.name)
-                text, is_error = _dispatch(tools, block.name, block.input)
-                if memory is not None:                 # Upgrade 2, score + persist + hint
-                    text = _score_and_hint(memory, block.name, text, is_error)
-                results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": text, "is_error": is_error})
-            messages.append({"role": "user", "content": results})
-        return "Stopped after too many tool steps, try a narrower request."
-    except anthropic.APIError as exc:  # auth / rate-limit / timeout / connection all subclass this
-        raise LLMUnavailable(f"Anthropic API error: {exc}") from exc
+    for _ in range(max_steps):
+        resp = provider.chat(system=system, messages=messages, tools=schemas)
+        if not resp.wants_tools:
+            return resp.text or "(no response)"
+        messages.append({"role": "assistant", "content": resp.text,
+                         "tool_calls": resp.tool_calls})
+        for call in resp.tool_calls:
+            if trace is not None:
+                trace.append(call.name)
+            text, is_error = _dispatch(tools, call.name, call.args)
+            if memory is not None:                     # Upgrade 2, score + persist + hint
+                text = _score_and_hint(memory, call.name, text, is_error)
+            messages.append({"role": "tool", "tool_call_id": call.id, "name": call.name,
+                             "content": text, "is_error": is_error})
+    return "Stopped after too many tool steps, try a narrower request."
 
 
-def _final_text(resp) -> str:
-    parts = [b.text for b in resp.content
-             if getattr(b, "type", None) == "text" and getattr(b, "text", "")]
-    return "\n".join(parts).strip() or "(no response)"
+def _build_provider(*, model: str = "", config: dict = None):
+    """Resolve the operator's configured provider/model. Raises LLMUnavailable (never a
+    vendor-specific error) so callers degrade to the deterministic path uniformly."""
+    cfg = resolve_config(config if config is not None else load_agent_config())
+    if model:
+        cfg.model = model
+    return get_provider(cfg)
 
 
 def _score_and_hint(memory, name: str, text: str, is_error: bool) -> str:
@@ -238,7 +232,11 @@ def load_agent_config(path: str = None) -> dict:
     default = {"memory": {"enabled": True},
                "critic": {"enabled": True, "max_validation_rounds": 3,
                           "minimum_confidence": 0.75},
-               "learning": {"enabled": True}, "max_tool_iterations": _MAX_STEPS}
+               "learning": {"enabled": True}, "max_tool_iterations": _MAX_STEPS,
+               # Empty on purpose: no provider and no model is the shipped default, so a
+               # fresh checkout runs the deterministic scanner and nothing else. The
+               # operator fills this in (or sets the env vars) to enable the agent path.
+               "llm": {}}
     p = path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "config", "agent.json")
     try:
@@ -251,7 +249,7 @@ def load_agent_config(path: str = None) -> dict:
     return loaded
 
 
-def investigate(query: str, platform=None, *, model: str = MODEL_DEFAULT,
+def investigate(query: str, platform=None, *, model: str = "",
                 config: dict = None, memory=None, client=None) -> str:
     """The controlled validation loop (Phase 8 + Upgrade 1/2/3): inject profile + relevant
     memory + tool-quality hints, run the (unchanged) tool loop, critique the draft, and RE-RUN
@@ -278,21 +276,22 @@ def investigate(query: str, platform=None, *, model: str = MODEL_DEFAULT,
         hints = mem.tool_quality_hints()               # Upgrade 2, inject learned tool quality
         if hints:
             prelude = f"{prelude}\n\n{hints}" if prelude else hints
-    if client is None and os.getenv("ANTHROPIC_API_KEY"):
-        import anthropic
-        client = anthropic.Anthropic()
+    # One provider instance shared by the tool loop and the critic, so both speak to the
+    # SAME configured model and a single failure path covers them both.
+    provider = as_provider(client, model=model) if client is not None \
+        else _build_provider(model=model, config=cfg)
 
     trace: list = []
     verdict = dict(_APPROVED)
     draft, feedback = "", ""
     for _ in range(max(1, rounds)):                    # Upgrade 1, critic-triggered re-run
         q = query if not feedback else f"{query}\n\n{feedback}"
-        draft = run_agentic(q, platform, model=model, prelude=prelude, client=client,
+        draft = run_agentic(q, platform, model=model, prelude=prelude, client=provider,
                             trace=trace, max_steps=cfg["max_tool_iterations"], memory=mem)
-        if not (cfg["critic"]["enabled"] and client is not None):
+        if not cfg["critic"]["enabled"]:
             break
         from .critic import review
-        verdict = review(query, draft, client=client, model=model,
+        verdict = review(query, draft, client=provider, model=model,
                          evidence="tools used: " + " -> ".join(trace))
         if verdict["approved"] or not should_continue(verdict, min_conf):
             break

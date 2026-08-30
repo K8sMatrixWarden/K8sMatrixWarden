@@ -229,9 +229,41 @@ def _escalation_chain(rules: list[dict]) -> Optional[str]:
     return "; ".join(steps) or None
 
 
+def _node(kind: str, name: str, detail: str = "") -> dict:
+    return {"kind": kind, "name": name, "detail": detail}
+
+
+def _build_path(workload: dict, namespace: Optional[str], exposure: Optional[str],
+                isolated: Optional[str], chain: Optional[str]) -> list[dict]:
+    """The structural hop chain behind the prose reason (§9).
+
+    Internet -> Service/Ingress -> Pod -> ServiceAccount -> RBAC escalation, with the hops
+    that do not apply simply absent. Same inputs as the reason string, so the two can never
+    disagree; this one is machine-readable, for the dashboard, MCP, reports and the agent.
+    """
+    meta = workload.get("metadata", {}) or {}
+    sa = Evidence.pod_spec(workload).get("serviceAccountName", "default")
+    path: list[dict] = []
+    if exposure and not isolated:
+        path.append(_node("Internet", "external", "reachable from outside the cluster"))
+        path.append(_node("Service", exposure, "external route to this pod"))
+    elif exposure and isolated:
+        path.append(_node("Foothold", "compromised pod",
+                          f"external route exists ({exposure}) but {isolated}"))
+    else:
+        path.append(_node("Foothold", "compromised pod",
+                          isolated or "no external Service or Ingress routes to this pod"))
+    path.append(_node(workload.get("kind") or "Pod", meta.get("name", ""), namespace or ""))
+    if chain:
+        path.append(_node("ServiceAccount", sa, f"{namespace or ''}/{sa}".strip("/")))
+        path.append(_node("RBAC", "cluster-admin escalation", chain))
+    return path
+
+
 def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
-              evidence: Evidence) -> tuple[list[str], str]:
-    """(tags, analyst-facing reason) for a workload: external exposure + RBAC escalation."""
+              evidence: Evidence) -> tuple[list[str], str, list[dict]]:
+    """(tags, analyst-facing reason, structural path) for a workload: external exposure
+    plus RBAC escalation."""
     exposure = _external_exposure(workload, namespace, evidence)
     isolated = _ingress_isolated(workload, namespace, policies)   # reason str or None
 
@@ -259,7 +291,7 @@ def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
         tags.append(EXPLOIT_RBAC_ESCALATION)
         reason += (f" ⚠ RBAC escalation: this pod's ServiceAccount '{sa}' can reach "
                    f"cluster-admin — {chain}. A breach here isn't contained to the pod.")
-    return tags, reason
+    return tags, reason, _build_path(workload, namespace, exposure, isolated, chain)
 
 
 def inventory(evidence: Evidence) -> dict:
@@ -274,7 +306,8 @@ def inventory(evidence: Evidence) -> dict:
     pods = evidence.get("Pod")                       # scope-filtered, same as the rules saw
     buckets = {"internet_admin": 0, "internet": 0, "admin": 0, "internal": 0}
     for pod in pods:
-        tags, _ = _classify(pod, Evidence.dig(pod, "metadata.namespace"), policies, evidence)
+        tags, _, _ = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
+                               policies, evidence)
         ingress, admin = EXPLOIT_INGRESS in tags, EXPLOIT_RBAC_ESCALATION in tags
         key = ("internet_admin" if ingress and admin else "internet" if ingress
                else "admin" if admin else "internal")
@@ -293,7 +326,7 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
     across all its findings.
     """
     policies = evidence.get("NetworkPolicy", all_scopes=True)
-    cache: dict[tuple, tuple[list[str], str]] = {}
+    cache: dict[tuple, tuple] = {}
     for f in findings:
         workload = _resolve_workload(f.resource, evidence)
         if workload is None:
@@ -301,7 +334,8 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
         key = (f.resource.kind, f.resource.name, f.resource.namespace)
         if key not in cache:
             cache[key] = _classify(workload, f.resource.namespace, policies, evidence)
-        tags, reason = cache[key]
+        tags, reason, path = cache[key]
         f.exploitable_by = list(tags)
         f.path_reason = reason
+        f.exploit_path = [dict(node) for node in path]
     return findings

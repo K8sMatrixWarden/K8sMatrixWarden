@@ -320,8 +320,16 @@ class Finding:
     #: only reachable by an attacker already inside a pod (assume-breach). Empty = not analysed.
     exploitable_by: list[str] = field(default_factory=list)
     path_reason: Optional[str] = None       # human-readable "why this vector", if analysed
+    #: Structural reachability chain (core/reachability.py): the hops an attacker traverses
+    #: to reach this finding, e.g. Internet -> Service -> Pod -> ServiceAccount -> RBAC.
+    #: Each node is {kind, name, detail}. Empty when the finding is not on a workload or
+    #: reachability was not analysed. Descriptive context, never a severity input.
+    exploit_path: list = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
     score: float = 0.0                      # filled in by RiskScoringEngine
+    #: The four factors whose product IS `score`, published so the number is reproducible
+    #: by hand (§7). Filled in by RiskScoringEngine; empty for INFO/engine findings.
+    score_breakdown: dict = field(default_factory=dict)
 
     # -- convenience views ------------------------------------------------- #
     @property
@@ -367,8 +375,10 @@ class Finding:
             "blast_radius": self.blast_radius.label,
             "exploitable_by": list(self.exploitable_by),
             "path_reason": self.path_reason,
+            "exploit_path": list(self.exploit_path),
             "evidence": self.evidence,
             "score": round(self.score, 3),
+            "score_breakdown": self.score_breakdown,
         }
 
     @classmethod
@@ -398,7 +408,9 @@ class Finding:
         )
         f.exploitable_by = list(d.get("exploitable_by", []) or [])
         f.path_reason = d.get("path_reason")
+        f.exploit_path = list(d.get("exploit_path", []) or [])
         f.score = float(d.get("score", 0.0))
+        f.score_breakdown = d.get("score_breakdown", {}) or {}
         return f
 
 
@@ -430,6 +442,27 @@ class Rule:
     default_exploitability: Exploitability = Exploitability.LOCAL
     default_blast_radius: BlastRadius = BlastRadius.POD
     enabled: bool = True
+    #: Rule lifecycle (§13). The `id` is the STABLE identity, it must not change when the
+    #: implementation does; `version` records that the detection logic or its semantics
+    #: changed meaningfully, so a stored report can be read against the rule that produced
+    #: it. Bump it when what the rule flags changes; leave it when only wording changes.
+    version: int = 1
+    #: How much a firing of this rule can be trusted on its own, before any runtime
+    #: correlation: "high" (a declarative fact read straight off the spec, e.g.
+    #: privileged: true), "medium" (an inference over several fields), "low" (heuristic).
+    #: Feeds the finding's reported confidence, it never changes severity.
+    confidence: str = "high"
+    #: Documentation/advisory URLs a reader can verify the rule against.
+    references: list[str] = field(default_factory=list)
+    #: True when a complete answer needs on-node inspection the K8s API cannot provide
+    #: (file permissions, kubelet config on disk), so a PASS here is "nothing visible from
+    #: the API", not "verified compliant".
+    requires_node_access: bool = False
+    #: True when the condition is only fully observable on a live event stream, so the
+    #: scan surface can under-report it.
+    requires_runtime: bool = False
+    #: Known benign patterns that can trip this rule, for the analyst triaging it.
+    false_positive_notes: str = ""
 
     def __post_init__(self):
         if not self.evidence_needs:
@@ -476,6 +509,7 @@ class Rule:
     def metadata(self) -> dict:
         return {
             "id": self.id,
+            "version": self.version,
             "title": self.title,
             "owning_shard": self.owning_shard,
             "resource_scope": self.resource_scope,
@@ -488,4 +522,9 @@ class Rule:
             "nsa_cisa": self.nsa_cisa,
             "evidence_needs": self.evidence_needs,
             "enabled": self.enabled,
+            "confidence": self.confidence,
+            "references": list(self.references),
+            "requires_node_access": self.requires_node_access,
+            "requires_runtime": self.requires_runtime,
+            "false_positive_notes": self.false_positive_notes,
         }

@@ -178,6 +178,10 @@ class ReportingEngine:
             f"  {_risk_gauge(r.cluster_risk)}",
             "  " + "─" * 60,
         ]
+        # How much of the cluster the verdict above is based on. Printed next to the score
+        # so the two are read together, a 9.7 from 40% coverage is a different statement
+        # from a 9.7 from 100%.
+        out += [f"  {line}" for line in _coverage_lines(result)]
         warns = scan_warning_lines(result)
         if warns:
             out += [f"  ⚠️  SCAN WARNINGS ({len(warns)})"]
@@ -329,6 +333,7 @@ class ReportingEngine:
 
         # ---- coverage --------------------------------------------------- #
         md += ["<a id=\"coverage\"></a>", "## 3. 🎯 Coverage & Exposure", ""]
+        md += _coverage_md(result)
 
         if result.by_tactic:
             md += ["### By MITRE ATT&CK Tactic", "",
@@ -435,6 +440,12 @@ class ReportingEngine:
             "attack_path_amplified": sum(1 for f in result.findings
                                          if len(f.tactics) > 1 and f.severity.weight),
             "owasp": _by_owasp(result.findings),
+            # How much of the cluster this verdict is actually based on (§5). Reported
+            # beside the score, never folded into it: a low-coverage scan reports its
+            # findings in full and says the assessment is less complete.
+            "evidence_coverage_pct": result.coverage.get("coverage_pct"),
+            "assessment_confidence_pct": result.coverage.get("confidence_pct"),
+            "assessment_confidence": result.coverage.get("confidence_label"),
         }
         # Full Kubernetes Threat Matrix projection (§12), same structure the HTML/web
         # heatmap and the MCP build_threat_matrix tool return, so a JSON/API consumer gets
@@ -444,7 +455,7 @@ class ReportingEngine:
         doc["threat_matrix"] = _tm.as_dict()
         # Kill-chain exploit path derived from the matrix's hit cells (§12), which
         # tactics an attacker can actually string together in this cluster.
-        doc["attack_path"] = attack_paths(_tm)
+        doc["attack_path"] = attack_paths(_tm, result.runtime)
         # attach the full report-grade context to each finding: summary, standards &
         # benchmark mapping (with links), MITRE mapping (with links), impact, and
         # validation steps, the same data every other renderer (markdown/html/sarif/pdf)
@@ -640,6 +651,47 @@ class ReportingEngine:
 # ======================================================================= #
 # helpers
 # ======================================================================= #
+def _coverage_lines(result: ScanResult) -> list[str]:
+    """Evidence coverage / assessment confidence, plus the domains that were not fully
+    readable. Empty for a scan saved before coverage tracking existed, so old reports
+    render exactly as they did."""
+    from .coverage import summary_line
+    cov = result.coverage
+    if not cov:
+        return []
+    lines = [summary_line(cov)]
+    gaps = [f"{name} {d['coverage_pct']}%"
+            for name, d in cov.get("domains", {}).items() if d["coverage_pct"] < 100]
+    if gaps:
+        lines.append("Partly/never read: " + ", ".join(gaps))
+        lines.append("Low coverage does not hide findings; it means the parts that look "
+                     "clean may simply not have been visible.")
+    lines.append("─" * 60)
+    return lines
+
+
+def _coverage_md(result: ScanResult) -> list[str]:
+    """Markdown rendering of the same coverage block."""
+    cov = result.coverage
+    if not cov:
+        return []
+    md = ["### 🔍 Evidence coverage & assessment confidence", "",
+          f"| Metric | Value |", "|---|---|",
+          f"| Evidence coverage | {cov['coverage_pct']}% |",
+          f"| Assessment confidence | {cov['confidence_pct']}% "
+          f"({cov['confidence_label']}) |", ""]
+    domains = cov.get("domains", {})
+    if domains:
+        md += ["| Domain | Coverage |", "|---|---|"]
+        md += [f"| {name} | {d['coverage_pct']}% |" for name, d in domains.items()]
+        md.append("")
+    if cov.get("unread_kinds"):
+        md += [f"> Not read: `{'`, `'.join(cov['unread_kinds'])}`. Findings are reported "
+               f"in full regardless; the unread parts are simply unassessed, not clean.",
+               ""]
+    return md
+
+
 def _display_findings(findings: list[Finding]) -> list[Finding]:
     from .scoring import RiskScoringEngine
     ranked = RiskScoringEngine.rank(findings)

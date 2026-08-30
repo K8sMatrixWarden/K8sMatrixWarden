@@ -242,18 +242,19 @@ def cmd_roles(a) -> int:
 
 
 def cmd_doctor(a) -> int:
+    """Full platform health check (§19): shards, configuration, rules, taxonomy, MCP,
+    report formats, runtime catalog, optional LLM, optional dependencies, and the
+    read-only safety invariants. Exits 1 only on a FAIL, a missing OPTIONAL capability is
+    reported as NOT CONFIGURED and never fails the command."""
+    from .. import doctor as doc
     platform = build_platform(a.config)
-    print(f"Shards loaded : {len(platform.registry.shard_names())} "
-          f"({', '.join(platform.registry.shard_names())})")
-    print(f"Rules loaded  : {platform.rule_count()}")
-    problems = platform.validation_problems
-    if problems:
-        print(f"Validation    : {len(problems)} problem(s):")
-        for p in problems:
-            print(f"  ✗ {p}")
-        return 1
-    print("Validation    : ✅ clean (taxonomy + aliases + no duplicate rule ids)")
-    return 0
+    sections = doc.run_checks(platform, probe_llm=a.probe)
+    if a.output == "json":
+        import json as _json
+        print(_json.dumps(doc.summarize(sections), indent=2))
+    else:
+        print(doc.render_text(sections, verbose=a.verbose))
+    return 0 if doc.summarize(sections)["ok"] else 1
 
 
 def cmd_chat(a) -> int:
@@ -386,6 +387,49 @@ def cmd_federation(a) -> int:
         print(f"[written] {a.output_file}", file=sys.stderr)
     else:
         print(out)
+    return 0
+
+
+def cmd_posture(a) -> int:
+    """What changed since the previous scan of the same cluster (§16)."""
+    from ..core.posture import latest_change
+    from ..core.report_store import ReportStore
+    from ..core.timeutil import format_ist
+
+    store = ReportStore(a.reports_dir)
+    try:
+        change = latest_change(store, a.scan_id)
+    except FileNotFoundError:
+        print(f"error: no stored report with scan-id '{a.scan_id}'", file=sys.stderr)
+        return 2
+    if not change:
+        print(f"No stored reports in '{a.reports_dir}'. Run a scan first.")
+        return 0
+    if a.output == "json":
+        import json as _json
+        print(_json.dumps({**change, "timeline": store.timeline()}, indent=2))
+        return 0
+
+    print(f"Security posture change, {format_ist(change['current_generated_at'])}")
+    print(f"  {change['summary']}\n")
+    print(f"  {'SEVERITY':<10} {'PREVIOUS':>9} {'CURRENT':>8} {'DELTA':>7}")
+    for sev, counts in change["counts"].items():
+        arrow = "↑" if counts["delta"] > 0 else ("↓" if counts["delta"] < 0 else " ")
+        print(f"  {sev:<10} {counts['previous']:>9} {counts['current']:>8} "
+              f"{arrow}{abs(counts['delta']):>6}")
+    for label, key in (("Regressed (previously fixed, back again)", "regressed"),
+                       ("New", "new"), ("Resolved", "resolved")):
+        rows = change[key]
+        if not rows:
+            continue
+        print(f"\n  {label} ({len(rows)}):")
+        for row in rows[:15]:
+            print(f"    {row['severity']:<9} {row['rule_id']:<32} {row['resource']}")
+        if len(rows) > 15:
+            print(f"    … (+{len(rows) - 15} more)")
+    if change["not_rescanned"]:
+        print(f"\n  {len(change['not_rescanned'])} earlier finding(s) were NOT re-scanned "
+              f"by this run,\n  so they are neither confirmed fixed nor still open.")
     return 0
 
 
@@ -591,7 +635,13 @@ def build_parser() -> argparse.ArgumentParser:
     ro.add_argument("--output-file")
     ro.set_defaults(func=cmd_roles)
 
-    d = sub.add_parser("doctor", help="validate the platform")
+    d = sub.add_parser("doctor", help="platform health & consistency check")
+    d.add_argument("--probe", action="store_true",
+                   help="also make one tiny live call to the configured LLM to verify "
+                        "credentials and model name (no network without this)")
+    d.add_argument("--verbose", "-v", action="store_true",
+                   help="list the items behind every check, not just failures")
+    d.add_argument("--output", "-o", default="text", choices=["text", "json"])
     d.set_defaults(func=cmd_doctor)
 
     ch = sub.add_parser("chat", help="interactive conversational security assistant")
@@ -650,6 +700,13 @@ def build_parser() -> argparse.ArgumentParser:
                      choices=["markdown", "json", "html"])
     fed.add_argument("--output-file")
     fed.set_defaults(func=cmd_federation)
+
+    po = sub.add_parser("posture",
+                        help="what changed since the previous scan of the same cluster")
+    po.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
+    po.add_argument("--scan-id", help="compare this scan (default: the latest)")
+    po.add_argument("--output", "-o", default="text", choices=["text", "json"])
+    po.set_defaults(func=cmd_posture)
 
     fmts = ["terminal", "text", "markdown", "json", "sarif", "html", "pdf"]
     rp = sub.add_parser("report", help="list / download stored scan reports")

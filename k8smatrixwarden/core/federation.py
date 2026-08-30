@@ -44,6 +44,22 @@ def _is_builtin_identity(kind: str, name: str) -> bool:
 
 _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
+#: What KIND of thing is shared, so a consumer can tell "the same ClusterRole grants this
+#: in both clusters" from "the same Secret name exists in both". Workload kinds are
+#: deliberately absent from `_IDENTITY_KINDS` above and therefore from this map: a
+#: Deployment called `api` in two clusters is a naming convention, not a trust link, and
+#: correlating it would manufacture exactly the speculative path this module refuses to
+#: draw. The category exists in the vocabulary for a future evidence source (a shared
+#: image digest, a federated workload identity) that could justify it.
+RELATIONSHIPS = ("shared-identity", "shared-resource", "shared-workload")
+_KIND_RELATIONSHIP = {
+    "ClusterRole": "shared-identity", "Role": "shared-identity",
+    "ClusterRoleBinding": "shared-identity", "RoleBinding": "shared-identity",
+    "ServiceAccount": "shared-identity", "CloudIAM": "shared-identity",
+    "ManagedIdentity": "shared-identity",
+    "Secret": "shared-resource", "ConfigMap": "shared-resource",
+}
+
 
 @dataclass
 class SharedIdentity:
@@ -54,11 +70,23 @@ class SharedIdentity:
     tactics: list                  # union of MITRE tactics it is implicated in
     worst_severity: str
     findings: list                 # [{cluster, rule_id, title, severity, tactic}]
+    #: What sort of link this is: shared-identity (a trust principal) or shared-resource
+    #: (a named object). See RELATIONSHIPS.
+    relationship: str = "shared-identity"
+    #: `candidate` , the same kind+name exists in both clusters. That is a lead to verify,
+    #: NOT proof the two are the same principal (two clusters can coincidentally name a
+    #: role the same). `confirmed` , runtime evidence in more than one cluster names this
+    #: resource as being acted on, which is observation, not inference.
+    status: str = "candidate"
+    #: Why it is not confirmed / what would confirm it.
+    verification: str = ""
 
     def as_dict(self) -> dict:
         return {"key": self.key, "kind": self.kind, "name": self.name,
                 "clusters": self.clusters, "tactics": self.tactics,
-                "worst_severity": self.worst_severity, "findings": self.findings}
+                "worst_severity": self.worst_severity, "findings": self.findings,
+                "relationship": self.relationship, "status": self.status,
+                "verification": self.verification}
 
 
 @dataclass
@@ -76,6 +104,27 @@ class FederationReport:
                 "top_tactic": self.top_tactic,
                 "cross_cluster_paths": len(self.shared_identities),
                 "summary": self.summary}
+
+
+def _observed_in(by_cluster: dict, name: str) -> set:
+    """Clusters whose saved runtime block CONFIRMS activity on a resource of this name.
+
+    This is the only thing that upgrades a shared identity from `candidate` to
+    `confirmed`, because it is observation rather than a name collision. Requires a scan
+    that actually carried a runtime feed; mock and runtime-less scans contribute nothing,
+    which is why the default stays `candidate`."""
+    hits = set()
+    if not name:
+        return hits
+    for cname, result in by_cluster.items():
+        for c in ((result.runtime or {}).get("correlation") or {}).get(
+                "correlations", []):
+            if c.get("confidence") != "confirmed":
+                continue
+            resource = str(c.get("resource") or "")
+            if resource == name or resource.startswith(name + "-"):
+                hits.add(cname)
+    return hits
 
 
 def _worst(sevs: list) -> str:
@@ -129,12 +178,22 @@ def build_federation(results: list) -> FederationReport:
         kind, _, name = key.partition("/")
         flat = [fd for fds in per_cluster.values() for fd in fds]
         tactics = sorted({fd["tactic"] for fd in flat if fd["tactic"]})
+        observed = _observed_in(by_cluster, name)
+        confirmed = len(observed) >= 2
         shared.append(SharedIdentity(
             key=key, kind=kind, name=name,
             clusters=sorted(per_cluster.keys()),
             tactics=tactics,
             worst_severity=_worst([fd["severity"] for fd in flat]),
-            findings=flat))
+            findings=flat,
+            relationship=_KIND_RELATIONSHIP.get(kind, "shared-resource"),
+            status="confirmed" if confirmed else "candidate",
+            verification=(
+                f"runtime evidence names this resource in {', '.join(sorted(observed))}"
+                if confirmed else
+                "same kind+name in both clusters; confirm they are the same trust "
+                "principal (shared IaC, federated identity, or a reused cloud role) "
+                "before treating this as one blast radius")))
     shared.sort(key=lambda s: (-_SEV_RANK.get(s.worst_severity, 0), -len(s.clusters)))
 
     top_tactic = max(fed_tactics, key=fed_tactics.get) if fed_tactics else ""
