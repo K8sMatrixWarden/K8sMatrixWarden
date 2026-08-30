@@ -37,6 +37,11 @@ from typing import Optional
 CONFIG_ONLY, CORROBORATED, OBSERVED = ("configuration-only", "corroborated", "observed")
 _RANK = {CONFIG_ONLY: 0, CORROBORATED: 1, OBSERVED: 2}
 
+#: Whether the analysis that produced a result was exhaustive or hit a bound. Every
+#: bounded graph walk in the project reports one of these, so a truncated answer can never
+#: be read as "this is everything there is".
+COMPLETE, TRUNCATED = "complete", "truncated"
+
 #: Node kinds that mean the chain starts outside the cluster. Anything else is an
 #: assume-breach entry (the attacker already has a foothold), which is a materially weaker
 #: claim and is labelled as such rather than being dropped.
@@ -92,7 +97,7 @@ def _pod_name(nodes: list) -> str:
 
 
 def resource_paths(findings: list, runtime: Optional[dict] = None,
-                   limit: int = 25) -> list[dict]:
+                   limit: int = 25, cluster: Optional[str] = None) -> list[dict]:
     """Group findings into deduplicated, evidence-backed resource-level paths.
 
     Findings that share the same hop chain describe the same route into the same workload,
@@ -103,9 +108,15 @@ def resource_paths(findings: list, runtime: Optional[dict] = None,
     groups: dict[tuple, dict] = {}
 
     for f in findings:
-        path = list(getattr(f, "exploit_path", []) or [])
-        if len(path) < 2:
-            continue                    # not a chain: nothing causal to report
+        try:
+            path = list(getattr(f, "exploit_path", []) or [])
+        except Exception:                   # pragma: no cover - defensive
+            continue
+        if len(path) < 2 or not all(isinstance(n, dict) for n in path):
+            # Not a chain, or a chain we cannot read. Either way there is nothing causal
+            # to report, and inventing a path from a malformed one would be worse than
+            # reporting none.
+            continue
         sig = _signature(path)
         group = groups.setdefault(sig, {
             "nodes": [dict(n) for n in path],
@@ -126,27 +137,52 @@ def resource_paths(findings: list, runtime: Optional[dict] = None,
                             key=lambda f: (f.severity.order, f.score), reverse=True)
         worst = supporting[0]
         internet = nodes[0].get("kind") in _EXTERNAL_ENTRY
+        steps = [_step(nodes, i, supporting, observed or corroborating, confidence)
+                 for i in range(len(nodes))]
+        # WHICH hops the runtime evidence actually covers. A runtime event on the pod
+        # says nothing about the RBAC hops after it, so a path is only ever "observed at"
+        # the hops an event named, never observed end to end. Without this, one shell-exec
+        # alert would mark an entire ServiceAccount -> binding -> cluster-admin chain as
+        # witnessed, which is precisely the over-claim this layer exists to avoid.
+        observed_nodes = [s["node"] for s in steps if s["confidence"] == OBSERVED]
+        fully_observed = bool(observed_nodes) and len(observed_nodes) == len(steps)
         out.append({
             "layer": "resource",
+            # Explicit path type, so a consumer never has to infer whether a chain is a
+            # tactic adjacency or a real resource route. `layer` is kept for consumers
+            # written against the previous shape.
+            "path_type": "observed" if observed else "resource",
             "entry_point": dict(nodes[0]),
             "target": dict(nodes[-1]),
+            "cluster": cluster,
             "namespace": group["namespace"],
             "internet_reachable": internet,
-            "steps": [_step(nodes, i, supporting, observed or corroborating, confidence)
-                      for i in range(len(nodes))],
+            "steps": steps,
             "supporting_findings": [{
                 "rule_id": f.rule_id, "title": f.title, "severity": f.severity.label,
-                "resource": str(f.resource)} for f in supporting[:20]],
+                "resource": str(f.resource), "namespace": f.resource.namespace,
+                "cluster": cluster} for f in supporting[:20]],
             "runtime_evidence": sorted(observed or corroborating,
                                        key=lambda e: e.get("timestamp", "")),
             "worst_severity": worst.severity.label,
             "confidence": confidence,
-            "summary": _summary(nodes, confidence, internet),
+            "observed_nodes": observed_nodes,
+            "fully_observed": fully_observed,
+            "summary": _summary(nodes, confidence, internet, observed_nodes),
         })
 
     out.sort(key=lambda p: (_RANK[p["confidence"]], p["internet_reachable"],
                             _sev_rank(p["worst_severity"])), reverse=True)
-    return out[:limit]
+    truncated = len(out) > limit
+    kept = out[:limit]
+    for path in kept:
+        # Truncation is a property of the ANALYSIS, not of the cluster. Stamping it on
+        # every returned path stops a bounded result being mistaken for an exhaustive one.
+        path["analysis_status"] = TRUNCATED if truncated else COMPLETE
+        if truncated:
+            path["analysis_note"] = (f"{len(out)} resource paths were derived; the "
+                                     f"{limit} strongest are returned (reason: path_limit)")
+    return kept
 
 
 _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
@@ -178,13 +214,20 @@ def _step(nodes: list, index: int, findings: list, evidence: list,
     }
 
 
-def _summary(nodes: list, confidence: str, internet: bool) -> str:
+def _summary(nodes: list, confidence: str, internet: bool,
+             observed_nodes: Optional[list] = None) -> str:
     chain = " -> ".join(f"{n.get('kind')}/{n.get('name')}" for n in nodes)
     lead = ("Internet-reachable path" if internet
             else "Post-breach path (attacker already has a pod foothold)")
     tail = {CONFIG_ONLY: "configuration makes this possible; nothing observed at runtime",
             CORROBORATED: "runtime activity in this namespace aligns with this path",
             OBSERVED: "a runtime event named this path's own resource"}[confidence]
+    if confidence == OBSERVED and observed_nodes:
+        # Name the hop that was actually witnessed. "Observed" on a five-hop chain would
+        # otherwise read as "all five hops were seen happening", which is never what a
+        # single event supports.
+        tail += (f" at {', '.join(observed_nodes)}; the remaining hops are "
+                 f"configuration-derived")
     return f"{lead}: {chain}. Evidence: {tail}."
 
 

@@ -265,8 +265,14 @@ def inventory(evidence: Evidence) -> dict:
     graph = RbacGraph.from_evidence(evidence)        # built once for the whole inventory
     buckets = {"internet_admin": 0, "internet": 0, "admin": 0, "internal": 0}
     for pod in pods:
-        tags = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
-                         policies, evidence, graph, namespaces)[0]
+        try:
+            tags = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
+                             policies, evidence, graph, namespaces)[0]
+        except Exception:                    # pragma: no cover - defensive
+            # One unclassifiable pod must not cost the whole inventory bar. It lands in
+            # the least-alarming bucket rather than being dropped, so the segments still
+            # sum to the honest pod total.
+            tags = []
         ingress, admin = EXPLOIT_INGRESS in tags, EXPLOIT_RBAC_ESCALATION in tags
         key = ("internet_admin" if ingress and admin else "internet" if ingress
                else "admin" if admin else "internal")
@@ -294,8 +300,19 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
             continue                          # non-pod finding -> different fix lever, skip
         key = (f.resource.kind, f.resource.name, f.resource.namespace)
         if key not in cache:
-            cache[key] = _classify(workload, f.resource.namespace, policies, evidence,
-                                   graph, namespaces)
+            # Per-workload isolation, the same philosophy the Detection Engine applies per
+            # rule. A single malformed object (a selector that is a string, a spec that is
+            # null) must cost that ONE workload its reachability context, not blank the
+            # analysis for every finding in the scan. The failure is recorded on the
+            # finding rather than swallowed, so it reads as "not analysed", never as
+            # "analysed and found safe".
+            try:
+                cache[key] = _classify(workload, f.resource.namespace, policies, evidence,
+                                       graph, namespaces)
+            except Exception as exc:            # pragma: no cover - defensive
+                cache[key] = ([], f"reachability could not be analysed for this "
+                                  f"resource: {type(exc).__name__}: {exc}",
+                              [], {}, [])
         tags, reason, path, network, rbac_paths = cache[key]
         f.exploitable_by = list(tags)
         f.path_reason = reason

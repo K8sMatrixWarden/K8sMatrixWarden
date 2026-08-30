@@ -83,6 +83,10 @@ MAX_ONWARD_TARGETS = 25
 #: Order capabilities are presented in, most direct route to cluster-admin first.
 _CAP_ORDER = {cap: i for i, (cap, *_rest) in enumerate(ESCALATION_PRIMITIVES)}
 
+#: Whether a traversal was exhaustive or stopped at a bound. Shared vocabulary with
+#: core/attack_path.py, so every bounded analysis in the project says so the same way.
+COMPLETE, TRUNCATED = "complete", "truncated"
+
 
 @dataclass(frozen=True)
 class Node:
@@ -165,6 +169,8 @@ class RbacGraph:
         self.cluster_role_bindings = list(cluster_role_bindings or [])
         self.role_bindings = list(role_bindings or [])
         self.service_accounts = list(service_accounts or [])
+        #: Set by a traversal when it stops at a bound; read by escalation_analysis.
+        self._truncated_reason: Optional[str] = None
 
     # -- construction ---------------------------------------------------- #
     @classmethod
@@ -325,6 +331,25 @@ class RbacGraph:
             out.append(Node("ServiceAccount", self._name(sa), ns))
         return out
 
+    def escalation_analysis(self, principal: Node,
+                            *, max_hops: int = MAX_HOPS) -> dict:
+        """`escalation_paths` plus an honest statement of whether the walk was exhaustive.
+
+        Both bounds (the edge budget and the per-capability target cap) can silently hide
+        real paths. A caller must be able to tell "there is nothing else" from "we stopped
+        looking", so the walk records which bound it hit and why."""
+        self._truncated_reason = None
+        paths = self.escalation_paths(principal, max_hops=max_hops)
+        reason = self._truncated_reason
+        return {
+            "principal": str(principal),
+            "paths": paths,
+            "analysis_status": TRUNCATED if reason else COMPLETE,
+            "truncation_reason": reason,
+            "limits": {"max_hops": max_hops,
+                       "max_onward_targets": MAX_ONWARD_TARGETS},
+        }
+
     def escalation_paths(self, principal: Node, *, max_hops: int = MAX_HOPS) -> list[Path]:
         """Multi-hop escalation paths from `principal`, shortest first.
 
@@ -341,15 +366,18 @@ class RbacGraph:
             nxt = []
             for current, prefix in frontier:
                 if len(prefix) >= max_hops:
+                    self._note_truncation("edge_limit")
                     continue
                 for cap, edges, _rule in self._capabilities(current):
                     full = prefix + edges
                     if len(full) > max_hops:
+                        self._note_truncation("edge_limit")
                         continue
                     paths.append(Path(edges=full, capability=cap,
                                       summary=_capability_summary(cap, current)))
                     for target_edge, target_node in self._onward(cap, current):
                         if len(full) + 1 > max_hops:
+                            self._note_truncation("edge_limit")
                             continue
                         if target_node.kind != "ServiceAccount":
                             # A privilege target (an admin ClusterRole). Reaching it IS the
@@ -395,8 +423,15 @@ class RbacGraph:
                     continue
                 out.append((Edge(cnode, other, "reaches", how, evidence=str(other)), other))
                 if len(out) >= MAX_ONWARD_TARGETS:
+                    self._note_truncation("onward_target_limit")
                     break
         return out
+
+    def _note_truncation(self, reason: str) -> None:
+        """Record that a bound was hit. First reason wins, so the message names the bound
+        that actually stopped the walk rather than the last one encountered."""
+        if getattr(self, "_truncated_reason", None) is None:
+            self._truncated_reason = reason
 
     # -- summary ---------------------------------------------------------- #
     def escalation_summary(self, principal: Node,

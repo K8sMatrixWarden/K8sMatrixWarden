@@ -455,7 +455,8 @@ class ReportingEngine:
         doc["threat_matrix"] = _tm.as_dict()
         # Kill-chain exploit path derived from the matrix's hit cells (§12), which
         # tactics an attacker can actually string together in this cluster.
-        doc["attack_path"] = attack_paths(_tm, result.runtime)
+        doc["attack_path"] = attack_paths(_tm, result.runtime,
+                                          cluster=result.cluster_name)
         # attach the full report-grade context to each finding: summary, standards &
         # benchmark mapping (with links), MITRE mapping (with links), impact, and
         # validation steps, the same data every other renderer (markdown/html/sarif/pdf)
@@ -614,6 +615,7 @@ class ReportingEngine:
                 f"<table class='ctx-table'>{std_rows}</table></details>"
                 f"<details><summary>MITRE ATT&amp;CK Mapping</summary>"
                 f"<table class='ctx-table'>{mitre_rows}</table></details>"
+                f"{_exposure_html(f)}"
                 f"<div class='cimpact'><strong>Impact:</strong> {_esc(ctx.impact)}</div>"
                 f"{validation_html}"
                 f"</div>")
@@ -678,12 +680,16 @@ def _coverage_md(result: ScanResult) -> list[str]:
     md = ["### 🔍 Evidence coverage & assessment confidence", "",
           f"| Metric | Value |", "|---|---|",
           f"| Evidence coverage | {cov['coverage_pct']}% |",
+          # How the number was arrived at travels with it: a `heuristic` total must never
+          # be read as a count.
+          f"| Coverage basis | {cov.get('coverage_basis', 'measured')} |",
           f"| Assessment confidence | {cov['confidence_pct']}% "
           f"({cov['confidence_label']}) |", ""]
     domains = cov.get("domains", {})
     if domains:
-        md += ["| Domain | Coverage |", "|---|---|"]
-        md += [f"| {name} | {d['coverage_pct']}% |" for name, d in domains.items()]
+        md += ["| Domain | Coverage | Basis |", "|---|---|---|"]
+        md += [f"| {name} | {d['coverage_pct']}% | {d.get('coverage_basis', 'measured')} |"
+               for name, d in domains.items()]
         md.append("")
     if cov.get("unread_kinds"):
         md += [f"> Not read: `{'`, `'.join(cov['unread_kinds'])}`. Findings are reported "
@@ -707,6 +713,116 @@ def _vector_label(f: Finding) -> str:
     if "pod-privilege" in f.exploitable_by:
         return "🟡 Post-breach only"
     return ""
+
+
+def _exposure_html(f: Finding) -> str:
+    """The same reachability / NetworkPolicy / RBAC structure as `_exposure_section`, for
+    the HTML report. Both read the fields the scanner already computed, so the two
+    renderings cannot disagree about what was found."""
+    blocks = []
+    if f.exploit_path:
+        hops = " &rarr; ".join(f"<code>{_esc(str(n.get('kind')))}/"
+                               f"{_esc(str(n.get('name')))}</code>"
+                               for n in f.exploit_path if n.get("name"))
+        rows = "".join(f"<tr><td><code>{_esc(str(n.get('kind')))}/"
+                       f"{_esc(str(n.get('name')))}</code></td>"
+                       f"<td>{_esc(str(n.get('detail', '')))}</td></tr>"
+                       for n in f.exploit_path if n.get("detail"))
+        blocks.append(f"<details><summary>Reachability chain</summary>"
+                      f"<div class='cmsg'>{hops}</div>"
+                      f"<table class='ctx-table'>{rows}</table></details>")
+
+    net = f.network_context or {}
+    if net:
+        ing, egr = net.get("ingress", {}), net.get("egress", {})
+        rows = "".join(
+            f"<tr><td>{d}</td><td><code>{_esc(str(b.get('status', 'unknown')))}</code></td>"
+            f"<td>{_esc(str(b.get('reason', '')))}</td></tr>"
+            for d, b in (("Ingress", ing), ("Egress", egr)))
+        peers = "".join(
+            f"<tr><td colspan='3'>{_esc(str(p.get('description', '')))} "
+            f"<span class='muted'>(policy {_esc(str(p.get('policy', '?')))})</span></td></tr>"
+            for p in (ing.get("peers", []) + egr.get("peers", []))[:10]
+            if p.get("description"))
+        blocks.append(f"<details><summary>NetworkPolicy</summary>"
+                      f"<table class='ctx-table'>{rows}{peers}</table></details>")
+
+    if f.rbac_paths:
+        shortest = min(f.rbac_paths, key=lambda p: p.get("hops", 99))
+        hops = " &rarr; ".join(f"<code>{_esc(str(n.get('kind')))}/"
+                               f"{_esc(str(n.get('name')))}</code>"
+                               for n in shortest.get("nodes", []))
+        rows = "".join(
+            f"<tr><td><code>{_esc(str((e.get('from') or {}).get('name')))}</code></td>"
+            f"<td>{_esc(str(e.get('relationship')))}</td>"
+            f"<td><code>{_esc(str((e.get('to') or {}).get('name')))}</code></td>"
+            f"<td>{_esc(str(e.get('reason', '')))}</td></tr>"
+            for e in shortest.get("edges", []))
+        blocks.append(f"<details><summary>RBAC escalation path "
+                      f"({len(f.rbac_paths)} found)</summary>"
+                      f"<div class='cmsg'>{hops}</div>"
+                      f"<table class='ctx-table'>{rows}</table></details>")
+    return "".join(blocks)
+
+
+def _exposure_section(f: Finding) -> list[str]:
+    """The structural evidence behind the attack-vector line: the hop chain, the evaluated
+    NetworkPolicy posture, and the RBAC escalation path.
+
+    The scanner computes all three per workload finding (core/reachability.py,
+    core/netpol.py, core/rbac_graph.py). Rendering only the prose summary threw the
+    structure away at the last step, so a report could say "this ServiceAccount can reach
+    cluster-admin" without ever naming the binding that grants it.
+    """
+    out: list[str] = []
+    if f.exploit_path:
+        chain = "  →  ".join(f"`{n.get('kind')}/{n.get('name')}`"
+                             for n in f.exploit_path if n.get("name"))
+        out += ["##### 🧭 Reachability Chain", "", chain, ""]
+        detail = [n for n in f.exploit_path if n.get("detail")]
+        if detail:
+            out += ["| Hop | Why it reaches the next |", "|:--|:--|"]
+            out += [f"| `{n.get('kind')}/{n.get('name')}` | {n['detail']} |"
+                    for n in detail]
+            out.append("")
+
+    net = f.network_context or {}
+    if net:
+        ing, egr = net.get("ingress", {}), net.get("egress", {})
+        out += ["##### 🌐 NetworkPolicy", "",
+                "| Direction | Status | Detail |", "|:--|:--|:--|",
+                f"| Ingress | `{ing.get('status', 'unknown')}` | {ing.get('reason', '')} |",
+                f"| Egress | `{egr.get('status', 'unknown')}` | {egr.get('reason', '')} |",
+                ""]
+        peers = [p for p in (ing.get("peers", []) + egr.get("peers", []))
+                 if p.get("description")]
+        if peers:
+            out += ["Allowed peers:", ""]
+            out += [f"- {p['description']}"
+                    + (f" on {', '.join(str(x.get('port')) for x in p['ports'])}"
+                       if p.get("ports") else "")
+                    + f"  _(policy `{p.get('policy', '?')}`)_"
+                    for p in peers[:10]]
+            out.append("")
+
+    if f.rbac_paths:
+        shortest = min(f.rbac_paths, key=lambda p: p.get("hops", 99))
+        out += ["##### 🔑 RBAC Escalation Path", "",
+                "  →  ".join(f"`{n.get('kind')}/{n.get('name')}`"
+                             for n in shortest.get("nodes", [])),
+                "",
+                "| From | Relationship | To | Because |", "|:--|:--|:--|:--|"]
+        for e in shortest.get("edges", []):
+            frm, to = e.get("from", {}), e.get("to", {})
+            out.append(f"| `{frm.get('kind')}/{frm.get('name')}` | {e.get('relationship')} "
+                       f"| `{to.get('kind')}/{to.get('name')}` | {e.get('reason', '')} |")
+        out.append("")
+        if len(f.rbac_paths) > 1:
+            out += [f"_{len(f.rbac_paths)} escalation path(s) found; the shortest is shown. "
+                    f"Capabilities: "
+                    f"{', '.join(sorted({p.get('capability', '') for p in f.rbac_paths}))}._",
+                    ""]
+    return out
 
 
 def _finding_card(f: Finding, i: int) -> list[str]:
@@ -745,6 +861,7 @@ def _finding_card(f: Finding, i: int) -> list[str]:
         *rows,
         "",
     ]
+    out += _exposure_section(f)
 
     # ---- standards & benchmark mapping ------------------------------- #
     out += ["##### 📚 Standards & Benchmark Mapping", ""]

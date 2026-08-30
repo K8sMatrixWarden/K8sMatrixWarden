@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-60-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-600%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-631%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -54,24 +54,34 @@
 ## Live demo (Kubernetes Goat)
 
 ```bash
-# Scan live Kubernetes Goat (no setup needed, runs on minikube)
+# Scan live Kubernetes Goat (runs on minikube, kind, or Docker Desktop)
 pip install -e ".[live]"
-python -m k8smatrixwarden scan --live --context minikube --save
+python -m k8smatrixwarden scan --live --name "goat"
 
 # Open dashboard
 python -m k8smatrixwarden web --port 8080
 # → http://127.0.0.1:8080
-# → Overview tab: 9.8/10 risk, 358 findings, 4 confirmed exploited
-# → Attack Path tab: full kill-chain (Initial Access → Impact)
-# → Attack Map tab: chain WITH vulnerable Pods/Deployments at each stage
-# → Runtime tab: load sample Falco events → see correlation in action
+# → Overview tab: risk, evidence coverage, assessment confidence
+# → Attack Path tab: kill-chain (tactic layer) + evidence-backed routes (resource layer)
+# → Findings tab: expand any finding for its NetworkPolicy posture and RBAC escalation path
+# → Runtime tab: load Falco events → see correlation in action
 ```
 
-**Result on Kubernetes Goat:**
-- 358 findings (35 CRITICAL, 166 HIGH)
-- 4 findings **confirmed** being actively exploited by sample Falco events
-- Full kill-chain visible (9 tactics, reaches Impact)
-- 77.8% scan coverage + 85.2% including runtime detections
+**Measured on Kubernetes Goat** (Docker Desktop Kubernetes, 30 pods, this repository's
+current build):
+
+- 463 findings (22 CRITICAL, 203 HIGH, 238 MEDIUM) — risk **9.8/10 Critical**
+- Evidence coverage **95.5%**, basis `measured`; assessment confidence 95.5% (High). The
+  missing 4.5% is Cloud IAM, which has no Kubernetes API path on a local cluster and is
+  reported as unread rather than as clean
+- **21 findings carry a multi-hop RBAC escalation path**, e.g.
+  `ServiceAccount/local-path-provisioner-service-account → RoleBinding/local-path-provisioner-bind → Role/local-path-provisioner-role → create-workload`
+- 9 tactics chained (reaches Impact) + **25 evidence-backed resource routes**, the strongest
+  being `Internet → NodePort Service → Deployment/internal-proxy-deploy`
+- Full scan, including RBAC graph and NetworkPolicy evaluation: **~213 ms**
+
+No Falco was installed on that cluster, so the runtime correlation reported zero events and
+said so — it did not silently render as "nothing is being exploited".
 
 ---
 
@@ -83,7 +93,7 @@ python -m k8smatrixwarden web --port 8080
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (600/600 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (631/631 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -254,7 +264,8 @@ Orchestrator (intent→scope→selector) → Registry.resolve(selector) → rule
 
 - **Scan × runtime correlation** — joins static findings to live Falco/audit events by MITRE tactic: `confirmed` (actively exploited), `corroborated` (behavior aligns), `runtime-only` (new behavior)
 - **Drift detection** — flags runtime behavior contradicting declared posture (uid 0 despite `runAsNonRoot`, writes despite `readOnlyRootFilesystem`)
-- **Attack paths in two layers** — the *tactic* chain (Initial Access → Impact, ATT&CK-navigator convention, adjacency) **and** the *resource* chain (`Internet → Service → Pod → ServiceAccount → RoleBinding → ClusterRole → secrets/get`), where every hop is read off a real object. Two findings sharing a tactic are never claimed to be connected ([`core/attack_path.py`](k8smatrixwarden/core/attack_path.py))
+- **Attack paths in two layers** — the *tactic* chain (`path_type: tactic`; Initial Access → Impact, ATT&CK-navigator convention, adjacency) **and** the *resource* chain (`path_type: resource` / `observed`; `Internet → Service → Pod → ServiceAccount → RoleBinding → ClusterRole → secrets/get`), where every hop is read off a real object and carries the reason it exists. Two findings sharing a tactic are never claimed to be connected. A runtime event marks only the hops it named (`observed_nodes`), never the whole chain ([`core/attack_path.py`](k8smatrixwarden/core/attack_path.py))
+- **Bounded analysis says so** — every graph walk reports `analysis_status: complete | truncated` with the bound that stopped it, so a capped result can't be mistaken for an exhaustive one
 - **Multi-hop RBAC graph** — RBAC modelled as a graph, not a permission checklist: shortest, cycle-safe, namespace-aware escalation paths that name the binding and role behind every claim, including second-hop routes (*read this Secret → become that ServiceAccount → its permissions*). A capability whose target does not exist in the cluster is reported as a capability, never as an escalation ([`core/rbac_graph.py`](k8smatrixwarden/core/rbac_graph.py))
 - **Complete NetworkPolicy evaluation** — `matchLabels` **and** `matchExpressions` (`In` / `NotIn` / `Exists` / `DoesNotExist`), `podSelector` + `namespaceSelector` peers, `ipBlock` with `except`, `policyTypes` defaulting, additive union across policies, in **both** directions. A policy this build cannot evaluate is `partial`, which never reads as isolation ([`core/netpol.py`](k8smatrixwarden/core/netpol.py))
 - **Reachability tagging** — per-workload attack vector (internet-reachable / post-breach-only / rbac-escalation-to-cluster-admin) computed from Service/Ingress exposure, NetworkPolicy isolation, and the pod's ServiceAccount RBAC — context that prioritizes findings without ever changing severity ([`core/reachability.py`](k8smatrixwarden/core/reachability.py))
@@ -450,6 +461,35 @@ declared resource needs. **No engine change.** New MITRE technique? Add its id t
 python -m tests.run_tests          # bundled stdlib runner (no pytest needed)
 python -m pytest tests/            # also works if pytest is installed
 ```
+
+## Confidence, and what the tool refuses to claim
+
+Five different confidences exist because they answer five different questions. They are
+kept apart on purpose — collapsing them is how a scanner ends up sounding certain about
+evidence it never read. The policy is in
+[`core/explain.py`](k8smatrixwarden/core/explain.py) (`CONFIDENCE_POLICY`) and enforced by
+[`tests/test_integration_pipeline.py`](tests/test_integration_pipeline.py):
+
+| Confidence | Answers | Values |
+|---|---|---|
+| Evidence | was this resource type read, and how do we know the fraction? | `measured` · `estimated` · `heuristic` · `unknown` |
+| Assessment | how much of the cluster did the scan see? | 0–100%, a function of coverage **only** |
+| Finding | how much to trust *this* conclusion? | 0–1 with the reasons that produced it |
+| Correlation | how tightly does a runtime event tie to a finding? | `confirmed` · `corroborated` · `runtime-only` |
+| Attack path | how strongly is this route evidenced? | `configuration-only` · `corroborated` · `observed` |
+
+The rules that keep them coherent:
+
+1. Nothing is more confident than the evidence under it. An unread resource type produces
+   **no claim**, not a confident absence.
+2. Only a **resource-level** runtime match earns certainty. Activity elsewhere in the
+   namespace corroborates, and is capped below it.
+3. A runtime event at one hop does **not** make a multi-hop path observed. The path names
+   which hops were witnessed and says the rest is configuration-derived.
+4. Confidence never changes severity and never hides a finding. A low-confidence CRITICAL
+   is still a CRITICAL — it just needs verifying first.
+5. `unknown` and `partial` are values, not synonyms for `false` or `safe`. They propagate
+   as themselves through coverage, NetworkPolicy, RBAC, the reports and the dashboard.
 
 ## Safety
 

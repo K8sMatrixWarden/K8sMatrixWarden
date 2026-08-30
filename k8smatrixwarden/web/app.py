@@ -214,7 +214,8 @@ class WebApp:
             "inventory": latest.inventory,
             "findings": [f.as_dict() for f in latest.findings],
             "threat_matrix": matrix.as_dict(),
-            "attack_path": attack_paths(matrix, latest.runtime),
+            "attack_path": attack_paths(matrix, latest.runtime,
+                                        cluster=latest.cluster_name),
             "runtime": {"armed": len(catalog), "by_tactic": runtime_by_tactic,
                         "exposed_tactics": exposed},
             # Runtime correlation baked into the scan at --live time from the Falco feed
@@ -289,9 +290,10 @@ class WebApp:
         if f is None:
             return _json({"error": "finding not found"}, 404)
         path = attack_paths(build_threat_matrix(result, self.p.registry.rules),
-                            result.runtime)
+                            result.runtime, cluster=result.cluster_name)
         explanation = explain_finding(f, rule=self.p.registry.rules.get(f.rule_id),
-                                      runtime=result.runtime, attack_path=path)
+                                      runtime=result.runtime, attack_path=path,
+                                      cluster=result.cluster_name)
         # `summary`/`impact`/`validation` are kept at the top level: the dashboard's inline
         # detail pane already reads those three keys, and the richer structure is additive.
         return _json({"summary": explanation["what"],

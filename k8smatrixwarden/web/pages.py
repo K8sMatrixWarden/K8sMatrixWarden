@@ -190,6 +190,18 @@ table.ft td b{font-weight:600}
  font-size:.72rem;font-weight:600;padding:.32rem .55rem;border-radius:7px;white-space:nowrap;z-index:5;
  box-shadow:0 4px 12px rgba(16,24,40,.25)}
 .graphhint{font-size:.76rem;color:var(--muted);margin-top:.5rem;line-height:1.5}
+/* resource-layer attack routes, and the RBAC / network detail they carry */
+.rpath{border:1px solid var(--bd);border-radius:10px;padding:.75rem .85rem;margin:.7rem 0;background:var(--sunken)}
+.rphead{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-bottom:.55rem}
+.hops{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin:.35rem 0 .5rem}
+.hop{display:inline-flex;align-items:baseline;gap:.35rem;font-size:.79rem;font-family:var(--mono);
+ background:var(--card);border:1px solid var(--bd);border-radius:7px;padding:.2rem .5rem;cursor:help}
+.hop.obs{border-color:var(--crit);box-shadow:inset 2px 0 0 var(--crit)}
+.hop .hk{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.harrow{color:var(--muted);font-size:.8rem}
+.plist{margin:.4rem 0 .2rem;padding-left:1.1rem;font-size:.79rem;line-height:1.7}
+.plist code{font-size:.92em}
+.rbacpath{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin:.3rem 0 .5rem}
 .impact{background:var(--sunken);border:1px solid var(--bd);border-radius:12px;padding:.9rem 1rem;margin-top:.8rem;font-size:.83rem}
 .impact>div{margin-bottom:.5rem}
 /* risk bars */
@@ -730,7 +742,44 @@ function ctxHTML(c){
   const val=(c.validation||[]).map(v=>esc(v)).join('\n');
   return `${c.summary?`<div class='fdsec'><div class='sh'>Summary</div><p>${esc(c.summary)}</p></div>`:''}
     ${c.impact?`<div class='fdsec'><div class='sh'>Potential impact</div><p>${esc(c.impact)}</p></div>`:''}
+    ${exposureHTML(c.explanation)}
     ${val?`<div class='fdsec'><div class='sh'>How to verify</div><pre class='fdev'>${val}</pre></div>`:''}`;
+}
+/* The graph analysis the backend already attached to this finding: which NetworkPolicy
+   posture its pod has, and the exact RBAC hops its ServiceAccount can escalate through.
+   Rendering only, no security judgement, every value is server-computed. */
+function exposureHTML(x){
+  if(!x) return '';
+  let out='';
+  const n=x.network||{};
+  if(n.evaluated){
+    out+=`<div class='fdsec'><div class='sh'>Network</div>
+      <div class='fm'>Ingress ${netStatusPill(n.ingress_status)} ${esc((n.ingress||{}).reason||'')}</div>
+      <div class='fm'>Egress ${netStatusPill(n.egress_status)} ${esc((n.egress||{}).reason||'')}</div>
+      ${n.confirmed_isolation?"<div class='fm'>Confirmed isolation.</div>"
+        :"<div class='fm muted'>Not confirmed isolation, an unevaluable or absent policy is not protection.</div>"}
+    </div>`;
+  }
+  const rb=x.rbac||{};
+  if(rb.escalates && rb.shortest){
+    const edges=((rb.paths||[])[0]||{}).edges||[];
+    const hops=(rb.shortest.chain||'').split(' -> ').map(h=>
+      `<span class='hop'>${esc(h)}</span>`).join("<span class='harrow'>&rarr;</span>");
+    const rows=edges.map(e=>`<li><code>${esc(((e.from)||{}).name||'')}</code> ${esc(e.relationship||'')}
+      <code>${esc(((e.to)||{}).name||'')}</code> , ${esc(e.reason||'')}</li>`).join('');
+    out+=`<div class='fdsec'><div class='sh'>RBAC escalation</div>
+      <div class='rbacpath'>${hops}</div>
+      <div class='fm'>${esc(rb.shortest.summary||'')} · capabilities: ${(rb.capabilities||[]).map(esc).join(', ')}</div>
+      ${rows?`<ul class='plist'>${rows}</ul>`:''}</div>`;
+  }else if(rb.note){
+    out+=`<div class='fdsec'><div class='sh'>RBAC escalation</div><p class='fm muted'>${esc(rb.note)}</p></div>`;
+  }
+  const cf=x.confidence||{};
+  if(cf.label){
+    out+=`<div class='fdsec'><div class='sh'>Confidence</div>
+      <div class='fm'>${esc(cf.label)} (${Math.round((cf.score||0)*100)}%) , ${(cf.reasons||[]).map(esc).join('; ')}</div></div>`;
+  }
+  return out;
 }
 function fillFCtx(f){
   const box=$('#fdctx'); if(!box) return;
@@ -844,14 +893,64 @@ function attackView(){
       <div class='cnt'>${tacticFindings(s.tactic).length} finding(s)</div>
     </div>`).join('');
   const rc=a.reaches_impact?"<span class='reach y'>reaches Impact, full kill-chain</span>":"<span class='reach n'>stops before Impact</span>";
-  return `<div class='panel'><h2>Kill chain</h2>${healthNote()}
-    <div class='fm'>${a.tactic_count} tactics chained · ${rc}. Select a stage to focus it, or select any node to see what fixing it closes, and what an attacker can still reach.</div>
+  return `<div class='panel'><h2>Kill chain <span class='pill'>tactic layer</span></h2>${healthNote()}
+    <div class='fm'>${a.tactic_count} tactics chained · ${rc}. This layer is kill-chain <em>ordering</em>, not causality: two findings in different stages are not claimed to be connected. The evidence-backed routes are below.</div>
     <div class='flow'>${steps}</div>
     <div class='fm' style='margin-top:.6rem'>Entry points: ${(a.entry_points||[]).map(e=>esc(e.technique_name)).join(', ')||'N/A'}</div>
     <div id='atk-graph'></div>
     <div class='graphhint'>Rows are kill-chain stages; node size and colour show severity; an edge means one resource is hit at both ends.
       <span id='atk-isolated'></span></div>
-    <div id='atk-impact'></div></div>`;
+    <div id='atk-impact'></div></div>${resourcePathView()}`;
+}
+/* The resource layer: hop chains the backend read off real Services, NetworkPolicies and
+   RBAC bindings. Everything rendered here is computed server-side, this only lays it out,
+   so no security judgement lives in the browser. */
+function pathConfPill(c){
+  const cls={'observed':'critical','corroborated':'high','configuration-only':'info'}[c]||'info';
+  return `<span class='tag ${cls}'>${esc(c||'configuration-only')}</span>`;
+}
+function netStatusPill(s){
+  const cls={'allow-all':'critical','unrestricted':'high','partial':'medium',
+             'unknown':'medium','restricted':'low','deny-all':'low'}[s]||'info';
+  return `<span class='tag ${cls}' title='${esc(NET_HELP[s]||'')}'>${esc(s||'unknown')}</span>`;
+}
+const NET_HELP={
+  'unrestricted':'No NetworkPolicy governs this direction (Kubernetes default: allowed).',
+  'allow-all':'A policy governs it but a rule admits every peer. Not isolation.',
+  'restricted':'Governed, limited to named peers.',
+  'deny-all':'Governed with no rules: nothing may pass.',
+  'partial':'A selector could not be evaluated. The restriction is UNCONFIRMED, and is not treated as isolation.',
+  'unknown':'No NetworkPolicy evidence was collected.'};
+function resourcePathView(){
+  const paths=(D.attack_path&&D.attack_path.resource_paths)||[];
+  if(!paths.length) return '';
+  const trunc=paths.some(p=>p.analysis_status==='truncated');
+  const cards=paths.map((p,i)=>{
+    const hops=p.steps.map(s=>{
+      const obs=(p.observed_nodes||[]).includes(s.node);
+      return `<span class='hop${obs?' obs':''}' title='${esc(s.reason||'')}'>
+        <span class='hk'>${esc(s.node_type)}</span>${esc(s.node)}</span>`;
+    }).join("<span class='harrow'>&rarr;</span>");
+    const rt=(p.runtime_evidence||[]).map(e=>
+      `<li><code>${esc(e.timestamp||'')}</code> ${esc(e.source||'')} · ${esc(e.title||e.rule_id||'')}
+        <span class='muted'>${esc(e.resource||'')}${e.namespace?' ('+esc(e.namespace)+')':''}</span></li>`).join('');
+    const fs=(p.supporting_findings||[]).map(f=>
+      `<li><span class='sev ${esc((f.severity||'').toLowerCase())}'>${esc(f.severity)}</span>
+        <code>${esc(f.rule_id)}</code> ${esc(f.resource)}</li>`).join('');
+    return `<div class='rpath'>
+      <div class='rphead'>${pathConfPill(p.confidence)}
+        ${p.internet_reachable?"<span class='tag critical'>internet-reachable</span>":"<span class='tag info'>post-breach only</span>"}
+        <span class='muted'>${esc(p.namespace||'')}${p.cluster?' · '+esc(p.cluster):''}</span></div>
+      <div class='hops'>${hops}</div>
+      <div class='fm'>${esc(p.summary||'')}</div>
+      ${fs?`<details><summary>${(p.supporting_findings||[]).length} supporting finding(s)</summary><ul class='plist'>${fs}</ul></details>`:''}
+      ${rt?`<details><summary>${(p.runtime_evidence||[]).length} runtime event(s)</summary><ul class='plist'>${rt}</ul></details>`:''}
+    </div>`;
+  }).join('');
+  return `<div class='panel'><h2>Evidence-backed routes <span class='pill'>resource layer</span></h2>
+    <div class='fm'>${paths.length} route(s), each hop read off a real object (Service / Ingress / NetworkPolicy / RoleBinding / ClusterRole). Highlighted hops were named by a runtime event; the rest are configuration-derived.${
+      trunc?" <strong>Analysis truncated</strong>, the strongest routes are shown.":''}</div>
+    ${cards}</div>`;
 }
 function initAttack(){ cy=null; }               // old graph's container is gone after render()
 function ensureAttackGraph(){ cy ? cy.resize() : buildAttackGraph(); }

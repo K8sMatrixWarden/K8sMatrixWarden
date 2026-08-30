@@ -13,11 +13,19 @@ pre-formatted paragraph, so a caller can render it however it likes:
     what        , rule identity, title, severity, the one-line summary
     why         , impact, standards and MITRE mappings
     evidence    , the raw fields the rule keyed on
-    resource    , kind/name/namespace and the owning controller
+    resource    , cluster/namespace/kind/name and the owning controller
     reachability, tags + structural hop chain + prose reason
+    network     , the evaluated NetworkPolicy posture, both directions
+    rbac        , the multi-hop escalation paths the RBAC graph proved
     runtime     , correlations and drift that name THIS finding's resource
     scoring     , the four factors whose product is the finding's score
     confidence  , how much to trust the conclusion, and why
+
+The `network` and `rbac` blocks matter for a specific reason: reachability.py computes
+both onto every workload finding, and before this they were serialised and then read by
+nobody. A subsystem producing richer structure that a later subsystem discards is a broken
+integration, not a harmless one, it means the report cannot answer "which binding grants
+this?" even though the scanner worked it out.
 """
 from __future__ import annotations
 
@@ -34,6 +42,42 @@ VECTOR_LABELS = {
     EXPLOIT_POD_PRIVILEGE: "post-breach only",
     EXPLOIT_RBAC_ESCALATION: "ServiceAccount can escalate to cluster-admin",
 }
+
+#: The project's confidence propagation policy, in one place, because five different
+#: "confidence" values now exist and they answer five different questions. Collapsing them
+#: into one number is how a tool ends up reporting a certain conclusion drawn from evidence
+#: it never read. Enforced by tests/test_integration_pipeline.py.
+CONFIDENCE_POLICY = """
+Five confidences, deliberately separate:
+
+  evidence     , per resource type: was it read, and how do we know the fraction?
+                 (measured | estimated | heuristic | unknown, core/coverage.py)
+  assessment   , how much of the cluster the scan saw. A function of coverage ONLY,
+                 never of severity, so a bad cluster and a clean one that were both fully
+                 read report the same assessment confidence.
+  finding      , how much to trust THIS conclusion (core/explain.py). Starts at the rule's
+                 declared detection confidence, rises with captured evidence and with
+                 runtime observation, falls when the answer needs node access we lack.
+  correlation  , how tightly a runtime event ties to a static finding
+                 (confirmed | corroborated | runtime-only, core/correlation.py).
+  path         , how strongly an attack route is evidenced
+                 (configuration-only | corroborated | observed, core/attack_path.py).
+
+The rules that keep them coherent:
+
+  1. Nothing is more confident than the evidence under it. If a resource type could not
+     be read, no claim is made about it and no confidence is assigned to the claim that
+     was not made, the absence is reported instead.
+  2. Only a RESOURCE-level runtime match raises a finding to certainty. Activity elsewhere
+     in the namespace corroborates and is capped below certainty.
+  3. A runtime event observed at one hop does NOT make a whole multi-hop path observed.
+     The path records which hops were witnessed (`observed_nodes`) and states plainly that
+     the remainder is configuration-derived (`fully_observed`).
+  4. Confidence never changes severity, and never hides a finding. A low-confidence
+     CRITICAL is still a CRITICAL to triage; it just needs verifying first.
+  5. unknown and partial are values, not synonyms for false or safe. They propagate as
+     themselves through coverage, NetworkPolicy, RBAC and the reports.
+"""
 
 #: Rule-declared confidence -> its numeric floor. A rule that reads a declarative fact off
 #: a spec ("privileged: true") starts high; a heuristic starts low. Runtime evidence raises
@@ -114,8 +158,56 @@ def _label(score: float) -> str:
     return "Low"
 
 
+def _rbac_block(finding: Finding) -> dict:
+    """The RBAC escalation the graph proved for this finding's pod, or an explicit
+    "none found". Never fabricated: these paths come straight off the graph, each edge
+    naming the object it was read from."""
+    paths = list(finding.rbac_paths or [])
+    if not paths:
+        return {"escalates": False, "paths": [], "shortest": None,
+                "capabilities": [],
+                "note": ("no RBAC escalation path was found for this workload's "
+                         "ServiceAccount in the evidence collected")}
+    shortest = min(paths, key=lambda p: p.get("hops", 99))
+    return {
+        "escalates": True,
+        "capabilities": sorted({p.get("capability", "") for p in paths if p.get("capability")}),
+        "shortest": {"capability": shortest.get("capability"),
+                     "hops": shortest.get("hops"),
+                     "summary": shortest.get("summary"),
+                     "chain": " -> ".join(
+                         f"{n.get('kind')}/{n.get('name')}"
+                         for n in shortest.get("nodes", []))},
+        "paths": paths,
+    }
+
+
+def _network_block(finding: Finding) -> dict:
+    """The evaluated NetworkPolicy posture for this finding's pod.
+
+    `status` is carried through verbatim so `partial` and `unknown` stay distinguishable
+    from `restricted`: an unconfirmed restriction must never read as containment."""
+    net = dict(finding.network_context or {})
+    if not net:
+        return {"evaluated": False,
+                "note": "NetworkPolicy was not evaluated for this finding "
+                        "(not a workload, or reachability did not run)"}
+    ingress, egress = net.get("ingress", {}), net.get("egress", {})
+    return {
+        "evaluated": True,
+        "ingress": ingress,
+        "egress": egress,
+        "ingress_status": ingress.get("status"),
+        "egress_status": egress.get("status"),
+        "confirmed_isolation": ingress.get("status") in ("restricted", "deny-all"),
+        "policies": sorted(set(ingress.get("policies", []))
+                           | set(egress.get("policies", []))),
+    }
+
+
 def explain_finding(finding: Finding, *, rule=None, runtime: Optional[dict] = None,
-                    attack_path: Optional[dict] = None) -> dict:
+                    attack_path: Optional[dict] = None,
+                    cluster: Optional[str] = None) -> dict:
     """Assemble the full structured explanation for one finding."""
     ctx = build_finding_context(finding)
     runtime_block = _runtime_for(finding, runtime)
@@ -139,6 +231,10 @@ def explain_finding(finding: Finding, *, rule=None, runtime: Optional[dict] = No
         "why_it_matters": ctx.impact,
         "message": finding.message,
         "resource": {
+            # Cluster is part of resource identity the moment a store holds more than one
+            # cluster's scans, so it travels with the resource rather than being inferred
+            # by whichever surface happens to render it.
+            "cluster": cluster,
             "kind": finding.resource.kind, "name": finding.resource.name,
             "namespace": finding.resource.namespace,
             "owner": (f"{finding.resource.owner_kind}/{finding.resource.owner_name}"
@@ -154,6 +250,8 @@ def explain_finding(finding: Finding, *, rule=None, runtime: Optional[dict] = No
             "path": list(finding.exploit_path),
             "reason": finding.path_reason,
         },
+        "network": _network_block(finding),
+        "rbac": _rbac_block(finding),
         "runtime_evidence": runtime_block,
         "attack_path": _path_for(finding, tactics, attack_path),
         "standards": [{"framework": s.framework, "control": s.control,

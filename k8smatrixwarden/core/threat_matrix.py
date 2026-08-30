@@ -338,7 +338,8 @@ def _default_runtime_catalog() -> list[dict]:
         return []
 
 
-def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
+def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None,
+                 cluster: Optional[str] = None) -> dict:
     """Chain the matrix's HIT cells into a kill-chain exploit path.
 
     The columns are already in kill-chain order (TACTIC_ORDER: Initial Access -> Impact).
@@ -396,11 +397,17 @@ def attack_paths(matrix: ThreatMatrix, runtime: Optional[dict] = None) -> dict:
     findings = sorted({f.dedup_key(): f for col in matrix.columns
                        for cell in col.cells for f in cell.findings}.values(),
                       key=lambda f: (f.severity.order, f.score, f.rule_id), reverse=True)
-    resources = resource_paths(findings, runtime)
+    resources = resource_paths(findings, runtime, cluster=cluster)
+    for step in steps:
+        # Name what a tactic step IS, so no consumer mistakes kill-chain ordering for a
+        # causal link between the findings in two different tactics.
+        step["path_type"] = "tactic"
     return {
         "scan_id": matrix.scan_id,
         "scope": matrix.scope,
+        "cluster": cluster,
         "chain": " -> ".join(s["tactic"] for s in steps),
+        "path_type": "tactic",
         "steps": steps,
         "entry_points": steps[0]["techniques"] if steps else [],
         "reaches_impact": reaches_impact,

@@ -957,7 +957,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                     request, collector, mode_label="mock" if mock else "live")
             except Exception as exc:
                 return {"error": f"scan failed: {exc}"}
-        return attack_paths(_build(result, platform.registry.rules), result.runtime)
+        return attack_paths(_build(result, platform.registry.rules), result.runtime,
+                            cluster=result.cluster_name)
 
     def analyze_rbac_paths(
             principal: Annotated[Optional[str], _F(description=(
@@ -1000,6 +1001,13 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         except (ValueError, RuntimeError) as exc:
             return {"error": str(exc)}
         graph = RbacGraph.from_evidence(evidence)
+        # Cluster is part of a principal's identity once results leave this process: two
+        # clusters can both have `default` in `kube-system`, and an agent correlating them
+        # needs to know which one it is looking at.
+        try:
+            cluster_label = collector.cluster_label()
+        except Exception:
+            cluster_label = None
 
         if principal:
             parts = [p for p in str(principal).split("/") if p]
@@ -1009,24 +1017,46 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 node = Node(parts[0], parts[1], namespace)
             else:
                 return {"error": "principal must be 'Kind/namespace/name' or 'Kind/name'"}
-            summary, paths = graph.escalation_summary(node, max_hops=max_hops)
-            return {"principal": str(node), "escalates": bool(paths),
+            analysis = graph.escalation_analysis(node, max_hops=max_hops)
+            paths = analysis["paths"]
+            summary, _ = graph.escalation_summary(node, max_hops=max_hops)
+            return {"cluster": cluster_label, "principal": str(node),
+                    "escalates": bool(paths),
                     "summary": summary or "no escalation path from this principal",
+                    "analysis_status": analysis["analysis_status"],
+                    "truncation_reason": analysis["truncation_reason"],
+                    "limits": analysis["limits"],
                     "paths": [p.as_dict() for p in paths]}
 
         out = []
+        truncated = False
         for sa in graph.service_accounts:
             meta = sa.get("metadata", {}) or {}
             node = Node("ServiceAccount", meta.get("name", ""), meta.get("namespace"))
-            summary, paths = graph.escalation_summary(node, max_hops=max_hops)
+            analysis = graph.escalation_analysis(node, max_hops=max_hops)
+            paths = analysis["paths"]
+            truncated = truncated or analysis["analysis_status"] == "truncated"
             if paths:
-                out.append({"principal": str(node), "summary": summary,
+                summary, _ = graph.escalation_summary(node, max_hops=max_hops)
+                out.append({"principal": str(node), "cluster": cluster_label,
+                            "namespace": node.namespace,
+                            "summary": summary,
                             "shortest_hops": paths[0].hops,
                             "capabilities": sorted({p.capability for p in paths}),
+                            "analysis_status": analysis["analysis_status"],
                             "paths": [p.as_dict() for p in paths[:5]]})
         out.sort(key=lambda e: (e["shortest_hops"], e["principal"]))
-        return {"principals_with_escalation": len(out),
+        listing_truncated = len(out) > limit
+        return {"cluster": cluster_label,
+                "principals_with_escalation": len(out),
                 "principals": out[:limit],
+                # Bounded analysis must announce itself: a caller reading 20 principals
+                # must be able to tell that from "these are all of them".
+                "analysis_status": ("truncated" if (truncated or listing_truncated)
+                                    else "complete"),
+                "truncation_reason": ("principal_listing_limit" if listing_truncated
+                                      else ("graph_bounds" if truncated else None)),
+                "limits": {"max_hops": max_hops, "principal_limit": limit},
                 "note": "shortest path first; a principal with no path is omitted"}
 
     def analyze_network_policy(
@@ -1065,6 +1095,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         except (ValueError, RuntimeError) as exc:
             return {"error": str(exc)}
 
+        try:
+            cluster_label = collector.cluster_label()
+        except Exception:
+            cluster_label = None
         policies = evidence.get("NetworkPolicy", all_scopes=True)
         namespaces = evidence.get("Namespace", all_scopes=True)
         out = []
@@ -1075,12 +1109,17 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             ns = meta.get("namespace")
             labels = meta.get("labels", {}) or {}
             out.append({
+                "cluster": cluster_label,
                 "pod": meta.get("name"), "namespace": ns, "labels": labels,
                 "ingress": netpol.evaluate(policies, ns, labels, "Ingress", namespaces),
                 "egress": netpol.evaluate(policies, ns, labels, "Egress", namespaces)})
         if pod and not out:
             return {"error": f"no pod named {pod!r} in scope"}
-        return {"policies_in_scope": len(policies), "pods_evaluated": len(out),
+        truncated = len(out) > limit
+        return {"cluster": cluster_label,
+                "policies_in_scope": len(policies), "pods_evaluated": len(out),
+                "analysis_status": "truncated" if truncated else "complete",
+                "truncation_reason": "pod_limit" if truncated else None,
                 "pods": out[:limit]}
 
     # ================================================================== #
@@ -1234,13 +1273,15 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                     "scan_id": result.scan_id}
         picked.sort(key=lambda f: (f.severity.order, f.score), reverse=True)
         path = attack_paths(build_threat_matrix(result, platform.registry.rules),
-                            result.runtime)
+                            result.runtime, cluster=result.cluster_name)
         return {
             "scan_id": result.scan_id,
+            "cluster": result.cluster_name,
             "matched": len(picked),
             "explanations": [
                 _explain(f, rule=platform.registry.rules.get(f.rule_id),
-                         runtime=result.runtime, attack_path=path)
+                         runtime=result.runtime, attack_path=path,
+                         cluster=result.cluster_name)
                 for f in picked[:max(1, limit)]],
         }
 

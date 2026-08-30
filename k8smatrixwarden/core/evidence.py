@@ -666,9 +666,15 @@ class LiveEvidenceCollector(EvidenceCollector):
         path = self._PATHS.get(bucket)
         if not path:
             # Synthetic buckets (cloudiam) have no K8s API path and need an external
-            # adapter. Report them as unread rather than as an empty, clean result.
-            self._record(kind, "skipped", 0,
-                         "no Kubernetes API path; needs an external evidence adapter")
+            # adapter. Report them as unread rather than as an empty, clean result, and
+            # warn as well as record: the rules for this domain still ran, found nothing
+            # because there was nothing to read, and every surface that shows warnings
+            # needs to say so rather than presenting the domain as clean.
+            reason = "no Kubernetes API path; needs an external evidence adapter"
+            self._record(kind, "skipped", 0, reason)
+            self.warnings.append(
+                f"{kind}: not collected ({reason}); rules in that domain could not be "
+                f"evaluated, their silence is not a pass")
             return []
         try:
             items = self._get_json(path)

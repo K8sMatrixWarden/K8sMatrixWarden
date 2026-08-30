@@ -658,6 +658,15 @@ footer.site-footer {
     </div>
 
     <div class="nav-group">
+      <p class="nav-group-label">Integration &amp; Confidence</p>
+      <ul class="nav-items">
+        <li><a href="#confidence">Confidence Policy</a></li>
+        <li><a href="#analysis-bounds">Bounded Analysis</a></li>
+        <li><a href="#integration">One Pipeline, Not Several</a></li>
+      </ul>
+    </div>
+
+    <div class="nav-group">
       <p class="nav-group-label">Optional LLM</p>
       <ul class="nav-items">
         <li><a href="#llm">Provider &amp; Model Configuration</a></li>
@@ -2555,6 +2564,118 @@ ambiguous configuration, every one of them is reported, and the tool falls back 
 deterministic path. None of them can change what a scan found.</p>
 </section>
 
+<section id="confidence">
+<h2><span class="h2-title">Confidence, and What the Tool Refuses to Claim</span></h2>
+<p class="lede">Five different confidences now exist, because they answer five different
+questions. They are kept apart on purpose: collapsing them into one number is how a scanner
+ends up sounding certain about evidence it never read.</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Confidence</th><th>Answers</th><th>Values</th></tr></thead>
+<tbody>
+<tr><td><strong>Evidence</strong></td><td>Was this resource type read, and how do we know the fraction?</td><td><code>measured</code> · <code>estimated</code> · <code>heuristic</code> · <code>unknown</code></td></tr>
+<tr><td><strong>Assessment</strong></td><td>How much of the cluster did the scan see?</td><td>0&ndash;100%, a function of coverage <em>only</em>, never of severity</td></tr>
+<tr><td><strong>Finding</strong></td><td>How much to trust <em>this</em> conclusion?</td><td>0&ndash;1, with the reasons that produced it</td></tr>
+<tr><td><strong>Correlation</strong></td><td>How tightly does a runtime event tie to a static finding?</td><td><code>confirmed</code> · <code>corroborated</code> · <code>runtime-only</code></td></tr>
+<tr><td><strong>Attack path</strong></td><td>How strongly is this route evidenced?</td><td><code>configuration-only</code> · <code>corroborated</code> · <code>observed</code></td></tr>
+</tbody>
+</table></div>
+
+<h3>The five rules that keep them coherent</h3>
+<ol>
+<li><strong>Nothing is more confident than the evidence under it.</strong> If a resource
+type could not be read, no claim is made about it, and the absence is reported rather than
+a confident silence.</li>
+<li><strong>Only a resource-level runtime match earns certainty.</strong> Activity
+elsewhere in the namespace corroborates and is capped below it.</li>
+<li><strong>A runtime event at one hop does not make a multi-hop path observed.</strong>
+The path records which hops were witnessed (<code>observed_nodes</code>) and states plainly
+that the remainder is configuration-derived (<code>fully_observed: false</code>).</li>
+<li><strong>Confidence never changes severity and never hides a finding.</strong> A
+low-confidence CRITICAL is still a CRITICAL to triage, it just needs verifying first.</li>
+<li><strong><code>unknown</code> and <code>partial</code> are values</strong>, not synonyms
+for <code>false</code> or <code>safe</code>. They propagate as themselves through coverage,
+NetworkPolicy, RBAC, the reports and the dashboard.</li>
+</ol>
+
+<div class="callout">
+<span class="co-icon">&#8505;</span>
+<div class="co-body"><p>The policy lives as <code>CONFIDENCE_POLICY</code> in
+<code>core/explain.py</code>, next to the code that applies it, and every rule above is
+asserted in <code>tests/test_integration_pipeline.py</code>, so the documentation and the
+behaviour cannot drift apart.</p></div>
+</div>
+</section>
+
+<section id="analysis-bounds">
+<h2><span class="h2-title">Bounded Analysis Announces Itself</span></h2>
+<p class="lede">Graph traversal has to stop somewhere. The danger is not the bound, it is a
+bounded result that looks exhaustive.</p>
+
+<p>Every bounded analysis therefore reports its own status:</p>
+<pre><code>analysis_status: complete
+analysis_status: truncated   truncation_reason: edge_limit | onward_target_limit
+                                                | path_limit | principal_listing_limit</code></pre>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Bound</th><th>Value</th><th>Why it exists</th></tr></thead>
+<tbody>
+<tr><td>RBAC edge budget</td><td>8</td><td>Admits a two-identity chain (bind, grants, enables &times;2 plus one reaches hop). A third identity is not more true, only longer, and multiplies the path count.</td></tr>
+<tr><td>Onward targets per capability</td><td>25</td><td>&quot;Can create workloads&quot; technically reaches every ServiceAccount in the namespace; enumerating all of them produces thousands of near-identical paths saying the same thing.</td></tr>
+<tr><td>Resource paths returned</td><td>25</td><td>The strongest routes, ordered by evidence then reachability then severity.</td></tr>
+<tr><td>Principals listed (MCP)</td><td>20 by default</td><td>Caller-controlled; the full count is always reported alongside.</td></tr>
+</tbody>
+</table></div>
+
+<p>Traversal is cycle-safe: a visited set means a mutual-impersonation loop (legal RBAC,
+and it happens) terminates and returns the shortest path rather than spinning. Results are
+deterministic, ordered by hop count, then capability directness, then rendering, so the
+same evidence always produces the same paths in the same order.</p>
+</section>
+
+<section id="integration">
+<h2><span class="h2-title">One Pipeline, Not Several Analyses</span></h2>
+<p class="lede">Each engine being right in isolation does not make the tool coherent. The
+failure mode that matters is an engine producing correct, richer structure that the next
+stage quietly drops.</p>
+
+<pre><code>Kubernetes Evidence
+   -&gt; Static Findings + RBAC Graph + NetworkPolicy Graph + Runtime Events
+   -&gt; Reachability
+   -&gt; Evidence-Backed Attack Graph
+   -&gt; Confidence  -&gt;  Risk  -&gt;  Threat Matrix  -&gt;  Historical Posture
+   -&gt; CLI / MCP / Web / Reports</code></pre>
+
+<p>Every transition preserves resource identity (cluster, namespace, kind, name), evidence
+provenance (which object, and why), and confidence. The integration is asserted rather than
+assumed: <code>tests/test_integration_pipeline.py</code> runs real scans over
+purpose-built clusters and follows one fact from evidence to every user-facing surface.</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Scenario</th><th>What it proves</th></tr></thead>
+<tbody>
+<tr><td>Internet &rarr; Ingress &rarr; Service &rarr; Pod &rarr; SA &rarr; RoleBinding &rarr; Role &rarr; secrets/get</td><td>The whole chain is one evidence-backed path, and the binding that grants it is named in the report, the dashboard and MCP.</td></tr>
+<tr><td>NetworkPolicy blocks the path</td><td>Reachability context changes; severity, exploitability and blast radius do not.</td></tr>
+<tr><td>Policy uses <code>matchExpressions</code></td><td>Isolation is recognised exactly as with <code>matchLabels</code>, so a protected pod is not reported as internet-reachable.</td></tr>
+<tr><td>Policy cannot be evaluated</td><td><code>partial</code>, and the pod stays reported as reachable. An unconfirmed restriction is never treated as protection.</td></tr>
+<tr><td>Runtime evidence on the pod</td><td>The finding reaches full confidence and the path becomes <code>observed</code>, at the hop the event named, with the rest still configuration-derived.</td></tr>
+<tr><td>Runtime event in another namespace</td><td>Nothing changes. Activity elsewhere is not evidence about this finding.</td></tr>
+<tr><td>Runtime contradicts declared posture</td><td>Drift is detected, and the originating event travels with the finding.</td></tr>
+<tr><td>Partial / unreadable evidence</td><td>Coverage drops with an honest basis, findings are unaffected, and the unread kind is named in the report.</td></tr>
+<tr><td>Same workload in two namespaces</td><td>Findings, reachability, RBAC, attack paths and the timeline stay separate throughout.</td></tr>
+<tr><td>Malformed cluster object</td><td>That one workload loses its reachability context; the scan, the paths and the reports all still complete.</td></tr>
+</tbody>
+</table></div>
+
+<h3>Cross-surface consistency</h3>
+<p>Given one scan, the CLI, the JSON and SARIF reports, the HTML and PDF documents, the web
+API, the dashboard and every MCP tool present the same findings, the same identities, the
+same risk and the same attack paths. They differ in formatting, never in security meaning,
+because none of them recomputes anything: the core is authoritative and each surface renders
+what it is given. The single formula deliberately implemented twice (a finding&#39;s display
+anchor, in Python and in the dashboard&#39;s JavaScript) is covered by a drift test.</p>
+</section>
+
 <section id="safety">
 <h3>Safety controls — non-negotiable</h3>
 <div class="table-scroll"><table>
@@ -2574,7 +2695,7 @@ deterministic path. None of them can change what a scan found.</p>
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">600</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">631</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
