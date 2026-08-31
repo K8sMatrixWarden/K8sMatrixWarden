@@ -1129,9 +1129,18 @@ function detectorPill(rt){
   const kmw=!rt||(rt.detection_source||'kmw')==='kmw';
   return `<span class='tag ${kmw?'low':'info'}' title='${kmw?'Detected by a curated K8sMatrixWarden runtime rule':'Relayed from the Falco provider; not a K8sMatrixWarden rule'}'>${kmw?'KMW':'Falco'}</span>`;
 }
+// "Not confirmed because we could not place the event" is a different statement from
+// "not confirmed because the event was about something else". Say which.
+function identityNote(ev){
+  const st=ev&&ev.identity_status; if(!st||st==='complete') return '';
+  const miss=(ev.identity_missing||[]).join(', ');
+  return `<div class='fm'><span class='tag medium' title='${esc(ev.identity_reason||"")}'>identity: ${esc(st)}</span>${miss?` missing ${esc(miss)}`:''}</div>`;
+}
 function coverageStrip(rc){
   const d=rc&&rc.detection_coverage; if(!d) return '';
-  return `<div class='fm' style='margin-top:.5rem'>Detection: <b>${d.kmw_matches}</b> by curated rule · <b>${d.falco_relays}</b> relayed from Falco · ${d.unusable_events} unusable (reason recorded) · <b>${d.discarded}</b> silently discarded</div>`;
+  const i=rc.identity_coverage||{};
+  const idline=(i.complete!==undefined)?`<div class='fm'>Identity: <b>${i.complete}</b> complete (${i.recovered_from_container_id||0} recovered from container id) · ${i.partial} partial · ${i.ambiguous} ambiguous · ${i.unknown} unknown</div>`:'';
+  return `<div class='fm' style='margin-top:.5rem'>Detection: <b>${d.kmw_matches}</b> by curated rule · <b>${d.falco_relays}</b> relayed from Falco · ${d.unusable_events} unusable (reason recorded) · <b>${d.discarded}</b> silently discarded</div>${idline}`;
 }
 function renderRuntime(c, dr, rc){
   dr=dr||{drift:[],drift_count:0};
@@ -1139,6 +1148,7 @@ function renderRuntime(c, dr, rc){
     <span class='badge ${x.confidence}'>${x.confidence}</span> <b>${esc(x.tactic)}</b> · <span class='sev ${x.severity}'>${x.severity}</span> ${detectorPill(x.runtime)}
     <div class='fm' style='margin-top:.25rem'>runtime: ${esc(x.runtime.title)}</div>
     ${x.runtime.supporting_evidence?`<div class='fm'>also seen by <code>${esc(x.runtime.supporting_evidence)}</code> (same event, not a second finding)</div>`:''}
+    ${identityNote(x.runtime.event)}
     ${x.static_findings.length?`<div class='fm'>static: ${esc(x.static_findings[0].title)} on <code>${esc(x.static_findings[0].resource)}</code></div>`:''}
     <div class='fm'>&rarr; ${esc(x.verdict)}</div></div>`).join('');
   const drift=(dr.drift||[]).map(x=>`<div class='corr confirmed'><span class='badge confirmed'>DRIFT</span> <b>${esc(x.pod)}</b> (${esc(x.namespace)})

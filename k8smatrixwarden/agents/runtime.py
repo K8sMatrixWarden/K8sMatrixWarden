@@ -226,7 +226,10 @@ def normalize_falco_event(raw: dict) -> dict:
           # relayed alert can name a real tactic rather than guessing one.
           "priority": raw.get("priority", ""),
           "container": of.get("container.name"),
-          "image": of.get("container.image.repository")}
+          "image": of.get("container.image.repository"),
+          # Kept because it is the ONLY deterministic join back to a Pod when Falco's own
+          # Kubernetes enrichment came up empty. See core/runtime_identity.py.
+          "container_id": of.get("container.id")}
     # Only when Falco actually supplied them: an empty list is not a value, and the flat
     # event is a contract other code (and tests) match on exactly.
     if raw.get("tags"):
@@ -242,17 +245,31 @@ def normalize_events(raw) -> list[dict]:
     """Accept a single event or a batch, in either Falco-native or already-flat shape,
     and return a list of flat internal events. Lets `/api/runtime` take falcosidekick's
     one-event-per-POST as well as a hand-built batch."""
+    return normalize_batch(raw)[0]
+
+
+def normalize_batch(raw) -> tuple:
+    """(events, rejected) for a batch, so a batch entry cannot vanish before it is counted.
+
+    `normalize_events` silently skipped anything that was not a dict, which meant a POST of
+    two entries where one was junk reported one event received. The junk entry is not usable
+    and never becomes a finding, but the arithmetic must still show it arrived: an input
+    that shrinks between the wire and the accounting is the silent loss everything else here
+    is built to prevent."""
     if isinstance(raw, dict):
         raw = [raw]
-    out = []
+    out, rejected = [], []
     for e in raw or []:
         if not isinstance(e, dict):
+            rejected.append({"reason": f"malformed: batch entry is {type(e).__name__}, "
+                                       f"not an event object",
+                             "event": {"repr": str(e)[:80]}})
             continue
         if "output_fields" in e or e.get("source") in ("syscall", "k8s_audit"):
             out.append(normalize_falco_event(e))
         else:
             out.append(e)  # already flat internal shape
-    return out
+    return out, rejected
 
 
 class RuntimeAgent:

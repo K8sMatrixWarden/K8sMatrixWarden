@@ -249,7 +249,7 @@ class WebApp:
             data = json.loads(body or b"{}")
         except Exception as exc:
             return _json({"error": f"invalid JSON body: {exc}"}, 400)
-        from ..agents.runtime import RuntimeAgent, normalize_events
+        from ..agents.runtime import RuntimeAgent, normalize_batch
         from ..core.correlation import correlate, detect_drift
 
         # Body can be {"events":[...], "scan_id"?} (our batch), OR a bare Falco event
@@ -257,11 +257,10 @@ class WebApp:
         # flat internal shape the matchers use.
         scan_id = data.get("scan_id") if isinstance(data, dict) else None
         raw = data.get("events") if (isinstance(data, dict) and "events" in data) else data
-        events = normalize_events(raw)
+        events, rejected = normalize_batch(raw)
         result = self.store.resolve(scan_id)
         if result is None:
             return _json({"error": "no saved scan to correlate against, scan first"}, 400)
-        alerts = RuntimeAgent().evaluate_stream(events)
         # drift needs live pod specs; reuse the scan's mode (mock/live) via a fresh fetch
         mock = result.mode != "live"
         try:
@@ -269,10 +268,25 @@ class WebApp:
             pods = collector.collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
         except RuntimeError:
             pods = []
+        # The push path gets exactly the same identity recovery and accounting as the pull
+        # path. A falcosidekick POST and a log pull of the same event must mean the same
+        # thing, or the two ingestion routes disagree about the cluster.
+        from ..core.runtime_identity import enrich_events
+        events, identity_coverage = enrich_events(events, pods)
+        alerts, detection_coverage = RuntimeAgent().evaluate_batch(events)
+        # Entries that never became events still count as arrived.
+        if rejected:
+            detection_coverage["events_received"] += len(rejected)
+            detection_coverage["unusable_events"] += len(rejected)
+            detection_coverage["unusable"] = (detection_coverage["unusable"]
+                                              + rejected)[:25]
         from ..core.timeutil import ist_timestamp
         return _json({"correlation": correlate(result.findings, alerts,
                                                cluster=result.cluster_name,
                                                now=ist_timestamp()),
+                      "detection_coverage": detection_coverage,
+                      "identity_coverage": identity_coverage,
+                      "events_received": len(events) + len(rejected),
                       "drift": detect_drift(pods, events)})
 
     def _api_finding(self, q: dict) -> Response:

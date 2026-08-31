@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-769%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-787%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -97,7 +97,7 @@ node the event named (`fully_observed: false`), never the whole path.
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (769/769 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (787/787 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -579,8 +579,18 @@ hand-owned and stays small.
 a reason, and each scan carries the arithmetic:
 
 ```
-Detection: 24 by curated rule · 1 relayed from Falco · 0 unusable · 0 discarded
+Detection: 176 by curated rule · 1 relayed from Falco · 0 unusable · 0 discarded
+Identity:  3 complete (0 recovered from container id) · 0 partial · 0 ambiguous · 174 unknown
 ```
+
+**Detection coverage and identity coverage are different questions.** "Was this event
+detected?" and "do we know what it happened to?" have separate answers, and an event can be
+detected and still unplaceable. Where Falco's own Kubernetes enrichment comes up empty, the
+container id is joined against Pod `containerStatuses` — the id Kubernetes itself assigned.
+Exactly one match recovers the Pod; two matches is `ambiguous` and recovers nothing; a
+container the API does not know resolves to `unknown` **with the reason**. No name, prefix
+or similarity matching exists anywhere in that path, and a recovered identity is judged for
+confirmation by exactly the same rules as a provider-reported one.
 
 `discarded` is 0 by construction. Missing MITRE metadata yields `tactic: Unknown` rather
 than an inferred one, and Falco priorities map to severities through a single documented
@@ -597,7 +607,7 @@ boundaries of what the tool claims.
 | Live Falco runtime correlation (pull from Falco pod logs) | **Tested live** — Falco 0.44.1, modern eBPF |
 | All 8 report formats, MCP, web dashboard | **Tested** |
 | LLM layer (provider/model agnostic, optional) | **Tested** against a local OpenAI-compatible endpoint; no vendor endpoint exercised |
-| `POST /api/runtime` push feed (falcosidekick) | **Optional, contract-tested only** — not exercised against a live falcosidekick |
+| `POST /api/runtime` push feed (falcosidekick) | **Tested live** — falcosidekick 2.x → `POST OK (200)`; push and pull produce identical security meaning for the same event |
 | Kubernetes **audit** event rules | **Fixture-tested** — Docker Desktop exposes no audit log |
 | Multi-node runtime identity | **Synthetic only** — validated on a single-node cluster |
 | NetworkPolicy **ports** | Carried in peer data, deliberately **not** used to narrow reachability. `restricted` already counts as isolating, so the model errs away from claiming reachability. |

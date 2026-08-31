@@ -112,18 +112,23 @@ def build_runtime_feed(collector, findings, scope, *, namespace: str = "falco",
     from .correlation import correlate, detect_drift
     from .timeutil import ist_timestamp
 
+    from .runtime_identity import enrich_events
+
     events = normalize_events(collector.collect_runtime_events(
         namespace=namespace, since_seconds=since_seconds))
     if not events:
         return None
-    # evaluate_batch, not evaluate_stream: the accounting is the point. Every event is
-    # matched by a curated rule, relayed under Falco's name, or reported unusable with a
-    # reason, and the operator can see which.
-    alerts, detection_coverage = RuntimeAgent().evaluate_batch(events)
     try:
         pods = collector.collect({"Pod"}, scope).get("Pod")
     except Exception:
         pods = []
+    # Recover the Pod behind events Falco could not enrich, before anything reasons about
+    # them. Deterministic (container id, exactly one match) or not at all.
+    events, identity_coverage = enrich_events(events, pods)
+    # evaluate_batch, not evaluate_stream: the accounting is the point. Every event is
+    # matched by a curated rule, relayed under Falco's name, or reported unusable with a
+    # reason, and the operator can see which.
+    alerts, detection_coverage = RuntimeAgent().evaluate_batch(events)
     collected_at = ist_timestamp()
     try:
         cluster_label = collector.cluster_label() or ""
@@ -136,6 +141,10 @@ def build_runtime_feed(collector, findings, scope, *, namespace: str = "falco",
             # How the provider's events were accounted for. `discarded: 0` is an invariant,
             # not a hope: anything without a detection is listed in `unusable` with a reason.
             "detection_coverage": detection_coverage,
+            # Detection coverage and identity coverage answer different questions: "was
+            # this event detected?" and "do we know what it happened to?". An event can be
+            # detected and still unplaceable.
+            "identity_coverage": identity_coverage,
             # The scan's own cluster and timestamp: without them a foreign cluster's
             # event could confirm a finding here, and a week-old alert would read as a
             # current observation.

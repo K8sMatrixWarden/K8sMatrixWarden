@@ -195,14 +195,14 @@ def _sheet_runtime(ws, result: ScanResult, style_sheet) -> None:
     able to state a different detector, or a different confirmed count, than the terminal
     did. Headers only is the honest rendering of a scan with no runtime feed."""
     from .reporting import _runtime_rows, _runtime_summary
-    headers = ["Confidence", "Freshness", "Tactic", "Resource", "Namespace",
+    headers = ["Confidence", "Freshness", "Identity", "Tactic", "Resource", "Namespace",
                "Detection", "Detected by", "Supporting evidence"]
     ws.append(headers)
     summary = _runtime_summary(result)
     if summary:
-        for conf, fresh, tactic, resource, ns, rule, detector, supporting in                 _runtime_rows(result):
-            ws.append([conf, fresh, tactic, resource, ns, rule, detector,
-                       supporting or "-"])
+        for conf, fresh, tactic, resource, ns, rule, detector, supporting, identity in                 _runtime_rows(result):
+            ws.append([conf, fresh, identity, tactic, resource or "(unplaceable)",
+                       ns or "-", rule, detector, supporting or "-"])
         ws.append([])
         ws.append(["Detection accounting", ""])
         for label, key in (("Curated rule matches", "kmw_matches"),
@@ -210,7 +210,15 @@ def _sheet_runtime(ws, result: ScanResult, style_sheet) -> None:
                            ("Unusable (reason recorded)", "unusable"),
                            ("Silently discarded", "discarded")):
             ws.append([label, summary.get(key)])
-    style_sheet(ws, headers, [16, 14, 20, 40, 18, 34, 18, 30])
+        ident = summary.get("identity") or {}
+        if ident:
+            ws.append(["Identity accounting", ""])
+            for label, key in (("Complete", "complete"), ("Partial", "partial"),
+                               ("Ambiguous", "ambiguous"), ("Unknown", "unknown"),
+                               ("Recovered from container id",
+                                "recovered_from_container_id")):
+                ws.append([label, ident.get(key)])
+    style_sheet(ws, headers, [16, 14, 12, 20, 40, 18, 34, 18, 30])
 
 
 def _sheet_metadata(ws, result: ScanResult, style_sheet) -> None:

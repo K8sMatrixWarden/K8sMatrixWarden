@@ -713,15 +713,23 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         # Falco JSON alert (the shape an operator actually has to hand) matched nothing and
         # returned an empty list: silent loss, in the one tool whose job is to say what was
         # detected. Already-flat events pass through unchanged.
-        alerts, coverage = RuntimeAgent().evaluate_batch(normalize_events(events or []))
+        from ..core.runtime_identity import enrich_events
+        # No cluster read here (this tool evaluates a batch you supply), so identity is
+        # whatever the events carry; the status still says which of them are placeable.
+        enriched, identity_coverage = enrich_events(normalize_events(events or []), [])
+        alerts, coverage = RuntimeAgent().evaluate_batch(enriched)
         return {
             # Detection accounting first: an empty alert list means something different
             # when 0 events arrived than when 5 did and none could be used.
             "coverage": coverage,
+            "identity_coverage": identity_coverage,
             "alerts": [{"rule_id": a.rule_id, "title": a.title,
                         "severity": a.severity.label, "tactic": a.tactic,
                         "surface": a.surface, "source": a.source,
-                        "provenance": a.provenance(), "event": a.event}
+                        "provenance": a.provenance(),
+                        "identity_status": a.event.get("identity_status"),
+                        "identity_missing": a.event.get("identity_missing"),
+                        "event": a.event}
                        for a in alerts],
         }
 

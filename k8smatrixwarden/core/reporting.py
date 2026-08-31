@@ -713,10 +713,14 @@ def _runtime_rows(result: ScanResult) -> list[tuple]:
         detector = ("K8sMatrixWarden" if rt_view.get("detection_source", "kmw") == "kmw"
                     else "Falco")
         supporting = rt_view.get("supporting_evidence") or ""
+        # Identity quality is reported beside the correlation, because "not confirmed"
+        # because we could not place the event is a different statement from "not
+        # confirmed" because the event was about something else.
+        identity = (rt_view.get("event") or {}).get("identity_status") or "complete"
         rows.append((c.get("confidence", "?"), c.get("freshness", "unknown"),
                      c.get("tactic", ""), c.get("resource", ""),
                      c.get("namespace", ""), rt_view.get("rule_id", ""),
-                     detector, supporting))
+                     detector, supporting, identity))
     return rows
 
 
@@ -736,6 +740,7 @@ def _runtime_summary(result: ScanResult) -> Optional[dict]:
             "falco_relays": dc.get("falco_relays"),
             "unusable": dc.get("unusable_events"),
             "discarded": dc.get("discarded"),
+            "identity": rt.get("identity_coverage") or {},
             "alerts": corr.get("total_alerts", 0),
             "confirmed": corr.get("confirmed_exploitation", 0),
             "correlated": corr.get("correlated", 0),
@@ -760,11 +765,19 @@ def _runtime_lines(result: ScanResult) -> list[str]:
         lines.append(
             f"Detection: {s['kmw_matches']} by curated rule, {s['falco_relays']} relayed "
             f"from Falco, {s['unusable']} unusable, {s['discarded']} discarded.")
-    for conf, fresh, tactic, resource, ns, rule, detector, supporting in             _runtime_rows(result)[:10]:
+    ident = s.get("identity") or {}
+    if ident:
+        lines.append(
+            f"Identity: {ident.get('complete', 0)} complete "
+            f"({ident.get('recovered_from_container_id', 0)} recovered from container id), "
+            f"{ident.get('partial', 0)} partial, {ident.get('ambiguous', 0)} ambiguous, "
+            f"{ident.get('unknown', 0)} unknown.")
+    for conf, fresh, tactic, resource, ns, rule, detector, supporting, identity in             _runtime_rows(result)[:10]:
         age = "" if fresh == "recent" else f" [{fresh}]"
         extra = f"  (+ {supporting})" if supporting else ""
-        lines.append(f"  {conf.upper():<13}{age} {tactic} on {resource} ({ns}) "
-                     f"via {rule} [{detector}]{extra}")
+        ident = "" if identity == "complete" else f"  identity:{identity}"
+        lines.append(f"  {conf.upper():<13}{age} {tactic} on {resource or '(unplaceable)'} "
+                     f"({ns or '-'}) via {rule} [{detector}]{ident}{extra}")
     if s["confirmed"]:
         lines.append("CONFIRMED means a live event named the same resource as a static "
                      "finding, not merely the same namespace.")
@@ -788,16 +801,20 @@ def _runtime_md(result: ScanResult) -> list[str]:
           f"| Relayed from Falco | {s.get('falco_relays')} |",
           f"| Unusable (reason recorded) | {s.get('unusable')} |",
           f"| Silently discarded | {s.get('discarded')} |",
+          f"| Identity complete | {(s.get('identity') or {}).get('complete')} |",
+          f"| Identity partial | {(s.get('identity') or {}).get('partial')} |",
+          f"| Identity ambiguous | {(s.get('identity') or {}).get('ambiguous')} |",
+          f"| Identity unknown | {(s.get('identity') or {}).get('unknown')} |",
           f"| Corroborated | {s['correlated']} |",
           f"| Runtime-only | {s['runtime_only']} |", ""]
     rows = _runtime_rows(result)
     if rows:
-        md += ["| Confidence | Freshness | Tactic | Resource | Namespace | Detection | "
-               "Detected by | Supporting |",
-               "|---|---|---|---|---|---|---|---|"]
-        md += [f"| {c} | {f} | {t} | `{r}` | {ns} | `{rule}` | {det} | "
-               f"{('`' + sup + '`') if sup else '—'} |"
-               for c, f, t, r, ns, rule, det, sup in rows[:25]]
+        md += ["| Confidence | Freshness | Identity | Tactic | Resource | Namespace | "
+               "Detection | Detected by | Supporting |",
+               "|---|---|---|---|---|---|---|---|---|"]
+        md += [f"| {c} | {f} | {ident} | {t} | `{r or '(unplaceable)'}` | {ns or '—'} | "
+               f"`{rule}` | {det} | {('`' + sup + '`') if sup else '—'} |"
+               for c, f, t, r, ns, rule, det, sup, ident in rows[:25]]
         md += ["", "> `confirmed` means a live event named the same resource as a static "
                "finding. `corroborated` means the behaviour matches the same tactic in the "
                "same namespace, which is weaker. A `historical` freshness means the "
@@ -815,8 +832,9 @@ def _runtime_html(result: ScanResult) -> str:
         f"<tr><td><span class='pill {('crit' if c == 'confirmed' else 'warn')}'>{_esc(c)}"
         f"</span></td><td>{_esc(f)}</td><td>{_esc(t)}</td><td><code>{_esc(r)}</code></td>"
         f"<td>{_esc(ns)}</td><td><code>{_esc(rule)}</code></td><td>{_esc(det)}</td>"
+        f"<td>{_esc(ident)}</td>"
         f"<td>{('<code>' + _esc(sup) + '</code>') if sup else '&mdash;'}</td></tr>"
-        for c, f, t, r, ns, rule, det, sup in rows[:25])
+        for c, f, t, r, ns, rule, det, sup, ident in rows[:25])
     return (
         "<section class='card'><h2>📡 Runtime correlation (live feed)</h2>"
         f"<p>{s['events']} event(s) from <code>{_esc(s['source'])}</code> on cluster "
@@ -829,7 +847,7 @@ def _runtime_html(result: ScanResult) -> str:
            if s.get("kmw_matches") is not None else "")
         + (f"<table><thead><tr><th>Confidence</th><th>Freshness</th><th>Tactic</th>"
            f"<th>Resource</th><th>Namespace</th><th>Detection</th><th>Detected by</th>"
-           f"<th>Supporting</th></tr></thead>"
+           f"<th>Identity</th><th>Supporting</th></tr></thead>"
            f"<tbody>{body}</tbody></table>" if rows else "")
         + "<p class='muted'><em>confirmed</em> means a live event named the same resource "
           "as a static finding; <em>corroborated</em> is the same tactic in the same "

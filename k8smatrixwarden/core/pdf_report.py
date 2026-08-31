@@ -354,7 +354,7 @@ def _runtime_section(pdf, result: ScanResult) -> None:
         for col in ("Confidence", "Freshness", "Tactic", "Resource", "Namespace",
                     "Detection", "Detected by"):
             head.cell(col)
-        for conf, fresh, tactic, resource, ns, rule, detector, _sup in rows[:25]:
+        for conf, fresh, tactic, resource, ns, rule, detector, _sup, _ident in rows[:25]:
             row = table.row()
             for value in (conf, fresh, tactic, resource, ns, rule, detector):
                 row.cell(_ascii(str(value)))
