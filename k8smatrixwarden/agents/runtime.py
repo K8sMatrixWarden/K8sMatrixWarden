@@ -37,6 +37,16 @@ class RuntimeRule:
                 "technique_name": self.tactic.technique_name}
 
 
+#: Who decided this was worth reporting, as opposed to `source`, which is the event STREAM
+#: it arrived on. The two are independent and were previously conflated: a curated rule
+#: matching a Falco syscall event carries source="falco" but is not a Falco detection, and a
+#: reader could not tell which engine owned the verdict.
+DETECTION_KMW = "kmw"
+DETECTION_FALCO = "falco"
+PROVIDER_KMW = "k8smatrixwarden"
+PROVIDER_FALCO = "falco"
+
+
 @dataclass
 class RuntimeAlert:
     rule_id: str
@@ -44,8 +54,39 @@ class RuntimeAlert:
     severity: S
     tactic: str
     event: dict
+    #: The event STREAM this observation arrived on: falco | audit | drift.
     source: str = "falco"
     surface: str = "runtime"
+    #: The DETECTOR that raised it. `kmw` means one of this project's curated rules owns the
+    #: verdict; `falco` means the verdict is Falco's and is being relayed under its name.
+    detection_source: str = DETECTION_KMW
+    provider: str = PROVIDER_KMW
+    #: Falco's own rule name. Set on a relayed detection (where it IS the verdict) and also
+    #: on a curated detection that happened to arrive on a Falco alert, where it is
+    #: supporting provider evidence for the same underlying event rather than a second
+    #: finding. Empty when Falco said nothing about this event.
+    provider_rule: str = ""
+    provider_priority: str = ""
+
+    def provenance(self) -> dict:
+        """Who detected this, under whose name, with what provider corroboration.
+
+        One structured shape for every surface (CLI, JSON, MCP, web, reports), so no two of
+        them can describe the same detection differently."""
+        return {
+            "detection_source": self.detection_source,
+            "provider": self.provider,
+            "rule_id": self.rule_id,
+            "event_source": self.source,
+            "provider_rule": self.provider_rule or None,
+            "provider_priority": self.provider_priority or None,
+            # A curated detection with provider corroboration is the overlap case: one
+            # event, two detectors, one finding.
+            "supporting_evidence": (
+                f"falco:{self.provider_rule}"
+                if self.detection_source == DETECTION_KMW and self.provider_rule else None),
+            "kmw_equivalent": (None if self.detection_source == DETECTION_KMW else "none"),
+        }
 
 
 #: Falco's own priority scale mapped onto ours. Falco's `Warning` is a real alert its
@@ -106,7 +147,35 @@ def _falco_native_alert(event: dict) -> Optional["RuntimeAlert"]:
     return RuntimeAlert(rule_id=f"falco:{rule}", title=f"Falco: {rule}",
                         severity=severity,
                         tactic=tactic.value if tactic else _UNKNOWN_TACTIC,
-                        event=event, source="falco", surface="runtime")
+                        event=event, source="falco", surface="runtime",
+                        # The verdict is Falco's and is labelled as Falco's. It never
+                        # becomes a curated rule, however many Falco rules are enabled.
+                        detection_source=DETECTION_FALCO, provider=PROVIDER_FALCO,
+                        provider_rule=rule,
+                        provider_priority=str(event.get("priority") or ""))
+
+
+def _unusable_reason(event) -> str:
+    """Why an event produced no detection. Never "discarded": the operator is told which
+    property was missing, so a gap in coverage cannot be mistaken for a quiet cluster."""
+    if not isinstance(event, dict):
+        return "malformed: not an event object"
+    if not event.get("source"):
+        return "unsupported: no event source (expected falco or audit)"
+    if event.get("source") == "falco" and not (event.get("rule") or "").strip():
+        return ("unsupported: raw syscall with no Falco rule verdict and no curated rule "
+                "match, so there is nothing to report")
+    if event.get("source") == "audit":
+        return "no curated audit rule matched this verb/resource combination"
+    return "no curated rule matched and the provider raised no verdict"
+
+
+def _event_digest(event) -> dict:
+    """Just enough of an unusable event to identify it, without copying a whole payload."""
+    if not isinstance(event, dict):
+        return {"repr": str(event)[:80]}
+    return {k: event.get(k) for k in ("source", "rule", "proc", "op", "namespace", "pod")
+            if event.get(k) not in (None, "")}
 
 
 def _proc(name):        # process-name matcher for Falco-style events
@@ -247,23 +316,69 @@ class RuntimeAgent:
         return [r.metadata() for r in self.rules]
 
     def evaluate(self, event: dict) -> list[RuntimeAlert]:
+        """Curated rules first; Falco's own verdict only where none of ours applies.
+
+        The curated catalog is the authoritative layer. Where one of its rules matches, that
+        rule owns the finding and Falco's rule name (if the event carried one) is attached
+        as supporting provider evidence rather than raised as a second detection: one
+        underlying event, two detectors, one finding.
+        """
         alerts = []
         for r in self.rules:
             try:
                 if r.matcher(event):
                     alerts.append(RuntimeAlert(r.id, r.title, r.severity,
                                                r.tactic.tactic.value, event,
-                                               source=r.source, surface=r.surface))
+                                               source=r.source, surface=r.surface,
+                                               detection_source=DETECTION_KMW,
+                                               provider=PROVIDER_KMW))
             except Exception:
                 continue
-        if not alerts:
-            relayed = _falco_native_alert(event)
-            if relayed is not None:
-                alerts.append(relayed)
-        return alerts
+        if alerts:
+            # Overlap: keep Falco's provenance on the curated finding, do not double-count.
+            provider_rule = (event.get("rule") or "") if isinstance(event, dict) else ""
+            if provider_rule:
+                for a in alerts:
+                    a.provider_rule = provider_rule
+                    a.provider_priority = str((event.get("priority") or "")) or ""
+            return alerts
+
+        relayed = _falco_native_alert(event)
+        return [relayed] if relayed is not None else []
 
     def evaluate_stream(self, events: list[dict]) -> list[RuntimeAlert]:
-        out = []
-        for e in events:
-            out.extend(self.evaluate(e))
-        return out
+        return self.evaluate_batch(events)[0]
+
+    def evaluate_batch(self, events: list[dict]) -> tuple:
+        """(alerts, coverage) for a batch, so nothing can leave the engine unaccounted for.
+
+        Every event lands in exactly one bucket: matched by a curated rule, relayed under
+        Falco's name, or rejected as unusable WITH a reason. There is deliberately no fourth
+        bucket, because a silently dropped alert is indistinguishable from a quiet cluster,
+        and that was a real defect once: three live credential-access alerts produced no
+        output at all."""
+        alerts: list[RuntimeAlert] = []
+        kmw_matches = falco_relays = 0
+        unusable: list[dict] = []
+        for e in events or []:
+            produced = self.evaluate(e)
+            if not produced:
+                unusable.append({"reason": _unusable_reason(e),
+                                 "event": _event_digest(e)})
+                continue
+            alerts.extend(produced)
+            if produced[0].detection_source == DETECTION_KMW:
+                kmw_matches += 1
+            else:
+                falco_relays += 1
+        coverage = {
+            "kmw_rules": len(self.rules),
+            "events_received": len(events or []),
+            "kmw_matches": kmw_matches,
+            "falco_relays": falco_relays,
+            "unusable_events": len(unusable),
+            "unusable": unusable[:25],
+            # The invariant this whole structure exists to make checkable.
+            "discarded": 0,
+        }
+        return alerts, coverage

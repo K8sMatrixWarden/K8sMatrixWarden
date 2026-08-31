@@ -707,10 +707,16 @@ def _runtime_rows(result: ScanResult) -> list[tuple]:
     corr = rt.get("correlation") or {}
     rows = []
     for c in corr.get("correlations", []):
+        rt_view = c.get("runtime") or {}
+        # Who detected it, in the analyst's words rather than the model's: a curated rule
+        # is ours, anything else is the provider's verdict relayed under its own name.
+        detector = ("K8sMatrixWarden" if rt_view.get("detection_source", "kmw") == "kmw"
+                    else "Falco")
+        supporting = rt_view.get("supporting_evidence") or ""
         rows.append((c.get("confidence", "?"), c.get("freshness", "unknown"),
                      c.get("tactic", ""), c.get("resource", ""),
-                     c.get("namespace", ""),
-                     (c.get("runtime") or {}).get("rule_id", "")))
+                     c.get("namespace", ""), rt_view.get("rule_id", ""),
+                     detector, supporting))
     return rows
 
 
@@ -720,9 +726,16 @@ def _runtime_summary(result: ScanResult) -> Optional[dict]:
     if not rt:
         return None
     corr = rt.get("correlation") or {}
+    dc = rt.get("detection_coverage") or {}
     return {"source": rt.get("source", "runtime"),
             "cluster": rt.get("cluster", ""),
             "events": rt.get("events_seen", 0),
+            # Detection accounting: how the provider's events were dispositioned.
+            "kmw_rules": dc.get("kmw_rules"),
+            "kmw_matches": dc.get("kmw_matches"),
+            "falco_relays": dc.get("falco_relays"),
+            "unusable": dc.get("unusable_events"),
+            "discarded": dc.get("discarded"),
             "alerts": corr.get("total_alerts", 0),
             "confirmed": corr.get("confirmed_exploitation", 0),
             "correlated": corr.get("correlated", 0),
@@ -743,9 +756,15 @@ def _runtime_lines(result: ScanResult) -> list[str]:
         return []
     lines = [f"Runtime feed ({s['source']}): {s['events']} event(s), {s['alerts']} alert(s), "
              f"{s['confirmed']} confirmed as active exploitation."]
-    for conf, fresh, tactic, resource, ns, rule in _runtime_rows(result)[:10]:
+    if s.get("kmw_matches") is not None:
+        lines.append(
+            f"Detection: {s['kmw_matches']} by curated rule, {s['falco_relays']} relayed "
+            f"from Falco, {s['unusable']} unusable, {s['discarded']} discarded.")
+    for conf, fresh, tactic, resource, ns, rule, detector, supporting in             _runtime_rows(result)[:10]:
         age = "" if fresh == "recent" else f" [{fresh}]"
-        lines.append(f"  {conf.upper():<13}{age} {tactic} on {resource} ({ns}) via {rule}")
+        extra = f"  (+ {supporting})" if supporting else ""
+        lines.append(f"  {conf.upper():<13}{age} {tactic} on {resource} ({ns}) "
+                     f"via {rule} [{detector}]{extra}")
     if s["confirmed"]:
         lines.append("CONFIRMED means a live event named the same resource as a static "
                      "finding, not merely the same namespace.")
@@ -765,14 +784,20 @@ def _runtime_md(result: ScanResult) -> list[str]:
           f"| Events ingested | {s['events']} |",
           f"| Alerts raised | {s['alerts']} |",
           f"| Confirmed exploitation | {s['confirmed']} |",
+          f"| Detected by curated rules | {s.get('kmw_matches')} |",
+          f"| Relayed from Falco | {s.get('falco_relays')} |",
+          f"| Unusable (reason recorded) | {s.get('unusable')} |",
+          f"| Silently discarded | {s.get('discarded')} |",
           f"| Corroborated | {s['correlated']} |",
           f"| Runtime-only | {s['runtime_only']} |", ""]
     rows = _runtime_rows(result)
     if rows:
-        md += ["| Confidence | Freshness | Tactic | Resource | Namespace | Detection |",
-               "|---|---|---|---|---|---|"]
-        md += [f"| {c} | {f} | {t} | `{r}` | {ns} | `{rule}` |"
-               for c, f, t, r, ns, rule in rows[:25]]
+        md += ["| Confidence | Freshness | Tactic | Resource | Namespace | Detection | "
+               "Detected by | Supporting |",
+               "|---|---|---|---|---|---|---|---|"]
+        md += [f"| {c} | {f} | {t} | `{r}` | {ns} | `{rule}` | {det} | "
+               f"{('`' + sup + '`') if sup else '—'} |"
+               for c, f, t, r, ns, rule, det, sup in rows[:25]]
         md += ["", "> `confirmed` means a live event named the same resource as a static "
                "finding. `corroborated` means the behaviour matches the same tactic in the "
                "same namespace, which is weaker. A `historical` freshness means the "
@@ -789,16 +814,22 @@ def _runtime_html(result: ScanResult) -> str:
     body = "".join(
         f"<tr><td><span class='pill {('crit' if c == 'confirmed' else 'warn')}'>{_esc(c)}"
         f"</span></td><td>{_esc(f)}</td><td>{_esc(t)}</td><td><code>{_esc(r)}</code></td>"
-        f"<td>{_esc(ns)}</td><td><code>{_esc(rule)}</code></td></tr>"
-        for c, f, t, r, ns, rule in rows[:25])
+        f"<td>{_esc(ns)}</td><td><code>{_esc(rule)}</code></td><td>{_esc(det)}</td>"
+        f"<td>{('<code>' + _esc(sup) + '</code>') if sup else '&mdash;'}</td></tr>"
+        for c, f, t, r, ns, rule, det, sup in rows[:25])
     return (
         "<section class='card'><h2>📡 Runtime correlation (live feed)</h2>"
         f"<p>{s['events']} event(s) from <code>{_esc(s['source'])}</code> on cluster "
         f"<code>{_esc(s['cluster'] or 'unlabelled')}</code>: <strong>{s['confirmed']}"
         "</strong> confirmed as active exploitation, "
         f"{s['correlated']} corroborated, {s['runtime_only']} runtime-only.</p>"
+        + (f"<p class='muted'>Detection: {s.get('kmw_matches')} by K8sMatrixWarden curated "
+           f"rule, {s.get('falco_relays')} relayed from Falco, {s.get('unusable')} unusable "
+           f"(reason recorded), <strong>{s.get('discarded')}</strong> silently discarded.</p>"
+           if s.get("kmw_matches") is not None else "")
         + (f"<table><thead><tr><th>Confidence</th><th>Freshness</th><th>Tactic</th>"
-           f"<th>Resource</th><th>Namespace</th><th>Detection</th></tr></thead>"
+           f"<th>Resource</th><th>Namespace</th><th>Detection</th><th>Detected by</th>"
+           f"<th>Supporting</th></tr></thead>"
            f"<tbody>{body}</tbody></table>" if rows else "")
         + "<p class='muted'><em>confirmed</em> means a live event named the same resource "
           "as a static finding; <em>corroborated</em> is the same tactic in the same "

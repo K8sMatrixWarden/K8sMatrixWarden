@@ -699,12 +699,31 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         crypto-miner signatures, container-escape indicators, log tampering, new
         (Cluster)RoleBindings, exec into kube-system, secret enumeration, event
         deletion, and mass-delete spikes. This evaluates a batch you provide, it does
-        NOT tail a live cluster (there is no running Runtime Agent DaemonSet here)."""
-        from ..agents.runtime import RuntimeAgent
-        alerts = RuntimeAgent().evaluate_stream(events)
-        return [{"rule_id": a.rule_id, "title": a.title, "severity": a.severity.label,
-                "tactic": a.tactic, "surface": a.surface, "source": a.source,
-                "event": a.event} for a in alerts]
+        NOT tail a live cluster (there is no running Runtime Agent DaemonSet here).
+
+        Returns {"coverage": {...}, "alerts": [...]}. `coverage` accounts for every event
+        you sent: `kmw_matches` (a curated rule owned the verdict), `falco_relays` (no
+        curated rule matched, so Falco's own verdict is relayed as `falco:<rule>`),
+        `unusable_events` (listed in `unusable` with a reason), and `discarded`, which is
+        always 0 by construction. Each alert carries `provenance` naming the detector,
+        the provider, and any supporting provider evidence, so a Falco verdict is never
+        mistaken for a K8sMatrixWarden detection."""
+        from ..agents.runtime import RuntimeAgent, normalize_events
+        # Normalise first, as every other runtime entry point does. Without this, a raw
+        # Falco JSON alert (the shape an operator actually has to hand) matched nothing and
+        # returned an empty list: silent loss, in the one tool whose job is to say what was
+        # detected. Already-flat events pass through unchanged.
+        alerts, coverage = RuntimeAgent().evaluate_batch(normalize_events(events or []))
+        return {
+            # Detection accounting first: an empty alert list means something different
+            # when 0 events arrived than when 5 did and none could be used.
+            "coverage": coverage,
+            "alerts": [{"rule_id": a.rule_id, "title": a.title,
+                        "severity": a.severity.label, "tactic": a.tactic,
+                        "surface": a.surface, "source": a.source,
+                        "provenance": a.provenance(), "event": a.event}
+                       for a in alerts],
+        }
 
     def correlate_runtime(events: _Events, scan_id: _ScanIdOpt = None,
                           scope_level: _ScopeLevel = "cluster", namespace: _Namespace = None,

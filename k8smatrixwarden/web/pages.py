@@ -1111,7 +1111,7 @@ function selectAttackNode(idx){
 /* ---- runtime ---- */
 function runtimeView(){
   const rc=D.runtime_correlation;
-  const pre=rc&&rc.correlation?renderRuntime(rc.correlation,rc.drift||{drift:[],drift_count:0})
+  const pre=rc&&rc.correlation?renderRuntime(rc.correlation,rc.drift||{drift:[],drift_count:0},rc)
     :"<div class='fm'>No runtime events yet. Select Refresh to pull the latest from the cluster.</div>";
   const meta=rc&&rc.collected_at?`last updated ${esc(String(rc.collected_at))} · ${rc.events_seen||0} event(s)`:'';
   return `<div class='panel'><h2>Runtime correlation &amp; drift</h2>
@@ -1123,11 +1123,22 @@ function runtimeView(){
     </div>
     <div id='rtout'>${pre}</div></div>`;
 }
-function renderRuntime(c, dr){
+// Who owns this verdict: a curated K8sMatrixWarden rule, or Falco's own rule relayed
+// under its name. An analyst must never have to guess which engine made the claim.
+function detectorPill(rt){
+  const kmw=!rt||(rt.detection_source||'kmw')==='kmw';
+  return `<span class='tag ${kmw?'low':'info'}' title='${kmw?'Detected by a curated K8sMatrixWarden runtime rule':'Relayed from the Falco provider; not a K8sMatrixWarden rule'}'>${kmw?'KMW':'Falco'}</span>`;
+}
+function coverageStrip(rc){
+  const d=rc&&rc.detection_coverage; if(!d) return '';
+  return `<div class='fm' style='margin-top:.5rem'>Detection: <b>${d.kmw_matches}</b> by curated rule · <b>${d.falco_relays}</b> relayed from Falco · ${d.unusable_events} unusable (reason recorded) · <b>${d.discarded}</b> silently discarded</div>`;
+}
+function renderRuntime(c, dr, rc){
   dr=dr||{drift:[],drift_count:0};
   const corr=(c.correlations||[]).map(x=>`<div class='corr ${x.confidence}'>
-    <span class='badge ${x.confidence}'>${x.confidence}</span> <b>${esc(x.tactic)}</b> · <span class='sev ${x.severity}'>${x.severity}</span>
+    <span class='badge ${x.confidence}'>${x.confidence}</span> <b>${esc(x.tactic)}</b> · <span class='sev ${x.severity}'>${x.severity}</span> ${detectorPill(x.runtime)}
     <div class='fm' style='margin-top:.25rem'>runtime: ${esc(x.runtime.title)}</div>
+    ${x.runtime.supporting_evidence?`<div class='fm'>also seen by <code>${esc(x.runtime.supporting_evidence)}</code> (same event, not a second finding)</div>`:''}
     ${x.static_findings.length?`<div class='fm'>static: ${esc(x.static_findings[0].title)} on <code>${esc(x.static_findings[0].resource)}</code></div>`:''}
     <div class='fm'>&rarr; ${esc(x.verdict)}</div></div>`).join('');
   const drift=(dr.drift||[]).map(x=>`<div class='corr confirmed'><span class='badge confirmed'>DRIFT</span> <b>${esc(x.pod)}</b> (${esc(x.namespace)})
@@ -1139,6 +1150,7 @@ function renderRuntime(c, dr){
       <div class='kpi crit'><div class='n'>${dr.drift_count||0}</div><div class='l'>Config drift</div></div>
       <div class='kpi'><div class='n'>${c.total_alerts}</div><div class='l'>Runtime alerts</div></div>
     </div>
+    ${coverageStrip(rc)}
     ${drift?`<h2 style='font-size:.95rem;margin:.6rem 0 .4rem'>Config drift (policy bypass)</h2>${drift}`:''}
     <h2 style='font-size:.95rem;margin:.6rem 0 .4rem'>Correlations</h2>${corr||"<div class='fm'>none</div>"}</div>`;
 }
@@ -1154,7 +1166,7 @@ async function refreshRuntime(){
   if(d.error){ out.innerHTML=`<div class='fm' style='color:var(--crit)'>${esc(d.error)}</div>`; return; }
   if(!d.runtime){ out.innerHTML=`<div class='fm'>${esc(d.message||'No runtime events found')}${d.warnings&&d.warnings.length?': '+esc(d.warnings.join('; ')):''}</div>`; return; }
   D.runtime_correlation=d.runtime;
-  out.innerHTML=renderRuntime(d.runtime.correlation,d.runtime.drift);
+  out.innerHTML=renderRuntime(d.runtime.correlation,d.runtime.drift,d.runtime);
   const m=$('#rtmeta'); if(m)m.textContent=`last updated ${d.runtime.collected_at||''} · ${d.runtime.events_seen||0} event(s)`;
 }
 // ponytail: client-side setInterval, not server push, a 30s POST is cheap and needs zero

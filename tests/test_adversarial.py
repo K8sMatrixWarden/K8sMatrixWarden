@@ -927,9 +927,18 @@ def test_workload_resolution_is_indexed_not_a_linear_rescan():
             {"Pod", "Service", "NetworkPolicy", "Namespace", "ClusterRole", "Role",
              "ClusterRoleBinding", "RoleBinding", "ServiceAccount"},
             Scope(ScopeLevel.CLUSTER))
-        start = time.perf_counter()
-        annotate_reachability(result.findings, ev)
-        timings[n] = time.perf_counter() - start
+        # Best of three. This is a wall-clock ratio on a shared machine, and a single
+        # sample picks up whatever else the box is doing (here: a live cluster, a Falco
+        # DaemonSet and a web server). The minimum is the run least disturbed by the
+        # scheduler, so the bound below stays strict instead of being loosened to absorb
+        # noise it should not have to.
+        best = None
+        for _ in range(3):
+            start = time.perf_counter()
+            annotate_reachability(result.findings, ev)
+            elapsed = time.perf_counter() - start
+            best = elapsed if best is None else min(best, elapsed)
+        timings[n] = best
         index = _workload_index(ev)
 
     # 4x the cluster must not cost anything like 16x the time, which is the quadratic

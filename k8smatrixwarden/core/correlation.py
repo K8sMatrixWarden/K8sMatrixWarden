@@ -146,9 +146,14 @@ def _event_time(event: dict) -> str:
 
 
 def _alert_view(a) -> dict:
-    return {"rule_id": a.rule_id, "title": a.title, "severity": a.severity.label,
+    view = {"rule_id": a.rule_id, "title": a.title, "severity": a.severity.label,
             "source": a.source, "surface": getattr(a, "surface", "runtime"),
             "timestamp": _event_time(a.event), "event": a.event}
+    # Provenance travels with every alert so any surface can answer "who detected this?"
+    # without re-deriving it from the rule id's shape.
+    if hasattr(a, "provenance"):
+        view.update(a.provenance())
+    return view
 
 
 def _finding_view(f: Finding) -> dict:

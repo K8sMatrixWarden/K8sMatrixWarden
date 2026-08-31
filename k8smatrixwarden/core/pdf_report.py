@@ -338,19 +338,25 @@ def _runtime_section(pdf, result: ScanResult) -> None:
         f"{summary['events']} event(s) ingested, {summary['alerts']} alert(s) raised, "
         f"{summary['confirmed']} confirmed as active exploitation, "
         f"{summary['correlated']} corroborated, {summary['runtime_only']} runtime-only."))
+    if summary.get("kmw_matches") is not None:
+        _body(pdf, _ascii(
+            f"Detection: {summary['kmw_matches']} by K8sMatrixWarden curated rule, "
+            f"{summary['falco_relays']} relayed from the Falco provider, "
+            f"{summary['unusable']} unusable with a recorded reason, "
+            f"{summary['discarded']} silently discarded."))
     rows = _runtime_rows(result)
     if not rows:
         return
     _h3(pdf, "Correlated runtime evidence")
-    with pdf.table(col_widths=(24, 20, 34, 60, 28, 54),
+    with pdf.table(col_widths=(22, 18, 30, 48, 24, 44, 24),
                    text_align="LEFT", borders_layout="HORIZONTAL_LINES") as table:
         head = table.row()
         for col in ("Confidence", "Freshness", "Tactic", "Resource", "Namespace",
-                    "Detection"):
+                    "Detection", "Detected by"):
             head.cell(col)
-        for conf, fresh, tactic, resource, ns, rule in rows[:25]:
+        for conf, fresh, tactic, resource, ns, rule, detector, _sup in rows[:25]:
             row = table.row()
-            for value in (conf, fresh, tactic, resource, ns, rule):
+            for value in (conf, fresh, tactic, resource, ns, rule, detector):
                 row.cell(_ascii(str(value)))
     pdf.ln(2)
     _body(pdf, _ascii(

@@ -263,29 +263,44 @@ def test_validate_platform_clean():
 # ======================================================================= #
 def test_evaluate_runtime_events_detects_falco_and_audit():
     tools = build_tools()
-    alerts = tools["evaluate_runtime_events"]([
+    out = tools["evaluate_runtime_events"]([
         {"source": "falco", "proc": "bash"},
         {"source": "falco", "connect": "169.254.169.254:80"},
         {"source": "audit", "verb": "create", "resource": "clusterrolebindings"},
         {"source": "falco", "proc": "nginx"},  # benign, should not alert
     ])
+    alerts = out["alerts"]
     ids = {a["rule_id"] for a in alerts}
     assert "rt-shell-in-container" in ids
     assert "rt-metadata-api" in ids
     assert "rt-new-rolebinding" in ids
     assert len(alerts) == 3
+    # The benign event is accounted for rather than vanishing: 4 in, 3 detected, 1 with a
+    # recorded reason, 0 discarded.
+    cov = out["coverage"]
+    assert cov["events_received"] == 4 and cov["kmw_matches"] == 3
+    assert cov["unusable_events"] == 1 and cov["discarded"] == 0
+    assert cov["unusable"][0]["reason"]
 
 
 def test_evaluate_runtime_events_empty_stream_is_safe():
     tools = build_tools()
-    assert tools["evaluate_runtime_events"]([]) == []
+    out = tools["evaluate_runtime_events"]([])
+    assert out["alerts"] == []
+    assert out["coverage"]["events_received"] == 0
+    assert out["coverage"]["discarded"] == 0
 
 
 def test_evaluate_runtime_events_tags_alerts_as_runtime_surface():
     tools = build_tools()
-    alerts = tools["evaluate_runtime_events"]([{"source": "falco", "proc": "bash"}])
+    alerts = tools["evaluate_runtime_events"](
+        [{"source": "falco", "proc": "bash"}])["alerts"]
     assert alerts and all(a["surface"] == "runtime" for a in alerts)
     assert all("source" in a for a in alerts)
+    # Provenance says WHO detected it, separately from which stream it arrived on.
+    p = alerts[0]["provenance"]
+    assert p["detection_source"] == "kmw" and p["provider"] == "k8smatrixwarden"
+    assert p["rule_id"] == "rt-shell-in-container"
 
 
 def test_list_runtime_detections_are_all_runtime_surface():

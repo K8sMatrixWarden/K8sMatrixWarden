@@ -75,6 +75,7 @@ def render_xlsx(result: ScanResult) -> bytes:
     _sheet_findings(wb.create_sheet("Findings"), result, build_finding_context, style_sheet)
     _sheet_compliance(wb.create_sheet("Compliance"), result, standards_for, style_sheet)
     _sheet_attack_paths(wb.create_sheet("Attack Paths"), result, style_sheet)
+    _sheet_runtime(wb.create_sheet("Runtime"), result, style_sheet)
     _sheet_metadata(wb.create_sheet("Scan Metadata"), result, style_sheet)
 
     buf = io.BytesIO()
@@ -185,6 +186,31 @@ def _sheet_attack_paths(ws, result: ScanResult, style_sheet) -> None:
         ws.append(["No attack path derived for this scan.", "", "", "", "", ""])
     widths = [8, 24, 46, 10, 14, 14]
     style_sheet(ws, headers, widths, sev_col=5 if rows else None)
+
+
+def _sheet_runtime(ws, result: ScanResult, style_sheet) -> None:
+    """Runtime correlation with its provenance, so the workbook says who detected what.
+
+    Reuses reporting.py's extraction rather than re-deriving it: the spreadsheet must not be
+    able to state a different detector, or a different confirmed count, than the terminal
+    did. Headers only is the honest rendering of a scan with no runtime feed."""
+    from .reporting import _runtime_rows, _runtime_summary
+    headers = ["Confidence", "Freshness", "Tactic", "Resource", "Namespace",
+               "Detection", "Detected by", "Supporting evidence"]
+    ws.append(headers)
+    summary = _runtime_summary(result)
+    if summary:
+        for conf, fresh, tactic, resource, ns, rule, detector, supporting in                 _runtime_rows(result):
+            ws.append([conf, fresh, tactic, resource, ns, rule, detector,
+                       supporting or "-"])
+        ws.append([])
+        ws.append(["Detection accounting", ""])
+        for label, key in (("Curated rule matches", "kmw_matches"),
+                           ("Relayed from Falco", "falco_relays"),
+                           ("Unusable (reason recorded)", "unusable"),
+                           ("Silently discarded", "discarded")):
+            ws.append([label, summary.get(key)])
+    style_sheet(ws, headers, [16, 14, 20, 40, 18, 34, 18, 30])
 
 
 def _sheet_metadata(ws, result: ScanResult, style_sheet) -> None:

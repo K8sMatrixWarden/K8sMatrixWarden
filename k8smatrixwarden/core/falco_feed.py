@@ -116,7 +116,10 @@ def build_runtime_feed(collector, findings, scope, *, namespace: str = "falco",
         namespace=namespace, since_seconds=since_seconds))
     if not events:
         return None
-    alerts = RuntimeAgent().evaluate_stream(events)
+    # evaluate_batch, not evaluate_stream: the accounting is the point. Every event is
+    # matched by a curated rule, relayed under Falco's name, or reported unusable with a
+    # reason, and the operator can see which.
+    alerts, detection_coverage = RuntimeAgent().evaluate_batch(events)
     try:
         pods = collector.collect({"Pod"}, scope).get("Pod")
     except Exception:
@@ -130,6 +133,9 @@ def build_runtime_feed(collector, findings, scope, *, namespace: str = "falco",
             "cluster": cluster_label,
             "falco_namespace": namespace, "since_seconds": since_seconds,
             "events_seen": len(events),
+            # How the provider's events were accounted for. `discarded: 0` is an invariant,
+            # not a hope: anything without a detection is listed in `unusable` with a reason.
+            "detection_coverage": detection_coverage,
             # The scan's own cluster and timestamp: without them a foreign cluster's
             # event could confirm a finding here, and a week-old alert would read as a
             # current observation.

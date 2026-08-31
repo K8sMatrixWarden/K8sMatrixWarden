@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-750%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-769%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -97,7 +97,7 @@ node the event named (`fully_observed: false`), never the whole path.
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (750/750 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (769/769 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -547,6 +547,44 @@ one scoped `ClusterRole` per shard, every verb `get`/`list`/`watch`:
 k8smatrixwarden roles --bind --output-file k8smatrixwarden-rbac.json
 kubectl apply -f k8smatrixwarden-rbac.json
 ```
+
+## Runtime detection: curated rules, Falco as provider
+
+Two detection engines feed one evidence model. They are not interchangeable and the
+difference is always visible in the output.
+
+```
+runtime event ─► 11 curated K8sMatrixWarden rules
+                      │
+              matched?├── yes ─► KMW:<rule-id>          PRIMARY
+                      │           + falco:<rule> kept as supporting evidence
+                      │
+                      └── no ──► falco:<rule>           FALLBACK (provider's verdict)
+                                  │
+                      nothing claims it ─► unusable, WITH a recorded reason
+```
+
+**The curated 11 are authoritative.** Where one matches, it owns the finding — its id, its
+severity, its tactic — and Falco's rule name is attached as *supporting evidence* for the
+same event, never raised as a second detection. Five of them read Kubernetes **audit**
+events (RoleBinding creation, secret enumeration, mass deletion), which a syscall sensor
+cannot see at all; those work with no Falco installed.
+
+**Falco is a provider, not a rule source.** An alert with no curated equivalent is relayed
+under Falco's own name with its priority, timestamp and MITRE tags preserved. A Falco rule
+never becomes a K8sMatrixWarden rule, however many the operator enables — the catalog is
+hand-owned and stays small.
+
+**Nothing is silently dropped.** Every event is matched, relayed, or reported unusable with
+a reason, and each scan carries the arithmetic:
+
+```
+Detection: 24 by curated rule · 1 relayed from Falco · 0 unusable · 0 discarded
+```
+
+`discarded` is 0 by construction. Missing MITRE metadata yields `tactic: Unknown` rather
+than an inferred one, and Falco priorities map to severities through a single documented
+table (`Warning → MEDIUM`, never silently `CRITICAL`).
 
 ## Validation status & known limitations
 
