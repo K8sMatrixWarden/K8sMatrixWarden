@@ -4,7 +4,7 @@ from __future__ import annotations
 from ..core.evidence import Evidence
 from ..core.models import (BlastRadius, DetectionMethod as DM, Exploitability as EX,
                            MitreTag, Rule, Severity as S, Tactic as T)
-from .base import DomainShard, ref as _base_ref
+from .base import DomainShard, ref as _base_ref, resolve_owner
 
 SHARD_NAME = "workload_pod_security"
 #: Every kind that carries a PodSpec of its own, and is therefore a scan target.
@@ -29,50 +29,15 @@ def _iter(ev: Evidence):
             yield res, ev.pod_spec(res), ev.containers(res)
 
 
-def _find(ev: Evidence, kind: str, name: str):
-    if not kind or not name:
-        return None
-    return next((o for o in ev.get(kind, all_scopes=True)
-                if (o.get("metadata") or {}).get("name") == name), None)
-
-
 def ref(ev: Evidence, res: dict):
-    """Pod/workload ResourceRef with the owner chain resolved as far as scan evidence
-    allows: a Deployment-owned Pod's direct owner is a ReplicaSet, and a CronJob-owned
-    Pod's direct owner is a Job, neither is the top-level controller a report should
-    attribute the finding to. So resolve one hop further when the intermediate object is
-    present in the evidence already fetched for this scan, and prefer the resolved
-    *owner's* own labels/annotations over the Pod's own for Helm/ArgoCD/Flux detection
-    (that's where those tools actually stamp their markers). If the hop can't be confirmed
-    from evidence, the direct (unresolved) owner is kept as-is (no guessing)."""
-    r = _base_ref(res)
-    if res.get("kind") != "Pod" or not r.owner_kind:
-        return r
+    """Pod/workload ResourceRef with the owner chain resolved past the intermediate
+    controller (ReplicaSet->Deployment, Job->CronJob).
 
-    top_kind, top_name = r.owner_kind, r.owner_name
-    if r.owner_kind == "ReplicaSet":
-        rs = _find(ev, "ReplicaSet", r.owner_name)
-        if rs:
-            rs_kind, rs_name = _base_ref(rs).owner_kind, _base_ref(rs).owner_name
-            if rs_kind == "Deployment":
-                top_kind, top_name = rs_kind, rs_name
-    elif r.owner_kind == "Job":
-        job = _find(ev, "Job", r.owner_name)
-        if job:
-            job_kind, job_name = _base_ref(job).owner_kind, _base_ref(job).owner_name
-            if job_kind == "CronJob":
-                top_kind, top_name = job_kind, job_name
-
-    labels, annotations = r.labels, r.annotations
-    owner_obj = _find(ev, top_kind, top_name)
-    if owner_obj:
-        meta = owner_obj.get("metadata", {}) or {}
-        labels = meta.get("labels", {}) or {}
-        annotations = meta.get("annotations", {}) or {}
-
-    import dataclasses
-    return dataclasses.replace(r, owner_kind=top_kind, owner_name=top_name,
-                               labels=labels, annotations=annotations)
+    Delegates to the shared `resolve_owner`, which is also applied centrally to every
+    finding once rules have run. Kept here because these rules read the resolved owner's
+    labels during evaluation (Helm/ArgoCD/Flux stamp their markers on the controller), and
+    it is the same implementation either way rather than a second copy of it."""
+    return resolve_owner(_base_ref(res), ev)
 
 
 def _priv(rule, ev, scope):

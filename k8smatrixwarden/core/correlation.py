@@ -249,13 +249,23 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
         })
 
     correlations.sort(key=lambda c: Severity.parse(c["severity"]).order, reverse=True)
+
+    # Alert VOLUME and evidence STRENGTH are different quantities and are reported
+    # separately. A shell held open in one container emits the same Falco alert repeatedly;
+    # counting each copy turned one observation into "50 confirmed exploitations", which
+    # overstates the incident to exactly the audience least able to check it. Strength is
+    # therefore counted over distinct (weakness, resource) pairs, while `total_alerts`
+    # keeps reporting the raw volume.
+    def _distinct(predicate) -> int:
+        return len({((c.get("runtime") or {}).get("rule_id"), c["tactic"],
+                     c["namespace"], c["resource"])
+                    for c in correlations if predicate(c)})
+
     return {
         "total_alerts": len(alerts),
-        "correlated": sum(1 for c in correlations if c["static_findings"]),
-        "confirmed_exploitation": sum(1 for c in correlations
-                                      if c["confidence"] == "confirmed"),
-        "runtime_only": sum(1 for c in correlations
-                            if c["confidence"] == "runtime-only"),
+        "correlated": _distinct(lambda c: c["static_findings"]),
+        "confirmed_exploitation": _distinct(lambda c: c["confidence"] == "confirmed"),
+        "runtime_only": _distinct(lambda c: c["confidence"] == "runtime-only"),
         "correlations": correlations,
         # The same correlations in the order they HAPPENED, which is how an incident is
         # read. Events with no timestamp sort last rather than being dropped.

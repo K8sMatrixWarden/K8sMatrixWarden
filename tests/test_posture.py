@@ -85,8 +85,11 @@ def test_severity_movement_on_a_persistent_finding_is_reported():
 
 
 def test_regression_needs_history_not_just_two_scans():
-    prev = _result([])
-    cur = _result([_f("r1", "pod-a")])
+    # The previous scan RAN r1 and found nothing, which is what makes r1's reappearance a
+    # real change. Had it not run r1, its silence would carry no information and the finding
+    # could not be called new (see the carried-over rule in compare()).
+    prev = _result([], rules=["r1"])
+    cur = _result([_f("r1", "pod-a")], rules=["r1"])
     without_history = compare(prev, cur)
     assert without_history["regressed"] == []
 
@@ -118,14 +121,16 @@ def test_info_findings_do_not_appear_in_posture():
 def test_latest_change_compares_against_the_previous_scan_of_the_same_cluster():
     d = tempfile.mkdtemp()
     store = ReportStore(d)
-    store.save(_result([_f("r1", "pod-a")], scan_id="older",
+    # Both scans evaluate r1 and r2; r2 simply found nothing the first time, so its
+    # appearance in the newer scan is a genuine change rather than a coverage gap.
+    store.save(_result([_f("r1", "pod-a")], rules=["r1", "r2"], scan_id="older",
                        generated_at="2026-01-01T00:00:00+05:30"))
     other = _result([_f("r9", "pod-z")], scan_id="other-cluster",
                     generated_at="2026-01-02T00:00:00+05:30")
     other.cluster_name = "c2"
     store.save(other)
-    store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], scan_id="newer",
-                       generated_at="2026-01-03T00:00:00+05:30"))
+    store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], rules=["r1", "r2"],
+                       scan_id="newer", generated_at="2026-01-03T00:00:00+05:30"))
 
     out = latest_change(store)
     assert out["current_scan_id"] == "newer"
@@ -173,10 +178,10 @@ def test_posture_history_tool_matches_the_module():
     from k8smatrixwarden.mcp.server import build_tools
     d = tempfile.mkdtemp()
     store = ReportStore(d)
-    store.save(_result([_f("r1", "pod-a")], scan_id="s1",
+    store.save(_result([_f("r1", "pod-a")], rules=["r1", "r2"], scan_id="s1",
                        generated_at="2026-01-01T00:00:00+05:30"))
-    store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], scan_id="s2",
-                       generated_at="2026-01-02T00:00:00+05:30"))
+    store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], rules=["r1", "r2"],
+                       scan_id="s2", generated_at="2026-01-02T00:00:00+05:30"))
     out = build_tools()["posture_history"](reports_dir=d)
     assert out["current_scan_id"] == "s2"
     assert [f["rule_id"] for f in out["new"]] == ["r2"]

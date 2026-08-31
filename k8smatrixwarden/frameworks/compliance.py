@@ -223,6 +223,12 @@ class ComplianceEngine:
         if counts[FAIL]:
             return (f"{counts[FAIL]} {short} requirement(s) fail on automated checks, "
                     f"{blockers} finding(s) to remediate before assessment.")
+        # Nothing passed and nothing failed: no requirement was actually evaluated. Saying
+        # "no assessed control fails" here is true but reads as reassurance, which is the
+        # wrong signal when the reason for the silence is that the cluster was unreadable.
+        if not counts[PASS]:
+            return (f"No {short} requirement could be assessed from the available evidence, "
+                    f"this is not a passing result. Check the scan's coverage and warnings.")
         pend = counts[PARTIAL] + counts[MANUAL] + counts[NEEDS_REVIEW] + counts[NOT_ASSESSED]
         if pend:
             return (f"No assessed {short} control fails on automated checks; {pend} "

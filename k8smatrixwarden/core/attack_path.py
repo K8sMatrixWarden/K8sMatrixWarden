@@ -70,7 +70,14 @@ def _runtime_index(runtime: Optional[dict]) -> tuple:
                  "rule_id": (c.get("runtime") or {}).get("rule_id"),
                  "title": (c.get("runtime") or {}).get("title"),
                  "tactic": c.get("tactic", ""), "resource": c.get("resource", ""),
-                 "namespace": c.get("namespace", "")}
+                 "namespace": c.get("namespace", ""),
+                 # Age travels WITH the evidence. The correlator already decided whether
+                 # this observation is current, and a path that says `observed` while its
+                 # only evidence is years old is the stale-as-current claim in a different
+                 # place. Carrying it means no downstream surface has to re-derive it, and
+                 # none can render the path without it being available.
+                 "freshness": c.get("freshness", "unknown"),
+                 "age_days": c.get("age_days")}
         if level == "confirmed" and c.get("resource"):
             by_resource.setdefault(c["resource"], []).append(entry)
         if c.get("namespace"):
@@ -79,7 +86,9 @@ def _runtime_index(runtime: Optional[dict]) -> tuple:
         entry = {"level": "drift", "timestamp": d.get("timestamp", ""), "source": "drift",
                  "rule_id": "drift", "title": d.get("verdict", ""),
                  "tactic": d.get("tactic", ""), "resource": d.get("pod", ""),
-                 "namespace": d.get("namespace", "")}
+                 "namespace": d.get("namespace", ""),
+                 "freshness": d.get("freshness", "unknown"),
+                 "age_days": d.get("age_days")}
         if d.get("pod"):
             by_resource.setdefault(d["pod"], []).append(entry)
         if d.get("namespace"):
@@ -101,6 +110,21 @@ def _evidence_for(node_name: str, by_resource: dict) -> list:
         if resource == node_name or belongs_to(resource, node_name):
             out.extend(entries)
     return out
+
+
+def _freshness(entries: list) -> str:
+    """The freshest label across a path's evidence: recent > historical > unknown.
+
+    Freshest, not worst, because one current observation makes the path current even when
+    older alerts sit alongside it. `none` when the path has no runtime evidence at all,
+    which is different from having evidence of unknown age."""
+    if not entries:
+        return "none"
+    labels = {e.get("freshness", "unknown") for e in entries}
+    for label in ("recent", "historical"):
+        if label in labels:
+            return label
+    return "unknown"
 
 
 def _pod_name(nodes: list) -> str:
@@ -187,6 +211,11 @@ def resource_paths(findings: list, runtime: Optional[dict] = None,
                                        key=lambda e: e.get("timestamp", "")),
             "worst_severity": worst.severity.label,
             "confidence": confidence,
+            # `observed` says the behaviour WAS seen; this says whether it was seen
+            # recently. A path evidenced only by a years-old alert is still evidenced, but
+            # presenting it without the age is the stale-as-current claim, so the two
+            # travel together and every surface gets both.
+            "evidence_freshness": _freshness(observed or corroborating),
             "observed_nodes": observed_nodes,
             "fully_observed": fully_observed,
             "summary": _summary(nodes, confidence, internet, observed_nodes),

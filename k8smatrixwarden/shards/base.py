@@ -85,12 +85,73 @@ _API_GROUPS = {
 # ----------------------------------------------------------------------- #
 # Small helpers shared by rule check functions.
 # ----------------------------------------------------------------------- #
+#: One hop past these intermediates is the controller a report should name. A Pod's direct
+#: owner is a ReplicaSet or a Job, which is an implementation detail of the Deployment or
+#: CronJob the operator actually manages.
+_INTERMEDIATE_OWNERS = {"ReplicaSet": "Deployment", "Job": "CronJob"}
+
+
+def resolve_owner(rref, evidence):
+    """Resolve a ResourceRef's owner past the intermediate controller, where evidence allows.
+
+    The single implementation of owner attribution. It used to live only in
+    workload_pod_security, so a Pod's findings from that shard named `Deployment/api` while
+    the same Pod's findings from another shard named `ReplicaSet/api-5f8b`: one object with
+    two owners inside a single scan, which splits a workload in two anywhere a report groups
+    by owner. Applied centrally after rules run, every finding on a resource agrees.
+
+    An ownerReference never leaves its object's namespace, so every lookup is namespaced.
+    An unconfirmable hop keeps the direct owner rather than guessing."""
+    import dataclasses
+    if rref is None or not rref.owner_kind:
+        return rref
+    target = _INTERMEDIATE_OWNERS.get(rref.owner_kind)
+    if not target:
+        return rref
+    mid = _lookup(evidence, rref.owner_kind, rref.owner_name, rref.namespace)
+    if not mid:
+        return rref
+    mid_kind, mid_name = _direct_owner(mid.get("metadata", {}) or {})
+    if mid_kind != target:
+        return rref
+    labels, annotations = rref.labels, rref.annotations
+    top = _lookup(evidence, mid_kind, mid_name, rref.namespace)
+    if top:
+        meta = top.get("metadata", {}) or {}
+        # Helm/ArgoCD/Flux stamp their markers on the controller, not the Pod.
+        labels = meta.get("labels", {}) or {}
+        annotations = meta.get("annotations", {}) or {}
+    return dataclasses.replace(rref, owner_kind=mid_kind, owner_name=mid_name,
+                               labels=labels, annotations=annotations)
+
+
+def _lookup(evidence, kind: str, name: str, namespace):
+    """(kind, name, namespace) -> object, from an index memoised on the shared snapshot.
+    Scanning the full object list per finding made every workload rule quadratic."""
+    if not kind or not name or evidence is None:
+        return None
+    cache = getattr(evidence, "_owner_index", None)
+    if cache is None:
+        cache = {}
+        try:
+            evidence._owner_index = cache
+        except Exception:          # an exotic Evidence: correctness over speed
+            pass
+    by_key = cache.get(kind)
+    if by_key is None:
+        by_key = {}
+        for o in evidence.get(kind, all_scopes=True):
+            md = o.get("metadata") or {}
+            by_key.setdefault((md.get("name"), md.get("namespace")), o)
+        cache[kind] = by_key
+    return by_key.get((name, namespace))
+
+
 def ref(resource: dict, kind: str = None):
     """Build a ResourceRef, generically capturing labels/annotations and the resource's
     *direct* owner (one ownerReferences hop, e.g. a DaemonSet/StatefulSet-owned Pod).
-    Resolving a further hop (ReplicaSet->Deployment, Job->CronJob) needs Evidence to look
-    up the intermediate object, which this shared, evidence-free helper doesn't have, 
-    see workload_pod_security.py's own `ref(ev, res)` wrapper for that."""
+    The further hop (ReplicaSet->Deployment, Job->CronJob) needs Evidence, and is applied
+    to every finding centrally once rules have run, see `resolve_owner`."""
     from ..core.models import ResourceRef
     meta = resource.get("metadata", {}) or {}
     owner_kind, owner_name = _direct_owner(meta)

@@ -28,6 +28,17 @@ class ScannerAgent:
         # Evidence is already scope-constrained by the collector, so findings are in scope.
         # Cluster-scoped objects (RBAC, webhooks) intentionally remain visible.
         findings = self.p.detection.run(rule_ids, collector, request.scope)
+
+        # A rule that raised was isolated into an `_engine` row and produced no findings.
+        # That is NOT the same as a rule that ran and found nothing, and the difference is
+        # load-bearing: historical posture treats every evaluated rule as entitled to mark
+        # its previous findings `resolved`. Leaving a crashed rule in that set let a broken
+        # rule report its own findings as FIXED, with the risk score improving to match.
+        # Computed before aggregation, which may merge or drop the error rows.
+        failed = sorted({f.rule_id for f in findings
+                         if f.resource.kind == "_engine" and f.rule_id in set(rule_ids)})
+        evaluated = [r for r in rule_ids if r not in set(failed)]
+
         findings = self.p.aggregator.aggregate(findings)
         risk = self.p.scoring.score(findings)
 
@@ -78,7 +89,8 @@ class ScannerAgent:
             risk=risk,
             warnings=warnings,
             evidence_ok=evidence_ok,
-            resolved_rule_ids=rule_ids,
+            resolved_rule_ids=evaluated,
+            failed_rule_ids=failed,
             counts=self.p.aggregator.counts(findings),
             by_tactic=self.p.aggregator.by_tactic(findings),
             by_shard=self.p.aggregator.by_shard(findings),

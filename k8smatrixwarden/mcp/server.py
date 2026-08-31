@@ -261,7 +261,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         tool, pass threshold), 'PSS' (Pod Security Standard levels), or 'NSA_CISA' (the
         hardening-guide sections covered). Omit `framework` to get all three. This is
         summary metadata, not the controls themselves, for the full, evaluated CIS
-        Kubernetes Benchmark (all 130 controls with PASS/FAIL/MANUAL/NA/NEEDS_NODE
+        Kubernetes Benchmark (all 130 controls with PASS/FAIL/MANUAL/NA/NEEDS_NODE/NOT_ASSESSED
         status), use run_cis_benchmark instead."""
         if framework:
             return datasets.COMPLIANCE_RULES.get(framework.upper(), {})
@@ -613,7 +613,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                               "node file-permission controls the K8s API alone cannot "
                               "see."))] = None) -> dict:
         """Run the full CIS Kubernetes Benchmark v1.8 (130 controls, read-only) and
-        return the report (PASS/FAIL/MANUAL/NA/NEEDS_NODE per control). Mirrors
+        return the report (PASS/FAIL/MANUAL/NA/NEEDS_NODE/NOT_ASSESSED per control). Mirrors
         `k8smatrixwarden cis`. profile: auto (default) | self-managed | eks | gke | aks, 
         'auto' detects the provider from Node objects (see detect_cluster_provider);
         managed profiles mark the provider-owned control plane NA instead of ungradeable.

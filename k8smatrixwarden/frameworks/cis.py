@@ -8,6 +8,10 @@ Gives EVERY control a status so nothing is missed:
   MANUAL    , CIS marks it Manual; needs human review
   NA        , not applicable on this provider profile (managed control plane)
   NEEDS_NODE, requires on-node file read; supply kube-bench JSON to resolve
+  NOT_ASSESSED, the evidence this control needs could not be read, so there is no
+              verdict. Never collapsed into PASS: an unreadable cluster produces the
+              same empty finding set as a clean one, and only this status tells them
+              apart for the frameworks built on top.
 
 Evaluation methods (see cis_catalog):
   native   , run the mapped domain-shard rules once over cluster evidence (rule fired ⇒ FAIL)
@@ -32,7 +36,15 @@ from .cis_catalog import (BENCHMARK_TITLE, BENCHMARK_VERSION, CIS_1_8,
                           CONTROL_PLANE_SECTIONS, SECTION_NAMES, CisControl)
 
 PASS, FAIL, MANUAL, NA, NEEDS_NODE = "PASS", "FAIL", "MANUAL", "NA", "NEEDS_NODE"
-_ALL_STATUSES = (PASS, FAIL, MANUAL, NA, NEEDS_NODE)
+#: The evidence this control needs could not be read, so the control has NO verdict. This is
+#: distinct from every other status and must never be folded into one of them: NA means the
+#: control does not apply, MANUAL means no automated check exists, NEEDS_NODE means the
+#: check exists but needs on-node data, and PASS means we looked and found compliance.
+#: Without this status a forbidden or unreachable cluster produced "no violations detected"
+#: for every rule-backed control, which propagated to SOC 2 / ISO / NIST / PCI as a 100%
+#: pass rate on a cluster nothing had been read from.
+NOT_ASSESSED = "NOT_ASSESSED"
+_ALL_STATUSES = (PASS, FAIL, MANUAL, NA, NEEDS_NODE, NOT_ASSESSED)
 MANAGED_PROFILES = {"eks", "gke", "aks"}
 
 
@@ -94,12 +106,16 @@ class CISBenchmarkEngine:
             Scope(ScopeLevel.CLUSTER))
         cfg_flags = _component_flags(ev)
 
-        # 3) Evaluate every control.
-        results = [self._evaluate(c, fired, ev, cfg_flags, kb, profile) for c in CIS_1_8]
+        # 3) Evaluate every control. `unreadable` is what separates "we looked and found
+        # nothing wrong" from "we could not look", which are the same empty result set.
+        unreadable = _unreadable_kinds(collector)
+        results = [self._evaluate(c, fired, ev, cfg_flags, kb, profile, unreadable)
+                   for c in CIS_1_8]
         return self._summarize(results, profile)
 
     # ------------------------------------------------------------------ #
-    def _evaluate(self, c: CisControl, fired, ev, cfg_flags, kb, profile) -> ControlResult:
+    def _evaluate(self, c: CisControl, fired, ev, cfg_flags, kb, profile,
+                  unreadable: Optional[set] = None) -> ControlResult:
         # Layer 4, managed provider: control-plane sections are provider-owned → N/A.
         if profile in MANAGED_PROFILES and c.section in CONTROL_PLANE_SECTIONS:
             return ControlResult(c, NA, f"provider-managed control plane ({profile})")
@@ -109,9 +125,22 @@ class CISBenchmarkEngine:
             if hits:
                 return ControlResult(c, FAIL, f"{len(hits)} non-compliant resource(s)",
                                      sorted(set(hits))[:10])
+            # No rule fired. That means compliance only if the rules could actually see the
+            # resources they judge; if every kind they need was unreadable, the empty result
+            # is an artefact of the failed read, not a clean cluster.
+            missing = self._unverifiable(c, unreadable)
+            if missing:
+                return ControlResult(c, NOT_ASSESSED,
+                                     f"evidence unavailable: could not read "
+                                     f"{', '.join(sorted(missing))}")
             return ControlResult(c, PASS, "no violations detected")
 
         if c.ev == "builtin":
+            missing = self._unverifiable(c, unreadable, _BUILTIN_KINDS)
+            if missing:
+                return ControlResult(c, NOT_ASSESSED,
+                                     f"evidence unavailable: could not read "
+                                     f"{', '.join(sorted(missing))}")
             return self._builtin(c, ev)
 
         if c.ev == "component":
@@ -124,6 +153,27 @@ class CISBenchmarkEngine:
                                  "requires node file inspection (supply kube-bench JSON)")
 
         return ControlResult(c, MANUAL, "requires manual review")
+
+    def _unverifiable(self, c: CisControl, unreadable, fallback_kinds=None) -> set:
+        """Which kinds this control depends on could not be read.
+
+        ANY unreadable kind is enough to withhold a PASS. A control asserting "no privileged
+        containers" cannot be satisfied by inspecting Pods when Deployments were forbidden,
+        the violation could be sitting in the half that was never fetched. Requiring every
+        kind to fail before withholding the pass would let a single readable kind vouch for
+        all the others.
+
+        FAIL is decided before this runs, so partial evidence still reports the violations it
+        did find; only the clean verdict needs full sight. Returns empty when the needed kinds
+        cannot be determined, since inventing NOT_ASSESSED would be its own false claim."""
+        if not unreadable:
+            return set()
+        needed = set(fallback_kinds or ())
+        for rid in c.rules:
+            rule = self.p.registry.rules.get(rid)
+            if rule:
+                needed.update(rule.evidence_needs or rule.resource_scope or ())
+        return needed & set(unreadable)
 
     # -- component flag evaluation (Mitigation Layer 1/2) ----------------- #
     def _component(self, c: CisControl, cfg_flags: dict) -> ControlResult:
@@ -176,6 +226,23 @@ class CISBenchmarkEngine:
 
 
 # ----------------------------------------------------------------------- #
+#: Kinds the two builtin evaluators (hostPort, default-namespace usage) reason about. They
+#: read workloads directly rather than through a rule, so they have no rule to inherit
+#: evidence needs from.
+_BUILTIN_KINDS = frozenset({"Pod", "Deployment", "DaemonSet", "StatefulSet", "Job",
+                            "CronJob", "ReplicaSet"})
+
+
+def _unreadable_kinds(collector) -> set:
+    """Resource kinds the collector could not read at all this run.
+
+    `skipped` is the collector's own word for a read that failed (RBAC forbidden, API group
+    absent, cluster unreachable). A kind that read successfully but returned zero items is
+    `ok`, and an empty cluster is a real answer, so the two must not be confused."""
+    cov = getattr(collector, "coverage", {}) or {}
+    return {k for k, i in cov.items() if (i or {}).get("status") == "skipped"}
+
+
 def _component_flags(ev: Evidence) -> dict:
     """Extract per-component flag dicts from the ComponentConfig evidence."""
     items = ev.get("ComponentConfig", all_scopes=True)
@@ -245,7 +312,8 @@ def _map_kb(kb_status: str) -> str:
 
 
 # ----------------------------------------------------------------------- #
-_EMOJI = {PASS: "✅", FAIL: "❌", MANUAL: "🔶", NA: "➖", NEEDS_NODE: "⚙️"}
+_EMOJI = {PASS: "✅", FAIL: "❌", MANUAL: "🔶", NA: "➖", NEEDS_NODE: "⚙️",
+          NOT_ASSESSED: "❔"}
 
 
 def render_text(report: CISReport, show: str = "fail") -> str:
@@ -256,7 +324,8 @@ def render_text(report: CISReport, show: str = "fail") -> str:
         "═" * 78,
         f"  Total controls : {len(report.results)}",
         f"  ✅ PASS {c[PASS]:<4}❌ FAIL {c[FAIL]:<4}🔶 MANUAL {c[MANUAL]:<4}"
-        f"➖ NA {c[NA]:<4}⚙️  NEEDS_NODE {c[NEEDS_NODE]:<4}",
+        f"➖ NA {c[NA]:<4}⚙️  NEEDS_NODE {c[NEEDS_NODE]:<4}"
+        f"❔ NOT_ASSESSED {c[NOT_ASSESSED]:<4}",
         f"  Automated pass rate : {report.pass_pct}%   "
         f"(auto-evaluated coverage of applicable controls: {report.auto_coverage_pct}%)",
         "-" * 78,
@@ -265,7 +334,8 @@ def render_text(report: CISReport, show: str = "fail") -> str:
     for sec in sorted(report.by_section):
         d = report.by_section[sec]
         lines.append(f"    §{sec} {d['name']:<30} ✅{d[PASS]:<3}❌{d[FAIL]:<3}"
-                     f"🔶{d[MANUAL]:<3}➖{d[NA]:<3}⚙️{d[NEEDS_NODE]:<3}")
+                     f"🔶{d[MANUAL]:<3}➖{d[NA]:<3}⚙️{d[NEEDS_NODE]:<3}"
+                     f"❔{d[NOT_ASSESSED]:<3}")
     if show in ("fail", "all"):
         lines += ["-" * 78, "  Failed controls:"]
         fails = [r for r in report.results if r.status == FAIL]
@@ -299,13 +369,14 @@ def render_markdown(report: CISReport) -> str:
            f"| ✅ PASS | {c[PASS]} |", f"| ❌ FAIL | {c[FAIL]} |",
            f"| 🔶 MANUAL | {c[MANUAL]} |", f"| ➖ NA (provider-managed) | {c[NA]} |",
            f"| ⚙️ NEEDS_NODE (kube-bench) | {c[NEEDS_NODE]} |",
+           f"| ❔ NOT_ASSESSED (evidence unavailable) | {c[NOT_ASSESSED]} |",
            "", "## Per section", "",
-           "| § | Section | ✅ | ❌ | 🔶 | ➖ | ⚙️ | Total |",
-           "|---|---|---|---|---|---|---|---|"]
+           "| § | Section | ✅ | ❌ | 🔶 | ➖ | ⚙️ | ❔ | Total |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for sec in sorted(report.by_section):
         d = report.by_section[sec]
         out.append(f"| {sec} | {d['name']} | {d[PASS]} | {d[FAIL]} | {d[MANUAL]} "
-                   f"| {d[NA]} | {d[NEEDS_NODE]} | {d['total']} |")
+                   f"| {d[NA]} | {d[NEEDS_NODE]} | {d[NOT_ASSESSED]} | {d['total']} |")
     out += ["", "## Failed controls", ""]
     fails = [r for r in report.results if r.status == FAIL]
     if not fails:

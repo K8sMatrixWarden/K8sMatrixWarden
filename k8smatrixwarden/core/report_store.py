@@ -288,7 +288,9 @@ class ReportStore:
                 cluster=d.get("cluster", "target-cluster")))
         # Newest first, with scan_id as the tiebreaker: two scans can share a timestamp
         # (same second), and an unstable order there would make "the previous scan" a
-        # coin flip for the posture diff.
+        # coin flip for the posture diff. The id's trailing field encodes the microsecond in
+        # an order-preserving way (see results._scan_id), so this tiebreak is chronological
+        # and not merely deterministic.
         out.sort(key=lambda r: (r.generated_at, r.scan_id), reverse=True)
         return out[:limit] if limit else out
 

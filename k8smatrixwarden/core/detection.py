@@ -77,6 +77,17 @@ class DetectionEngine:
             except Exception as exc:  # pragma: no cover
                 findings.append(_error_finding(f"adapter:{adapter.name}", str(exc)))
 
+        # Owner attribution, applied once for every shard's findings. Doing it here rather
+        # than per-shard is what stops one Pod being reported under two different owners
+        # depending on which rule fired. Isolated: attribution is context, never a verdict.
+        try:
+            from ..shards.base import resolve_owner
+            for f in findings:
+                if f.resource is not None and f.resource.kind != "_engine":
+                    f.resource = resolve_owner(f.resource, evidence)
+        except Exception as exc:  # pragma: no cover - never let attribution fail a scan
+            findings.append(_error_finding("owner-resolution", str(exc)))
+
         # Reachability tagging: tag each finding with its attack vector (internet-reachable /
         # post-breach / rbac-escalation) from the cluster's own exposure + RBAC, on the same
         # shared snapshot. NEVER lowers severity. Isolated so a bug here can't fail the scan.

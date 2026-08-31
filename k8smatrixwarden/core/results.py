@@ -22,16 +22,27 @@ def slugify_name(name: str) -> str:
 
 
 def _scan_id(name: str = "") -> str:
-    """Build a scan id of the form ``<name>-YYYYMMDD-HHMMSS-<hash>`` so the id itself
+    """Build a scan id of the form ``<name>-YYYYMMDD-HHMMSS-<subsecond>`` so the id itself
     carries the (optional) scan name, the date, and the time, the report naming format
     surfaced everywhere (files on disk, download filenames, dashboard history). Falls back
     to the ``scan`` prefix when no name is given, preserving the historic ``scan-…`` shape.
-    The 4-char hash keeps ids unique even for two scans started in the same second."""
+
+    The 4-char suffix separates two scans started in the same second, and it is deliberately
+    ORDER-PRESERVING rather than a hash. `generated_at` only has second resolution, so the
+    report store breaks ties on the scan id; a hashed suffix made that tiebreak deterministic
+    but arbitrary, which let the *later* of two same-second scans sort first. Posture then
+    compared in the wrong direction and reported new findings as resolved. Encoding the
+    microsecond instead makes the lexicographic order the chronological order.
+
+    Resolution is 1/65536 s (~15 microseconds); two scans that close together would collide,
+    which is the same collision probability the previous 4-char hash carried and far below
+    the millisecond cost of an actual scan.
+    """
     now = now_ist()
-    digest = hashlib.sha1(now.isoformat().encode()).hexdigest()[:4]
     stamp = now.strftime("%Y%m%d-%H%M%S")
+    subsecond = f"{now.microsecond * 0xFFFF // 1000000:04x}"
     base = slugify_name(name) or "scan"
-    return f"{base}-{stamp}-{digest}"
+    return f"{base}-{stamp}-{subsecond}"
 
 
 @dataclass
@@ -39,6 +50,11 @@ class ScanResult:
     request: ScanRequest
     findings: list[Finding]
     risk: RiskResult
+    #: Rules that were selected AND actually completed. A rule that raised is removed here
+    #: and listed in `failed_rule_ids` instead, because historical posture uses this set to
+    #: decide what a scan was entitled to call `resolved`. Leaving a crashed rule in would
+    #: let a broken rule report its own findings as fixed, and the risk score would improve
+    #: to match. "Selected" is `request.selector` resolved; this is "evaluated".
     resolved_rule_ids: list[str]
     counts: dict[str, int] = field(default_factory=dict)
     by_tactic: dict[str, int] = field(default_factory=dict)
@@ -61,6 +77,10 @@ class ScanResult:
     #: findings because nothing was inspected, NOT because the cluster is clean, and every
     #: surface must say so instead of rendering a passing score.
     evidence_ok: bool = True
+    #: Rules that were selected but raised, so their result is UNKNOWN for this scan rather
+    #: than "nothing found". Kept separate from `resolved_rule_ids` so no surface can mistake
+    #: a rule that failed for a rule that came back clean.
+    failed_rule_ids: list[str] = field(default_factory=list)
     #: Optional runtime block baked in at scan time from the live Falco feed:
     #: {"correlation": {...}, "drift": {...}, "events_seen": int, "collected_at": str,
     #: "source": "falco-logs"}. None when the scan pulled no runtime feed (mock scans, or a

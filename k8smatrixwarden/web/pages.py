@@ -909,6 +909,17 @@ function pathConfPill(c){
   const cls={'observed':'critical','corroborated':'high','configuration-only':'info'}[c]||'info';
   return `<span class='tag ${cls}'>${esc(c||'configuration-only')}</span>`;
 }
+// "observed" says the behaviour was seen; freshness says whether it was seen recently.
+// Rendering the first without the second is how a years-old alert reads as a live breach.
+function freshPill(f, days){
+  if(!f || f==='none' || f==='recent') return '';
+  const age = (days||days===0) ? ` (${Math.round(days)}d old)` : '';
+  const cls = f==='historical' ? 'medium' : 'info';
+  const help = f==='historical'
+    ? 'This behaviour WAS observed, but not recently. It is not evidence of current activity.'
+    : 'The runtime event carried no usable timestamp, so its age is unknown.';
+  return `<span class='tag ${cls}' title='${esc(help)}'>${esc(f)}${age}</span>`;
+}
 function netStatusPill(s){
   const cls={'allow-all':'critical','unrestricted':'high','partial':'medium',
              'unknown':'medium','restricted':'low','deny-all':'low'}[s]||'info';
@@ -938,7 +949,7 @@ function resourcePathView(){
       `<li><span class='sev ${esc((f.severity||'').toLowerCase())}'>${esc(f.severity)}</span>
         <code>${esc(f.rule_id)}</code> ${esc(f.resource)}</li>`).join('');
     return `<div class='rpath'>
-      <div class='rphead'>${pathConfPill(p.confidence)}
+      <div class='rphead'>${pathConfPill(p.confidence)}${freshPill(p.evidence_freshness,(p.runtime_evidence&&p.runtime_evidence[0]||{}).age_days)}
         ${p.internet_reachable?"<span class='tag critical'>internet-reachable</span>":"<span class='tag info'>post-breach only</span>"}
         <span class='muted'>${esc(p.namespace||'')}${p.cluster?' · '+esc(p.cluster):''}</span></div>
       <div class='hops'>${hops}</div>

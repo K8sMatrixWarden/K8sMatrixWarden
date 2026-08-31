@@ -643,8 +643,10 @@ def _stored(findings, cluster, scope, scan_id, when, rules=None):
 
 def test_a_rule_that_did_not_run_is_never_reported_as_resolved_then_regressed():
     """The full three-scan sequence: present, not re-scanned, present again. The middle
-    scan must not manufacture a resolution, and the third must not manufacture a
-    regression from one."""
+    scan must not manufacture a resolution, the third must not manufacture a regression from
+    one, and, since the middle scan never looked, the third must not call the finding NEW
+    either. All three are the same error in different directions: treating a scan's silence
+    about a rule it never ran as information about the cluster."""
     from k8smatrixwarden.core.posture import latest_change
     from k8smatrixwarden.core.report_store import ReportStore
     store = ReportStore(tempfile.mkdtemp())
@@ -656,7 +658,10 @@ def test_a_rule_that_did_not_run_is_never_reported_as_resolved_then_regressed():
                        "cluster-wide", "s3", "2026-01-03T00:00:00+05:30"))
     out = latest_change(store)
     assert out["regressed"] == [], "it was never resolved, so it cannot have regressed"
-    assert [x["rule_id"] for x in out["new"]] == ["r1"]
+    assert out["new"] == [], "the previous scan never ran r1, so r1 cannot be called new"
+    still_open = [x for x in out["persistent"] if x["rule_id"] == "r1"]
+    assert len(still_open) == 1, "it is still open, and reported as such"
+    assert still_open[0]["unevaluated_in_previous_scan"] is True
 
 
 def test_two_clusters_never_share_a_finding_history():

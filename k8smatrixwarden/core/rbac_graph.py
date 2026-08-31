@@ -264,6 +264,8 @@ class RbacGraph:
         self._truncated_reason: Optional[str] = None
         #: Grants limited by `resourceNames`, collected by _capabilities.
         self._restricted: list = []
+        #: Lazily built subject -> bindings index; see _binding_index.
+        self._bindings_by_subject: Optional[dict] = None
 
     # -- construction ---------------------------------------------------- #
     @classmethod
@@ -301,18 +303,40 @@ class RbacGraph:
             return subject.get("namespace") == principal.namespace
         return True
 
+    @staticmethod
+    def _subject_key(kind: str, name: str, namespace: Optional[str]) -> tuple:
+        """The identity a subject is indexed under. ServiceAccounts are namespaced, so the
+        namespace is part of the key; Users and Groups are cluster-scoped and are not, which
+        is the same distinction `_subject_matches` draws one comparison at a time."""
+        return (kind, name, namespace if kind == "ServiceAccount" else None)
+
+    def _binding_index(self) -> dict:
+        """subject key -> [(binding, is_cluster_binding)], built once and cached.
+
+        Scanning every binding for every principal is O(principals x bindings), and this is
+        called once per workload during reachability annotation: on a 5000-pod cluster that
+        was 1.2 million subject comparisons. The bindings do not change over a graph's
+        lifetime, so the index is built on first use."""
+        if self._bindings_by_subject is None:
+            index: dict = {}
+            for binding, is_cluster in ([(b, True) for b in self.cluster_role_bindings]
+                                        + [(b, False) for b in self.role_bindings]):
+                for s in binding.get("subjects", []) or []:
+                    if not isinstance(s, dict):
+                        continue
+                    key = self._subject_key(s.get("kind"), s.get("name"),
+                                            s.get("namespace"))
+                    entry = index.setdefault(key, [])
+                    # One binding can name the same principal twice; it is still one grant.
+                    if not entry or entry[-1][0] is not binding:
+                        entry.append((binding, is_cluster))
+            self._bindings_by_subject = index
+        return self._bindings_by_subject
+
     def bindings_for(self, principal: Node) -> list[tuple]:
         """[(binding_object, is_cluster_binding)] naming this principal as a subject."""
-        out = []
-        for crb in self.cluster_role_bindings:
-            if any(self._subject_matches(s, principal)
-                   for s in crb.get("subjects", []) or []):
-                out.append((crb, True))
-        for rb in self.role_bindings:
-            if any(self._subject_matches(s, principal)
-                   for s in rb.get("subjects", []) or []):
-                out.append((rb, False))
-        return out
+        key = self._subject_key(principal.kind, principal.name, principal.namespace)
+        return list(self._binding_index().get(key, ()))
 
     def role_for(self, role_ref: dict, binding_namespace: Optional[str]):
         """Resolve a roleRef to its object, honouring the namespace rules: a RoleBinding

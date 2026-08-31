@@ -11,11 +11,17 @@ here `rule_id | kind | name | namespace`, the same key the store's timeline uses
 looser (matching on title, or on rule id alone) would report a pod being rescheduled as a
 fix.
 
-Three honesty rules:
+Four honesty rules:
 
   * A finding is only `resolved` when the current scan actually looked for it, i.e. its
     rule was in the resolved rule set. A narrower re-scan silently "resolving" everything
-    it did not run is the classic false-green, so those land in `not_rescanned`.
+    it did not run is the classic false-green, so those land in `not_rescanned`. That set
+    counts rules that RAN: a rule that crashed is excluded upstream, or a broken rule would
+    report its own findings as fixed.
+  * A finding is only `new` when it had not been seen before. If the previous scan never
+    evaluated its rule, that scan's silence is not evidence of absence, so the finding was
+    open the whole time and is reported as persistent. This is the false-green's mirror
+    image: it would tell an analyst the cluster just got worse when nothing changed.
   * A `regression` is a finding that was previously seen, then resolved, and is back. That
     needs history, not two scans, so it is derived from the store's timeline when one is
     supplied.
@@ -60,16 +66,27 @@ def compare(previous: Optional[ScanResult], current: ScanResult,
     prev = _real(previous) if previous is not None else {}
     rescanned = set(current.resolved_rule_ids)
 
-    new_keys = [k for k in cur if k not in prev]
+    appeared = [k for k in cur if k not in prev]
     gone = [k for k in prev if k not in cur]
     # Only a rule this scan actually RAN can resolve a finding. Everything else is simply
     # out of scope for this comparison and is reported as such, never as a fix.
     resolved_keys = [k for k in gone if prev[k].rule_id in rescanned]
     not_rescanned = [k for k in gone if prev[k].rule_id not in rescanned]
-    persistent_keys = [k for k in cur if k in prev]
+    in_both = [k for k in cur if k in prev]
 
+    # The mirror image of a false resolution. If the PREVIOUS scan did not evaluate this
+    # rule (a narrower selector, or the rule crashed), its absence there is not evidence the
+    # finding went away, so its presence now is not evidence it appeared. Reporting it as
+    # `new` tells an analyst the cluster just got worse when nothing changed. These are
+    # still-open findings that the last scan simply did not look at.
+    carried = _carried_over(appeared, cur, previous)
+    new_keys = [k for k in appeared if k not in carried]
+    persistent_keys = in_both + [k for k in appeared if k in carried]
+
+    # Severity movement needs BOTH sides, so only findings present in both scans qualify.
+    # A carried-over finding has no previous severity to compare against.
     changed = []
-    for key in persistent_keys:
+    for key in in_both:
         before, after = prev[key].severity.label, cur[key].severity.label
         if before != after:
             changed.append({**_view(cur[key]), "severity_was": before,
@@ -97,11 +114,30 @@ def compare(previous: Optional[ScanResult], current: ScanResult,
         "new": [_view(cur[k]) for k in new_keys if k not in regressed_keys],
         "regressed": regressed,
         "resolved": [_view(prev[k]) for k in resolved_keys],
-        "persistent": [_view(cur[k]) for k in persistent_keys],
+        "persistent": [{**_view(cur[k]),
+                        "unevaluated_in_previous_scan": k in carried}
+                       for k in persistent_keys],
         "not_rescanned": [_view(prev[k]) for k in not_rescanned],
         "summary": _summary(previous, current, new_keys, resolved_keys,
-                            persistent_keys, regressed),
+                            persistent_keys, regressed, len(carried)),
     }
+
+
+def _carried_over(appeared: list, cur: dict, previous) -> set:
+    """Of the findings absent from the previous scan, which cannot honestly be called new?
+
+    The previous scan's own evaluated-rule set answers this exactly: if that scan never ran
+    this rule, its silence carries no information, so the finding's presence now is not
+    evidence that it appeared. This is the same authority the `resolved` gate uses, applied
+    to the opposite direction, and it needs no timestamp comparison, which matters because
+    `generated_at` has second resolution and two scans can share it.
+
+    A finding whose rule the previous scan DID run is genuinely absent-then-present, and
+    stays in `new` (or is picked up as a regression when history shows it was fixed)."""
+    if previous is None:
+        return set()                       # no previous scan: everything really is new
+    evaluated_before = set(getattr(previous, "resolved_rule_ids", []) or [])
+    return {k for k in appeared if (cur[k].rule_id or "") not in evaluated_before}
 
 
 def _regressions(new_keys: list, cur: dict, timeline: Optional[dict]) -> list[dict]:
@@ -139,14 +175,18 @@ def _direction(previous: Optional[ScanResult], current: ScanResult) -> str:
 
 
 def _summary(previous, current, new_keys, resolved_keys, persistent_keys,
-             regressed) -> str:
+             regressed, carried: int = 0) -> str:
     if previous is None:
         return (f"First scan in this store: {len(new_keys)} finding(s) recorded as the "
                 f"baseline, nothing to compare against yet.")
+    # The carried-over count is stated rather than folded silently into "still open": those
+    # findings are open, but this comparison cannot say whether they are recent.
+    gap = (f" {carried} of the open finding(s) were not evaluated by the previous scan, so "
+           f"no claim is made about when they appeared." if carried else "")
     return (f"vs {previous.display_name}: {len(new_keys)} new "
             f"({len(regressed)} of them regressions), {len(resolved_keys)} resolved, "
             f"{len(persistent_keys)} still open. Risk {previous.risk.cluster_risk} -> "
-            f"{current.risk.cluster_risk} ({_direction(previous, current)}).")
+            f"{current.risk.cluster_risk} ({_direction(previous, current)}).{gap}")
 
 
 def latest_change(store, scan_id: Optional[str] = None) -> dict:

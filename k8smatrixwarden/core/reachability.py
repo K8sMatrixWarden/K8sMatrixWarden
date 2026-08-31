@@ -87,6 +87,34 @@ def _workload_index(evidence: Evidence) -> dict:
     return index
 
 
+def _exposure_index(evidence: Evidence) -> dict:
+    """namespace -> {"services": [...], "ingress_backends": {names}}, built once per scan.
+
+    Same principle as `_workload_index`, applied to the exposure lookup. Filtering the full
+    Service list per workload is O(workloads x services), and each comparison went through
+    `Evidence.dig`, whose dotted-path split is cheap once and ruinous ten million times: on a
+    5000-pod cluster that single list comprehension was 33 of the scan's 57 seconds. The
+    Ingress backend set was likewise recomputed per workload rather than per namespace."""
+    index: dict = {}
+    for svc in evidence.get("Service", all_scopes=True):
+        ns = (svc.get("metadata", {}) or {}).get("namespace")
+        index.setdefault(ns, {"services": [], "ingress_backends": set()})
+        index[ns]["services"].append(svc)
+    for ing in evidence.get("Ingress", all_scopes=True):
+        ns = (ing.get("metadata", {}) or {}).get("namespace")
+        entry = index.setdefault(ns, {"services": [], "ingress_backends": set()})
+        names = entry["ingress_backends"]
+        db = Evidence.dig(ing, "spec.defaultBackend.service.name")
+        if db:
+            names.add(db)
+        for rule in Evidence.dig(ing, "spec.rules", []) or []:
+            for path in Evidence.dig(rule, "http.paths", []) or []:
+                n = Evidence.dig(path, "backend.service.name")
+                if n:
+                    names.add(n)
+    return index
+
+
 def _resolve_workload(rref: ResourceRef, evidence: Evidence,
                       index: Optional[dict] = None) -> Optional[dict]:
     if not rref.name or rref.kind not in _WORKLOAD_KINDS:
@@ -147,23 +175,28 @@ def _ingress_backend_services(namespace: Optional[str], evidence: Evidence) -> s
 
 
 def _external_exposure(workload: dict, namespace: Optional[str],
-                       evidence: Evidence) -> Optional[str]:
+                       evidence: Evidence,
+                       exposure_index: Optional[dict] = None) -> Optional[str]:
     """Return a short descriptor of how the pod is exposed OUTSIDE the cluster, else None.
     Two ways in: a NodePort/LoadBalancer Service selecting it, or an Ingress routing to a
     Service that selects it."""
     labels = _pod_labels(workload)
     if not labels:
         return None
-    services = [s for s in evidence.get("Service", all_scopes=True)
-                if Evidence.dig(s, "metadata.namespace") == namespace]
+    if exposure_index is None:
+        exposure_index = _exposure_index(evidence)
+    entry = exposure_index.get(namespace) or {}
+    services = entry.get("services", ())
     for svc in services:
         stype = Evidence.dig(svc, "spec.type", "ClusterIP")
         if stype in _EXTERNAL_SVC_TYPES and _service_selects(svc, labels):
             return f"{stype} Service '{Evidence.dig(svc, 'metadata.name', '?')}'"
-    ingress_backends = _ingress_backend_services(namespace, evidence)
-    for svc in services:
-        if Evidence.dig(svc, "metadata.name") in ingress_backends and _service_selects(svc, labels):
-            return f"Ingress → Service '{Evidence.dig(svc, 'metadata.name', '?')}'"
+    ingress_backends = entry.get("ingress_backends") or set()
+    if ingress_backends:
+        for svc in services:
+            if ((svc.get("metadata", {}) or {}).get("name") in ingress_backends
+                    and _service_selects(svc, labels)):
+                return f"Ingress → Service '{Evidence.dig(svc, 'metadata.name', '?')}'"
     return None
 
 
@@ -212,11 +245,12 @@ def _build_path(workload: dict, namespace: Optional[str], exposure: Optional[str
 
 def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
               evidence: Evidence, graph: Optional[RbacGraph] = None,
-              namespaces: Optional[list[dict]] = None) -> tuple:
+              namespaces: Optional[list[dict]] = None,
+              exposure_index: Optional[dict] = None) -> tuple:
     """(tags, analyst-facing reason, structural path, network context, rbac paths) for a
     workload: external exposure, NetworkPolicy posture in both directions, and multi-hop
     RBAC escalation."""
-    exposure = _external_exposure(workload, namespace, evidence)
+    exposure = _external_exposure(workload, namespace, evidence, exposure_index)
     network = _network_context(workload, namespace, policies, namespaces)
     isolated = _ingress_isolated(network)                         # reason str or None
 
@@ -278,11 +312,12 @@ def inventory(evidence: Evidence) -> dict:
     namespaces = evidence.get("Namespace", all_scopes=True)
     pods = evidence.get("Pod")                       # scope-filtered, same as the rules saw
     graph = RbacGraph.from_evidence(evidence)        # built once for the whole inventory
+    exposure_index = _exposure_index(evidence)       # likewise, not once per pod
     buckets = {"internet_admin": 0, "internet": 0, "admin": 0, "internal": 0}
     for pod in pods:
         try:
             tags = _classify(pod, Evidence.dig(pod, "metadata.namespace"),
-                             policies, evidence, graph, namespaces)[0]
+                             policies, evidence, graph, namespaces, exposure_index)[0]
         except Exception:                    # pragma: no cover - defensive
             # One unclassifiable pod must not cost the whole inventory bar. It lands in
             # the least-alarming bucket rather than being dropped, so the segments still
@@ -309,6 +344,7 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
     namespaces = evidence.get("Namespace", all_scopes=True)
     graph = RbacGraph.from_evidence(evidence)   # one index, reused for every workload
     index = _workload_index(evidence)          # one lookup table, likewise
+    exposure_index = _exposure_index(evidence)  # Service/Ingress by namespace, likewise
     cache: dict[tuple, tuple] = {}
     for f in findings:
         workload = _resolve_workload(f.resource, evidence, index)
@@ -324,7 +360,7 @@ def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[F
             # "analysed and found safe".
             try:
                 cache[key] = _classify(workload, f.resource.namespace, policies, evidence,
-                                       graph, namespaces)
+                                       graph, namespaces, exposure_index)
             except Exception as exc:            # pragma: no cover - defensive
                 cache[key] = ([], f"reachability could not be analysed for this "
                                   f"resource: {type(exc).__name__}: {exc}",
