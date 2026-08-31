@@ -67,6 +67,12 @@ _FALCO_TACTIC = {
 }
 
 
+#: Used when Falco raised an alert but supplied no MITRE tag to place it. Deliberately not
+#: a Tactic member: it must not silently join a real tactic's evidence, and it must be
+#: visible as "we do not know" wherever a tactic is displayed.
+_UNKNOWN_TACTIC = "Unknown"
+
+
 def _falco_native_alert(event: dict) -> Optional["RuntimeAlert"]:
     """Relay an alert Falco raised that no rule in this catalog recognises.
 
@@ -91,12 +97,16 @@ def _falco_native_alert(event: dict) -> Optional["RuntimeAlert"]:
         return None                       # not a Falco rule hit, just a raw syscall
     tags = [str(t).lower() for t in (event.get("tags") or [])]
     tactic = next((_FALCO_TACTIC[t] for t in tags if t in _FALCO_TACTIC), None)
-    if tactic is None:
-        return None                       # no tactic evidence: correlate() groups by tactic
+    # An untagged rule (a custom rule an operator wrote, say) still fired, and dropping it
+    # would be the silent discard this relay exists to stop. It is relayed with an explicit
+    # UNKNOWN tactic instead of a guessed one: correlate() groups by tactic, so an unknown
+    # tactic matches no static finding and the alert lands in `runtime-only`, which is
+    # exactly what it is -- observed behaviour with no weakness to attach it to.
     severity = _FALCO_PRIORITY.get(str(event.get("priority") or "").lower(), S.MEDIUM)
     return RuntimeAlert(rule_id=f"falco:{rule}", title=f"Falco: {rule}",
-                        severity=severity, tactic=tactic.value, event=event,
-                        source="falco", surface="runtime")
+                        severity=severity,
+                        tactic=tactic.value if tactic else _UNKNOWN_TACTIC,
+                        event=event, source="falco", surface="runtime")
 
 
 def _proc(name):        # process-name matcher for Falco-style events

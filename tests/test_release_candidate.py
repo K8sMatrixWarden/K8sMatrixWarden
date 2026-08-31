@@ -471,6 +471,84 @@ def test_binding_lookup_is_indexed_but_still_namespace_exact():
     assert RbacGraph([], [], [gcrb], [], []).bindings_for(Node("Group", "devs", ""))
 
 
+def test_every_renderer_format_is_reachable_from_the_cli():
+    """REGRESSION. `xlsx` was implemented, documented and reported PASS by doctor, yet the
+    CLI rejected `-o xlsx` in both `scan` and `report download`: a documented export that
+    could only be reached by importing the library. A format the engine renders must be
+    offered by the interface people actually use."""
+    import contextlib
+    import io as _io
+
+    from k8smatrixwarden.cli.main import build_parser
+    from k8smatrixwarden.core.reporting import ReportingEngine
+
+    engine_formats = sorted(m for m in ("terminal", "text", "markdown", "json", "sarif",
+                                        "html", "pdf", "xlsx")
+                            if callable(getattr(ReportingEngine, m, None)))
+    parser = build_parser()
+
+    def accepts(argv) -> bool:
+        """argparse exits(2) on an invalid choice; anything else means it was accepted."""
+        try:
+            with contextlib.redirect_stderr(_io.StringIO()):
+                parser.parse_args(argv)
+            return True
+        except SystemExit as exc:
+            return exc.code not in (2,)
+
+    for fmt in engine_formats:
+        assert accepts(["scan", "--mock", "-o", fmt]), f"`scan -o {fmt}` rejected"
+        if fmt != "terminal":
+            assert accepts(["report", "download", "-f", fmt]), \
+                f"`report download -f {fmt}` rejected"
+
+
+def test_reports_stamp_the_package_version():
+    """REGRESSION. `tool_version` was the literal "1.0" while the package was already
+    1.0.0, so every report claimed a version that did not exist."""
+    import k8smatrixwarden
+    from k8smatrixwarden.core.results import ScanResult
+    from k8smatrixwarden.core.scoring import RiskScoringEngine
+    result = ScanResult(request=ScanRequest(), findings=[],
+                        risk=RiskScoringEngine().score([]), resolved_rule_ids=[])
+    assert result.tool_version == k8smatrixwarden.__version__
+
+
+def test_the_xlsx_workbook_states_coverage_like_every_other_surface():
+    """REGRESSION. The workbook carried findings, severities and risk but omitted evidence
+    coverage, so a spreadsheet could show 489 findings at risk 9.9 without disclosing that
+    part of the cluster was never readable."""
+    openpyxl = __import__("importlib").util.find_spec("openpyxl")
+    if openpyxl is None:
+        return                             # optional extra absent: covered by the doctor
+    import io as _io
+
+    import openpyxl as xl
+
+    from k8smatrixwarden.agents.scanner import ScannerAgent
+    from k8smatrixwarden.core.reporting import ReportingEngine
+    p = _platform()
+    result = ScannerAgent(p).scan(ScanRequest(), p.make_collector(mock=True))
+    wb = xl.load_workbook(_io.BytesIO(ReportingEngine().render(result, "xlsx")))
+    blob = "\n".join(str(c) for ws in wb.worksheets
+                     for row in ws.iter_rows(values_only=True) for c in row
+                     if c is not None)
+    assert str(result.coverage["coverage_pct"]) in blob
+    assert "Assessment confidence" in blob
+
+
+def test_the_terminal_report_states_coverage_beside_the_score():
+    """REGRESSION. Terminal was the last surface showing a risk score without the coverage
+    it was computed from; 9.9 from 95% coverage is a different claim from 9.9 from 40%."""
+    from k8smatrixwarden.agents.scanner import ScannerAgent
+    from k8smatrixwarden.core.reporting import ReportingEngine
+    p = _platform()
+    result = ScannerAgent(p).scan(ScanRequest(), p.make_collector(mock=True))
+    body = ReportingEngine().render(result, "terminal")
+    assert str(result.coverage["coverage_pct"]) in body
+    assert str(result.risk.cluster_risk) in body
+
+
 def test_the_scanner_is_identical_with_and_without_an_llm():
     """The LLM may explain findings; it may never be load-bearing for them."""
     p = _platform()

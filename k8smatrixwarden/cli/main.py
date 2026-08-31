@@ -157,16 +157,20 @@ def cmd_scan(a) -> int:
     for w in getattr(collector, "warnings", []):
         print(f"warning: {w}", file=sys.stderr)
 
-    if a.output == "pdf":
+    # PDF and XLSX are binary: they are written to a file rather than printed, and their
+    # optional dependency is reported as a clean error rather than a traceback.
+    if a.output in ("pdf", "xlsx"):
         try:
-            rendered = platform.reporting.render(result, "pdf")
+            rendered = platform.reporting.render(result, a.output)
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        out_path = a.output_file or f"k8smatrixwarden-report-{result.scan_id}.pdf"
+        out_path = (a.output_file
+                    or f"k8smatrixwarden-report-{result.scan_id}.{a.output}")
         with open(out_path, "wb") as fh:
             fh.write(rendered)
-        print(f"📄 PDF report written to {out_path} ({len(rendered):,} bytes)")
+        label = "PDF" if a.output == "pdf" else "Excel workbook"
+        print(f"📄 {label} written to {out_path} ({len(rendered):,} bytes)")
     else:
         rendered = platform.reporting.render(result, a.output)
         print(rendered)
@@ -474,14 +478,14 @@ def cmd_report(a) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if a.format == "pdf":
+    if a.format in ("pdf", "xlsx"):
         if not a.output:
-            print("error: --output PATH is required for --format pdf "
-                 "(binary content can't be printed to the terminal)", file=sys.stderr)
+            print(f"error: --output PATH is required for --format {a.format} "
+                  "(binary content can't be printed to the terminal)", file=sys.stderr)
             return 2
         with open(a.output, "wb") as fh:
             fh.write(rendered)
-        print(f"📄 Downloaded {result.scan_id} as pdf → {a.output} "
+        print(f"📄 Downloaded {result.scan_id} as {a.format} → {a.output} "
               f"({len(rendered):,} bytes)")
     elif a.output:
         with open(a.output, "w", encoding="utf-8") as fh:
@@ -585,7 +589,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_scope_args(s)
     _add_selector_args(s)
     s.add_argument("--output", "-o", default="terminal",
-                   choices=["terminal", "text", "markdown", "json", "sarif", "html", "pdf"])
+                   choices=["terminal", "text", "markdown", "json", "sarif", "html",
+                            "pdf", "xlsx"])
     s.add_argument("--output-file", help="for -o pdf, defaults to "
                    "k8smatrixwarden-report-<scan_id>.pdf if omitted")
     s.add_argument("--mock", action="store_true", help="use the bundled mock cluster")
@@ -708,7 +713,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--output", "-o", default="text", choices=["text", "json"])
     po.set_defaults(func=cmd_posture)
 
-    fmts = ["terminal", "text", "markdown", "json", "sarif", "html", "pdf"]
+    fmts = ["terminal", "text", "markdown", "json", "sarif", "html", "pdf", "xlsx"]
     rp = sub.add_parser("report", help="list / download stored scan reports")
     rpsub = rp.add_subparsers(dest="report_cmd", required=True)
     rl = rpsub.add_parser("list", help="list stored reports")

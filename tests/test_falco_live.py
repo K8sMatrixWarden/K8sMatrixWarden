@@ -134,11 +134,26 @@ def test_a_relayed_alert_is_attributed_to_falco_never_adopted():
     assert alert.title.startswith("Falco: ")
 
 
-def test_an_event_with_no_mitre_tag_is_not_relayed():
-    """Correlation groups by tactic, and a tactic is a claim. Falco supplies one in its
-    tags; where it does not, inventing one would be worse than staying silent."""
+def test_an_untagged_falco_rule_is_relayed_with_an_unknown_tactic():
+    """A tactic is a claim, and Falco supplies one in its tags. Where it does not (a custom
+    rule an operator wrote), the alert is still relayed, with the tactic stated as Unknown
+    rather than guessed: dropping it would be the silent discard this relay exists to
+    prevent, and inventing a tactic would be the overclaim. An unknown tactic matches no
+    static finding, so it surfaces as `runtime-only`, which is precisely what it is."""
     untagged = dict(LIVE_EVENT, tags=["container", "filesystem"])
-    assert RuntimeAgent().evaluate_stream(normalize_events([untagged])) == []
+    alerts = RuntimeAgent().evaluate_stream(normalize_events([untagged]))
+    assert len(alerts) == 1
+    assert alerts[0].rule_id == "falco:Read sensitive file untrusted"
+    assert alerts[0].tactic == "Unknown"
+
+    out = correlate([_finding()], alerts, cluster="docker-desktop", now=_NOW)
+    assert out["confirmed_exploitation"] == 0, "an unknown tactic confirms nothing"
+    assert out["runtime_only"] == 1
+
+
+def test_an_event_that_is_not_a_rule_hit_is_not_relayed():
+    """No rule name means Falco did not raise an alert at all, just a raw syscall. There is
+    no verdict to relay, so nothing is claimed."""
     unnamed = dict(LIVE_EVENT)
     unnamed.pop("rule")
     assert RuntimeAgent().evaluate_stream(normalize_events([unnamed])) == []

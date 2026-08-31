@@ -21,6 +21,15 @@ def slugify_name(name: str) -> str:
     return slug[:40]
 
 
+def _tool_version() -> str:
+    """The package's own version, the single source of truth for what reports claim."""
+    try:
+        from .. import __version__
+        return __version__
+    except Exception:                      # pragma: no cover - importable in every path
+        return "0.0.0"
+
+
 def _scan_id(name: str = "") -> str:
     """Build a scan id of the form ``<name>-YYYYMMDD-HHMMSS-<subsecond>`` so the id itself
     carries the (optional) scan name, the date, and the time, the report naming format
@@ -67,7 +76,10 @@ class ScanResult:
     scan_id: str = ""
     cluster_name: str = "target-cluster"
     generated_at: str = field(default_factory=ist_timestamp)
-    tool_version: str = "1.0"
+    #: Stamped on every report. Read from the package rather than written here, so a
+    #: release cannot ship reports claiming a version the package does not have: this said
+    #: "1.0" while the package was already 1.0.0.
+    tool_version: str = field(default_factory=lambda: _tool_version())
     mode: str = "mock"
     #: Non-fatal collection problems (resource types the scanner's RBAC could not read,
     #: API groups absent on this cluster). Carried on the result, not just printed once, 

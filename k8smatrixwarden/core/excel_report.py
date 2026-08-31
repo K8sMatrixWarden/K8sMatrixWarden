@@ -201,6 +201,21 @@ def _sheet_metadata(ws, result: ScanResult, style_sheet) -> None:
         ("Generated", result.generated_at),
         ("Report scan id", result.scan_id),
     ]
+    # Coverage and confidence travel with the numbers everywhere else, and must here too:
+    # a spreadsheet showing 489 findings at risk 9.9 while omitting that 4.5% of the
+    # cluster was never readable overstates how complete the assessment was. The warning
+    # rows below say what could not be read; these say how much.
+    cov = result.coverage or {}
+    if cov:
+        meta += [
+            ("Evidence coverage", f"{cov.get('coverage_pct')}% "
+                                  f"({cov.get('coverage_basis', 'measured')})"),
+            ("Assessment confidence", f"{cov.get('confidence_pct')}% "
+                                      f"({cov.get('confidence_label', '')})".strip()),
+        ]
+    if result.failed_rule_ids:
+        # A rule that raised produced no findings; that is not the same as finding none.
+        meta.append(("Rules that failed to run", ", ".join(result.failed_rule_ids)))
     for k, v in meta:
         ws.append([k, v])
     for warn in (result.warnings or []):

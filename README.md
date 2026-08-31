@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-745%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-750%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -70,18 +70,22 @@ python -m k8smatrixwarden web --port 8080
 **Measured on Kubernetes Goat** (Docker Desktop Kubernetes, 30 pods, this repository's
 current build):
 
-- 463 findings (22 CRITICAL, 203 HIGH, 238 MEDIUM) — risk **9.8/10 Critical**
+- 489 findings (28 CRITICAL, 215 HIGH, 246 MEDIUM) — risk **9.9/10 Critical**. That count
+  includes Falco's own DaemonSet, which is privileged and mounts host paths by design: the
+  scanner reports its own sensor rather than exempting it
 - Evidence coverage **95.5%**, basis `measured`; assessment confidence 95.5% (High). The
   missing 4.5% is Cloud IAM, which has no Kubernetes API path on a local cluster and is
   reported as unread rather than as clean
-- **21 findings carry a multi-hop RBAC escalation path**, e.g.
+- **Multi-hop RBAC escalation paths** attached to findings, e.g.
   `ServiceAccount/local-path-provisioner-service-account → RoleBinding/local-path-provisioner-bind → Role/local-path-provisioner-role → create-workload`
 - 9 tactics chained (reaches Impact) + **25 evidence-backed resource routes**, the strongest
   being `Internet → NodePort Service → Deployment/internal-proxy-deploy`
 - Full scan, including RBAC graph and NetworkPolicy evaluation: **~213 ms**
 
-No Falco was installed on that cluster, so the runtime correlation reported zero events and
-said so — it did not silently render as "nothing is being exploited".
+With **Falco 0.44.1 running on that cluster** (modern eBPF), a `cat /etc/shadow` in three
+Goat pods produced 4 correlations at `confirmed` — the live event named the same resource a
+static finding was on — under Credential Access, freshness `recent`. Each marked only the
+node the event named (`fully_observed: false`), never the whole path.
 
 ---
 
@@ -93,7 +97,7 @@ said so — it did not silently render as "nothing is being exploited".
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (745/745 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (750/750 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -217,6 +221,7 @@ pip install -e ".[live]"      # + kubernetes client for real clusters
 pip install -e ".[pretty]"    # + rich terminal tables
 pip install -e ".[mcp]"       # + MCP protocol server
 pip install -e ".[pdf]"       # + fpdf2, for `-o pdf` report export
+pip install -e ".[excel]"     # + openpyxl, for `-o xlsx` workbook export
 pip install -e ".[all]"       # everything
 ```
 
@@ -542,6 +547,25 @@ one scoped `ClusterRole` per shard, every verb `get`/`list`/`watch`:
 k8smatrixwarden roles --bind --output-file k8smatrixwarden-rbac.json
 kubectl apply -f k8smatrixwarden-rbac.json
 ```
+
+## Validation status & known limitations
+
+What has actually been exercised, and what has not. Nothing below is a bug; they are the
+boundaries of what the tool claims.
+
+| Area | Status |
+|---|---|
+| Static scanning, RBAC graph, NetworkPolicy, attack paths, risk, compliance | **Tested** — live cluster + fixtures |
+| Live Falco runtime correlation (pull from Falco pod logs) | **Tested live** — Falco 0.44.1, modern eBPF |
+| All 8 report formats, MCP, web dashboard | **Tested** |
+| LLM layer (provider/model agnostic, optional) | **Tested** against a local OpenAI-compatible endpoint; no vendor endpoint exercised |
+| `POST /api/runtime` push feed (falcosidekick) | **Optional, contract-tested only** — not exercised against a live falcosidekick |
+| Kubernetes **audit** event rules | **Fixture-tested** — Docker Desktop exposes no audit log |
+| Multi-node runtime identity | **Synthetic only** — validated on a single-node cluster |
+| NetworkPolicy **ports** | Carried in peer data, deliberately **not** used to narrow reachability. `restricted` already counts as isolating, so the model errs away from claiming reachability. |
+| Aggregated ClusterRoles | A live API server materialises `admin`/`edit`/`view` rules, and those resolve. An un-materialised `aggregationRule` is reported **`unknown`**, never as empty permissions. |
+| User → Group membership | **Not traversed.** Groups resolve to their bindings and permissions; membership itself lives in certificates and OIDC claims, not in any cluster object, so it is not inferred. |
+| Kubernetes object **UID** | Deliberately **not** part of finding identity. A recreated Pod with the same flaw is the same finding, not a fix followed by a regression. |
 
 ## Documentation
 

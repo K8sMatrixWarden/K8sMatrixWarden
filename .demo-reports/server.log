@@ -1,2 +1,0 @@
-127.0.0.1 - - [25/Jul/2026 00:27:24] "GET /api/report/kubernetes-goat-demo-20260724-233520-be1d?format=doc HTTP/1.1" 400 -
-127.0.0.1 - - [25/Jul/2026 00:27:43] "GET /favicon.ico HTTP/1.1" 404 -

@@ -121,6 +121,15 @@ class ReportingEngine:
             f"Mode {result.mode}   Rules {len(result.resolved_rule_ids)}\n"
             f"🔴 {c['CRITICAL']} Critical   🟠 {c['HIGH']} High   "
             f"🟡 {c['MEDIUM']} Medium   🟢 {c['LOW']} Low")
+        # Coverage belongs next to the score wherever the score appears: a 9.9 from 95%
+        # coverage is a different statement from a 9.9 from 40%, and the terminal was the
+        # only surface showing the score without it.
+        cov = result.coverage or {}
+        if cov:
+            summary += (f"\nEvidence coverage {cov.get('coverage_pct')}% "
+                        f"({cov.get('coverage_basis', 'measured')})   "
+                        f"Assessment confidence {cov.get('confidence_pct')}% "
+                        f"({cov.get('confidence_label', '')})")
         console.print(Panel(summary, title=f"🛡️  K8s Security Report · {result.scan_id}",
                             border_style=_rich_border(r.rating), expand=True))
 

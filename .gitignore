@@ -101,3 +101,6 @@ k8smatrixwarden-report-scan-*.md
 # Local web-server runtime logs (not source)
 .demo-reports/*.log
 .demo-reports/*.err.log
+
+# Web-server access logs written beside demo reports (generated, never source)
+*.log
