@@ -130,6 +130,18 @@ class ReportingEngine:
                                 title="⚠️  Scan warnings", border_style="dark_orange",
                                 expand=True))
 
+        # Live runtime evidence, above the findings tables: "this one is being exploited
+        # right now" outranks any static severity ordering below it.
+        rt_lines = _runtime_lines(result)
+        if rt_lines:
+            summary_line, *detail = [ln for ln in rt_lines if not ln.startswith("─")]
+            confirmed = (_runtime_summary(result) or {}).get("confirmed", 0)
+            console.print(Panel("\n".join([summary_line] + [f"• {d.strip()}"
+                                                            for d in detail]),
+                                title="📡 Runtime correlation (live feed)",
+                                border_style="red" if confirmed else "cyan",
+                                expand=True))
+
         findings = _display_findings(result.findings)
         if not findings:
             console.print("[green]✅ No findings for this scan.[/green]")
@@ -182,6 +194,8 @@ class ReportingEngine:
         # so the two are read together, a 9.7 from 40% coverage is a different statement
         # from a 9.7 from 100%.
         out += [f"  {line}" for line in _coverage_lines(result)]
+        # Runtime correlation sits beside coverage: both qualify what the findings mean.
+        out += [f"  {line}" for line in _runtime_lines(result)]
         warns = scan_warning_lines(result)
         if warns:
             out += [f"  ⚠️  SCAN WARNINGS ({len(warns)})"]
@@ -334,6 +348,7 @@ class ReportingEngine:
         # ---- coverage --------------------------------------------------- #
         md += ["<a id=\"coverage\"></a>", "## 3. 🎯 Coverage & Exposure", ""]
         md += _coverage_md(result)
+        md += _runtime_md(result)
 
         if result.by_tactic:
             md += ["### By MITRE ATT&CK Tactic", "",
@@ -636,7 +651,7 @@ class ReportingEngine:
             css=_HTML_CSS, js=_HTML_JS + THEME_JS, scan=_esc(result.scan_id),
             matrix=matrix_html, themebtn=THEME_BUTTON,
             warnings=warning_banner_html(result),
-            coverage=_coverage_html(result),
+            coverage=_coverage_html(result) + _runtime_html(result),
             cluster=_esc(result.cluster_name), rating=r.rating,
             risk=r.cluster_risk, sec=r.security_score,
             rating_emoji=r.rating_emoji, rating_class=r.rating.lower(),
@@ -671,6 +686,115 @@ def _coverage_lines(result: ScanResult) -> list[str]:
                      "clean may simply not have been visible.")
     lines.append("─" * 60)
     return lines
+
+
+def _runtime_rows(result: ScanResult) -> list[tuple]:
+    """(confidence, freshness, tactic, resource, namespace, falco rule) per correlation.
+
+    One extraction, shared by every renderer, so the surfaces cannot disagree about what
+    the runtime feed said. Empty when the scan pulled no runtime feed at all, which is the
+    normal case for a mock scan or a `--no-runtime` live scan."""
+    rt = getattr(result, "runtime", None) or {}
+    corr = rt.get("correlation") or {}
+    rows = []
+    for c in corr.get("correlations", []):
+        rows.append((c.get("confidence", "?"), c.get("freshness", "unknown"),
+                     c.get("tactic", ""), c.get("resource", ""),
+                     c.get("namespace", ""),
+                     (c.get("runtime") or {}).get("rule_id", "")))
+    return rows
+
+
+def _runtime_summary(result: ScanResult) -> Optional[dict]:
+    """Headline runtime numbers, or None when there was no feed."""
+    rt = getattr(result, "runtime", None) or {}
+    if not rt:
+        return None
+    corr = rt.get("correlation") or {}
+    return {"source": rt.get("source", "runtime"),
+            "cluster": rt.get("cluster", ""),
+            "events": rt.get("events_seen", 0),
+            "alerts": corr.get("total_alerts", 0),
+            "confirmed": corr.get("confirmed_exploitation", 0),
+            "correlated": corr.get("correlated", 0),
+            "runtime_only": corr.get("runtime_only", 0),
+            "collected_at": rt.get("collected_at", "")}
+
+
+def _runtime_lines(result: ScanResult) -> list[str]:
+    """Runtime correlation for the text/terminal reports.
+
+    Until this existed the runtime feed was collected, correlated and stored, and then
+    appeared in no rendered report at all: an operator whose Falco feed said three findings
+    were being actively exploited read a report that never mentioned it. `confirmed` is the
+    strongest statement this tool makes, so it belongs in the format people actually read.
+    """
+    s = _runtime_summary(result)
+    if not s:
+        return []
+    lines = [f"Runtime feed ({s['source']}): {s['events']} event(s), {s['alerts']} alert(s), "
+             f"{s['confirmed']} confirmed as active exploitation."]
+    for conf, fresh, tactic, resource, ns, rule in _runtime_rows(result)[:10]:
+        age = "" if fresh == "recent" else f" [{fresh}]"
+        lines.append(f"  {conf.upper():<13}{age} {tactic} on {resource} ({ns}) via {rule}")
+    if s["confirmed"]:
+        lines.append("CONFIRMED means a live event named the same resource as a static "
+                     "finding, not merely the same namespace.")
+    lines.append("─" * 60)
+    return lines
+
+
+def _runtime_md(result: ScanResult) -> list[str]:
+    """Markdown rendering of the same runtime block."""
+    s = _runtime_summary(result)
+    if not s:
+        return []
+    md = ["### 📡 Runtime correlation (live feed)", "",
+          "| Metric | Value |", "|---|---|",
+          f"| Source | {s['source']} |",
+          f"| Cluster | {s['cluster'] or 'unlabelled'} |",
+          f"| Events ingested | {s['events']} |",
+          f"| Alerts raised | {s['alerts']} |",
+          f"| Confirmed exploitation | {s['confirmed']} |",
+          f"| Corroborated | {s['correlated']} |",
+          f"| Runtime-only | {s['runtime_only']} |", ""]
+    rows = _runtime_rows(result)
+    if rows:
+        md += ["| Confidence | Freshness | Tactic | Resource | Namespace | Detection |",
+               "|---|---|---|---|---|---|"]
+        md += [f"| {c} | {f} | {t} | `{r}` | {ns} | `{rule}` |"
+               for c, f, t, r, ns, rule in rows[:25]]
+        md += ["", "> `confirmed` means a live event named the same resource as a static "
+               "finding. `corroborated` means the behaviour matches the same tactic in the "
+               "same namespace, which is weaker. A `historical` freshness means the "
+               "behaviour WAS seen, not that it is happening now.", ""]
+    return md
+
+
+def _runtime_html(result: ScanResult) -> str:
+    """HTML rendering of the same runtime block, for the format a stakeholder opens."""
+    s = _runtime_summary(result)
+    if not s:
+        return ""
+    rows = _runtime_rows(result)
+    body = "".join(
+        f"<tr><td><span class='pill {('crit' if c == 'confirmed' else 'warn')}'>{_esc(c)}"
+        f"</span></td><td>{_esc(f)}</td><td>{_esc(t)}</td><td><code>{_esc(r)}</code></td>"
+        f"<td>{_esc(ns)}</td><td><code>{_esc(rule)}</code></td></tr>"
+        for c, f, t, r, ns, rule in rows[:25])
+    return (
+        "<section class='card'><h2>📡 Runtime correlation (live feed)</h2>"
+        f"<p>{s['events']} event(s) from <code>{_esc(s['source'])}</code> on cluster "
+        f"<code>{_esc(s['cluster'] or 'unlabelled')}</code>: <strong>{s['confirmed']}"
+        "</strong> confirmed as active exploitation, "
+        f"{s['correlated']} corroborated, {s['runtime_only']} runtime-only.</p>"
+        + (f"<table><thead><tr><th>Confidence</th><th>Freshness</th><th>Tactic</th>"
+           f"<th>Resource</th><th>Namespace</th><th>Detection</th></tr></thead>"
+           f"<tbody>{body}</tbody></table>" if rows else "")
+        + "<p class='muted'><em>confirmed</em> means a live event named the same resource "
+          "as a static finding; <em>corroborated</em> is the same tactic in the same "
+          "namespace, which is weaker. <em>historical</em> freshness means the behaviour "
+          "was seen, not that it is happening now.</p></section>")
 
 
 def _coverage_html(result: ScanResult) -> str:

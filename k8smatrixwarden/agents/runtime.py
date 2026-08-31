@@ -48,6 +48,57 @@ class RuntimeAlert:
     surface: str = "runtime"
 
 
+#: Falco's own priority scale mapped onto ours. Falco's `Warning` is a real alert its
+#: default ruleset chose to raise, not a hint, so it lands at MEDIUM rather than LOW.
+_FALCO_PRIORITY = {"emergency": S.CRITICAL, "alert": S.CRITICAL, "critical": S.CRITICAL,
+                   "error": S.HIGH, "warning": S.MEDIUM, "notice": S.LOW,
+                   "informational": S.INFO, "info": S.INFO, "debug": S.INFO}
+
+#: Falco tags its rules with the ATT&CK tactic (`mitre_credential_access`) and, usually, the
+#: technique id (`T1555`). Those tags are the only reason a relayed alert can name a tactic
+#: honestly instead of one being invented for it.
+_FALCO_TACTIC = {
+    "mitre_initial_access": T.INITIAL_ACCESS, "mitre_execution": T.EXECUTION,
+    "mitre_persistence": T.PERSISTENCE, "mitre_privilege_escalation": T.PRIVILEGE_ESCALATION,
+    "mitre_defense_evasion": T.DEFENSE_EVASION, "mitre_credential_access": T.CREDENTIAL_ACCESS,
+    "mitre_discovery": T.DISCOVERY, "mitre_lateral_movement": T.LATERAL_MOVEMENT,
+    "mitre_impact": T.IMPACT, "mitre_exfiltration": T.IMPACT,
+    "mitre_command_and_control": T.LATERAL_MOVEMENT, "mitre_collection": T.CREDENTIAL_ACCESS,
+}
+
+
+def _falco_native_alert(event: dict) -> Optional["RuntimeAlert"]:
+    """Relay an alert Falco raised that no rule in this catalog recognises.
+
+    This agent's 11 rules are a deliberately small, high-confidence set; Falco's default
+    ruleset has around ninety. Evaluating only our own rules meant that any Falco alert
+    without a local equivalent was silently discarded, so a live sensor reporting
+    `Read sensitive file untrusted` on three pods produced zero runtime alerts. Dropping
+    evidence an operator deliberately deployed a sensor to collect is the same failure as
+    any other silent negative.
+
+    The relayed alert is attributed, never adopted: its id is `falco:<rule>`, so nothing
+    downstream mistakes Falco's verdict for one of ours. Severity comes from Falco's own
+    priority and the tactic from Falco's own MITRE tag; an event carrying neither a tag nor
+    a rule name is not relayed at all, because there would be nothing to base a claim on.
+    """
+    if not isinstance(event, dict):
+        return None                       # the rule loop tolerates junk; so must this
+    if event.get("source") != "falco":
+        return None                       # audit events have their own rules and no tags
+    rule = (event.get("rule") or "").strip()
+    if not rule:
+        return None                       # not a Falco rule hit, just a raw syscall
+    tags = [str(t).lower() for t in (event.get("tags") or [])]
+    tactic = next((_FALCO_TACTIC[t] for t in tags if t in _FALCO_TACTIC), None)
+    if tactic is None:
+        return None                       # no tactic evidence: correlate() groups by tactic
+    severity = _FALCO_PRIORITY.get(str(event.get("priority") or "").lower(), S.MEDIUM)
+    return RuntimeAlert(rule_id=f"falco:{rule}", title=f"Falco: {rule}",
+                        severity=severity, tactic=tactic.value, event=event,
+                        source="falco", surface="runtime")
+
+
 def _proc(name):        # process-name matcher for Falco-style events
     return lambda e: e.get("source") == "falco" and name in (e.get("proc") or "")
 
@@ -89,7 +140,18 @@ def normalize_falco_event(raw: dict) -> dict:
     ev = {"source": "falco", "proc": of.get("proc.name"),
           "op": of.get("evt.type"), "namespace": of.get("k8s.ns.name"),
           "pod": of.get("k8s.pod.name"), "uid": of.get("user.uid"),
-          "time": when, "rule": raw.get("rule", "")}
+          "time": when, "rule": raw.get("rule", ""),
+          # Falco's own verdict, kept so an alert this agent has no equivalent rule for can
+          # still be relayed under Falco's name instead of being dropped. `tags` carries
+          # Falco's MITRE mapping (e.g. T1555 + mitre_credential_access), which is why the
+          # relayed alert can name a real tactic rather than guessing one.
+          "priority": raw.get("priority", ""),
+          "container": of.get("container.name"),
+          "image": of.get("container.image.repository")}
+    # Only when Falco actually supplied them: an empty list is not a value, and the flat
+    # event is a contract other code (and tests) match on exactly.
+    if raw.get("tags"):
+        ev["tags"] = list(raw["tags"])
     if is_net:
         ev["connect"] = fd or f"{of.get('fd.sip', '')}:{of.get('fd.sport', '')}"
     elif fd:
@@ -184,6 +246,10 @@ class RuntimeAgent:
                                                source=r.source, surface=r.surface))
             except Exception:
                 continue
+        if not alerts:
+            relayed = _falco_native_alert(event)
+            if relayed is not None:
+                alerts.append(relayed)
         return alerts
 
     def evaluate_stream(self, events: list[dict]) -> list[RuntimeAlert]:

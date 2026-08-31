@@ -62,19 +62,26 @@ def test_runtime_refresh_needs_scan_then_degrades_without_cluster():
     # No scan yet -> clear 400, not a crash.
     r = app.route("POST", "/api/runtime/refresh", body=b"{}")
     assert r.status == 400 and "no saved scan" in json.loads(r.text)["error"]
-    # With a (mock) scan, the live pull degrades gracefully instead of crashing. Which
-    # degradation depends on the machine the tests run on, and both are correct:
-    #   * no cluster reachable   -> 400 naming the missing cluster access
-    #   * cluster but no Falco   -> 200 with runtime: null and a warning saying why
-    # Asserting only the first made this test fail on any developer machine that happens
-    # to have a working kubeconfig, which is a property of the machine, not of the code.
+    # With a (mock) scan, the live pull behaves correctly whatever the machine offers.
+    # Which outcome you get is a property of the machine, not of the code, and all three
+    # are right:
+    #   * no cluster reachable       -> 400 naming the missing cluster access
+    #   * cluster but no Falco       -> 200 with runtime: null and a warning saying why
+    #   * cluster WITH a live Falco  -> 200 with a populated runtime block
+    # The third case only became reachable once a real Falco was deployed against this
+    # suite; asserting degradation unconditionally would have turned a working live feed
+    # into a test failure.
     _scan(app)
     r = app.route("POST", "/api/runtime/refresh", body=b"{}")
     out = json.loads(r.text)
     if r.status == 400:
         assert "cluster access" in out["error"]
+    elif out["runtime"] is None:
+        assert r.status == 200 and out["warnings"]
     else:
-        assert r.status == 200 and out["runtime"] is None and out["warnings"]
+        rt = out["runtime"]
+        assert r.status == 200 and rt["source"] and rt["events_seen"] >= 0
+        assert "correlation" in rt and "drift" in rt
 
 
 def test_finding_context_endpoint_returns_report_grade_detail():

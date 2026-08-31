@@ -81,6 +81,7 @@ def render_pdf(result: ScanResult) -> bytes:
     _title_page(pdf, result)
     _executive_summary(pdf, result, findings)
     _coverage(pdf, result, findings)
+    _runtime_section(pdf, result)
     if findings:
         _findings_section(pdf, findings, build_finding_context)
     else:
@@ -319,6 +320,43 @@ def _executive_summary(pdf, result: ScanResult, findings: list[Finding]) -> None
         ("Attack-path amplified findings", str(len(multi))),
         ("Domains (shards) involved", str(len(result.by_shard))),
     ])
+
+
+def _runtime_section(pdf, result: ScanResult) -> None:
+    """Live runtime correlation, for the format that gets emailed to a stakeholder.
+
+    Reuses the shared extraction in reporting.py so the PDF cannot state a different number
+    of confirmed exploitations than the terminal did."""
+    from .reporting import _runtime_rows, _runtime_summary
+    summary = _runtime_summary(result)
+    if not summary:
+        return
+    pdf.add_page()
+    _h2(pdf, "Runtime correlation (live feed)")
+    _body(pdf, _ascii(
+        f"Source {summary['source']} on cluster {summary['cluster'] or 'unlabelled'}: "
+        f"{summary['events']} event(s) ingested, {summary['alerts']} alert(s) raised, "
+        f"{summary['confirmed']} confirmed as active exploitation, "
+        f"{summary['correlated']} corroborated, {summary['runtime_only']} runtime-only."))
+    rows = _runtime_rows(result)
+    if not rows:
+        return
+    _h3(pdf, "Correlated runtime evidence")
+    with pdf.table(col_widths=(24, 20, 34, 60, 28, 54),
+                   text_align="LEFT", borders_layout="HORIZONTAL_LINES") as table:
+        head = table.row()
+        for col in ("Confidence", "Freshness", "Tactic", "Resource", "Namespace",
+                    "Detection"):
+            head.cell(col)
+        for conf, fresh, tactic, resource, ns, rule in rows[:25]:
+            row = table.row()
+            for value in (conf, fresh, tactic, resource, ns, rule):
+                row.cell(_ascii(str(value)))
+    pdf.ln(2)
+    _body(pdf, _ascii(
+        "confirmed means a live event named the same resource as a static finding; "
+        "corroborated means the same tactic in the same namespace, which is weaker. "
+        "A historical freshness means the behaviour was seen, not that it is happening now."))
 
 
 def _coverage(pdf, result: ScanResult, findings: list[Finding]) -> None:

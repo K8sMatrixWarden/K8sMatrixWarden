@@ -30,17 +30,53 @@ def _looks_like_falco_event(obj: dict) -> bool:
     return "rule" in obj and "priority" in obj
 
 
-def parse_falco_log(text: str) -> list[dict]:
+def _as_text(payload) -> str:
+    r"""Coerce a pod-log payload to real text, whatever the Kubernetes client handed back.
+
+    Three shapes occur in the wild and only the first is the documented one:
+
+      * `str`  , the log as written.
+      * `bytes`, when the client skips deserialisation.
+      * `str` holding the *repr of bytes*, i.e. the six characters ``b'...'`` wrapping a
+        body whose line breaks are the two characters backslash-n rather than newlines.
+        Several kubernetes-client versions return this from `read_namespaced_pod_log`.
+
+    The third shape is the dangerous one, because it is a perfectly valid `str` that
+    `splitlines()` reports as a single line. Every JSON alert is still in there, just
+    escaped, so parsing silently yielded zero events on a working Falco install and the
+    feed then blamed the operator's configuration for the emptiness.
+    """
+    if isinstance(payload, (bytes, bytearray)):
+        return payload.decode("utf-8", "replace")
+    text = payload or ""
+    if not isinstance(text, str):
+        return str(text)
+    stripped = text.strip()
+    for prefix in ("b'", 'b"'):
+        if stripped.startswith(prefix) and stripped.endswith(prefix[-1]):
+            body = stripped[2:-1]
+            try:
+                # Undo the escaping the repr applied; latin-1 round-trips every byte value.
+                return body.encode("latin-1", "backslashreplace").decode(
+                    "unicode_escape").encode("latin-1", "replace").decode(
+                        "utf-8", "replace")
+            except Exception:
+                # Worst case, at least restore the line breaks so the alerts are parseable.
+                return body.replace("\\n", "\n")
+    return text
+
+
+def parse_falco_log(text) -> list[dict]:
     """Parse a Falco container log (json_output=true) into raw Falco event dicts.
 
-    Accepts the raw multi-line log string. Each non-empty line is JSON-decoded; lines that
+    Accepts the raw multi-line log payload. Each non-empty line is JSON-decoded; lines that
     are not JSON (or not Falco-shaped) are skipped rather than raising, so a log that mixes
     startup text with JSON alerts still yields the alerts. A line may carry a leading
     prefix (e.g. a kubectl `--timestamps` stamp) before the JSON, we retry from the first
     '{' in that case.
     """
     out: list[dict] = []
-    for raw_line in (text or "").splitlines():
+    for raw_line in _as_text(text).splitlines():
         line = raw_line.strip()
         if not line:
             continue
