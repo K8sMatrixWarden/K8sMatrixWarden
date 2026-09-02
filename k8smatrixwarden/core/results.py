@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -30,28 +32,70 @@ def _tool_version() -> str:
         return "0.0.0"
 
 
+#: Width of the trailing subsecond field, in distinct values. 4 hex characters, unchanged
+#: from when the field really was a subsecond reading, so the public id format is the same.
+_SUBSECOND_SPAN = 0xFFFF
+_SUBSECOND_MAX = 0xFFFF
+
+#: The last (stamp, subsecond) this process issued, and the lock protecting it. Uniqueness
+#: and ordering live here rather than in the clock because the clock cannot carry them: on
+#: Windows `datetime.now()` advances in ~15.6 ms steps, so two thousand consecutive reads
+#: return two distinct microsecond values and hundreds of scans land in one bucket. Reports
+#: are also saved from the web app's request handlers, so more than one thread can mint at
+#: once and two threads reading the same last value would mint the same id.
+_LAST_ID: tuple = ("", -1)
+_ID_LOCK = threading.Lock()
+
+
 def _scan_id(name: str = "") -> str:
     """Build a scan id of the form ``<name>-YYYYMMDD-HHMMSS-<subsecond>`` so the id itself
     carries the (optional) scan name, the date, and the time, the report naming format
     surfaced everywhere (files on disk, download filenames, dashboard history). Falls back
     to the ``scan`` prefix when no name is given, preserving the historic ``scan-…`` shape.
 
-    The 4-char suffix separates two scans started in the same second, and it is deliberately
+    The trailing 4-char field separates scans started in the same second, and it is
     ORDER-PRESERVING rather than a hash. `generated_at` only has second resolution, so the
     report store breaks ties on the scan id; a hashed suffix made that tiebreak deterministic
     but arbitrary, which let the *later* of two same-second scans sort first. Posture then
-    compared in the wrong direction and reported new findings as resolved. Encoding the
-    microsecond instead makes the lexicographic order the chronological order.
+    compared in the wrong direction and reported new findings as resolved.
 
-    Resolution is 1/65536 s (~15 microseconds); two scans that close together would collide,
-    which is the same collision probability the previous 4-char hash carried and far below
-    the millisecond cost of an actual scan.
+    The field is SEEDED from the clock and then advanced by this process, rather than read
+    from the clock each time. Reading it was the bug: it assumed roughly microsecond
+    resolution, and on a platform whose wall clock ticks every 15.6 ms every scan inside a
+    tick got the same id and each report overwrote the last. Seeding keeps the id
+    approximately chronological to the outside world; the counter is what makes it unique
+    and strictly increasing.
+
+    Two scans minted back to back therefore always differ, and always sort in the order they
+    were minted, whatever the clock's resolution. This holds within a process; the report
+    store separately refuses to let one report overwrite a different one, which is what
+    covers two processes scanning at once.
     """
+    global _LAST_ID
     now = now_ist()
     stamp = now.strftime("%Y%m%d-%H%M%S")
-    subsecond = f"{now.microsecond * 0xFFFF // 1000000:04x}"
+    bucket = now.microsecond * _SUBSECOND_SPAN // 1000000
+    with _ID_LOCK:
+        last_stamp, last_bucket = _LAST_ID
+        if stamp < last_stamp:
+            # The wall clock moved backwards (an NTP step, an operator setting the time).
+            # Chronological order is the property every caller depends on, so the id keeps
+            # advancing rather than following the clock back over ids already issued.
+            stamp, bucket = last_stamp, last_bucket + 1
+        elif stamp == last_stamp and bucket <= last_bucket:
+            bucket = last_bucket + 1
+        while bucket > _SUBSECOND_MAX:
+            # More than 65 536 ids inside one second. Unreachable in practice, a scan costs
+            # milliseconds, but the counter must never wrap onto an id already issued, so
+            # the mint waits for the second to turn instead of repeating one.
+            time.sleep(0.001)
+            now = now_ist()
+            if now.strftime("%Y%m%d-%H%M%S") > stamp:
+                stamp = now.strftime("%Y%m%d-%H%M%S")
+                bucket = now.microsecond * _SUBSECOND_SPAN // 1000000
+        _LAST_ID = (stamp, bucket)
     base = slugify_name(name) or "scan"
-    return f"{base}-{stamp}-{subsecond}"
+    return f"{base}-{stamp}-{bucket:04x}"
 
 
 @dataclass

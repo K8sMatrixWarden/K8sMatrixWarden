@@ -19,12 +19,26 @@ import threading
 from dataclasses import dataclass
 from typing import Optional
 
-from .results import ScanResult
+from .results import ScanResult, _scan_id
 
 # Guards the timeline read-modify-write: the web server is threaded, so two concurrent
 # saves could otherwise interleave and lose an update. ponytail: in-process lock; a second
 # PROCESS scanning the same store concurrently is out of scope (rare, note the ceiling).
 _TIMELINE_LOCK = threading.Lock()
+
+
+def _peek_json(path: str) -> Optional[dict]:
+    """The JSON at `path`, or None if it is absent or unreadable.
+
+    Used only to see whether a report already occupies a scan id. An unreadable file is
+    treated as absent rather than as a blocker: refusing to save a new scan because an old
+    one is corrupt would turn one damaged report into a lost one."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def _atomic_write_json(path: str, obj) -> None:
@@ -99,9 +113,27 @@ class ReportStore:
 
     # -- save ------------------------------------------------------------- #
     def save(self, result: ScanResult) -> str:
+        """Persist a scan, and never over a different one.
+
+        Scan ids are unique by construction within a process (results._scan_id), which is
+        what stops a run of rapid scans from overwriting each other. Two SEPARATE processes
+        scanning at the same moment share no counter, so the id they mint can coincide. The
+        guard below is for that case only: it moves aside for a report this scan did not
+        write, and stays out of the way of the ordinary re-save that attaches runtime
+        correlation to a scan already on disk.
+        """
         os.makedirs(self.dir, exist_ok=True)
+        payload = result.as_dict()
         path = os.path.join(self.dir, f"{result.scan_id}.json")
-        _atomic_write_json(path, result.as_dict())
+        existing = _peek_json(path)
+        if existing and existing.get("generated_at") != result.generated_at:
+            # A different scan already owns this id. Losing it would take a whole run of
+            # history with it, so this one is filed under a fresh id instead. The caller's
+            # result is updated so the id it reports back is the id actually on disk.
+            result.scan_id = _scan_id(result.name)
+            payload = result.as_dict()
+            path = os.path.join(self.dir, f"{result.scan_id}.json")
+        _atomic_write_json(path, payload)
         self._update_timeline(result)
         return path
 
