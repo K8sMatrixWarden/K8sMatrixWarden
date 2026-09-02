@@ -391,6 +391,190 @@ def test_summarize_counts_each_axis_separately():
                             "by_severity", "by_identity"}
 
 
+# =========================================================================== #
+# Ingest -> read: what POST stores is what GET serves
+# =========================================================================== #
+def _falco_event(pod="api-9zskz", ns="default", ts="2026-09-02T10:00:00Z",
+                 rule="Read sensitive file untrusted"):
+    """A Falco-native alert in the shape falcosidekick actually POSTs."""
+    return {"source": "syscall", "rule": rule, "priority": "Warning",
+            "tags": ["T1555", "mitre_credential_access"], "time": ts,
+            "output_fields": {"proc.name": "cat", "fd.name": "/etc/shadow",
+                              "k8s.ns.name": ns, "k8s.pod.name": pod,
+                              "container.name": "api"}}
+
+
+def _post(app, *events):
+    r = app.route("POST", "/api/runtime",
+                  body=json.dumps({"events": list(events)}).encode())
+    return r.status, json.loads(r.text)
+
+
+def test_an_ingested_event_becomes_readable_through_get():
+    """REGRESSION, and the whole point of the read side. POST correlated an event,
+    answered with the result, and kept nothing, so an alert delivered by falcosidekick was
+    invisible to `GET /api/runtime` and to the Runtime page: ingestion wrote to nowhere."""
+    app, _ = _app_with(None)
+    assert _get(app)[1]["total"] == 0
+
+    status, posted = _post(app, _falco_event())
+    assert status == 200 and posted["stored"] is True
+
+    body = _get(app)[1]
+    assert body["total"] == 1
+    event = body["events"][0]
+    assert event["rule"] == "falco:Read sensitive file untrusted"
+    assert event["detection_source"] == "falco" and event["provider"] == "falco"
+    assert event["provider_rule"] == "Read sensitive file untrusted"
+    assert event["provider_priority"] == "Warning"
+    assert event["namespace"] == "default" and event["pod"] == "api-9zskz"
+    assert event["technique_id"] == "T1555"
+    assert event["identity_status"] == "complete"
+
+
+def test_redelivering_the_same_event_does_not_count_it_twice():
+    """falcosidekick retries, and an operator can replay a batch. The same underlying
+    observation must not become two, or the confirmed-exploitation count inflates."""
+    app, _ = _app_with(None)
+    event = _falco_event()
+    for _ in range(3):
+        assert _post(app, event)[0] == 200
+    body = _get(app)[1]
+    assert body["total"] == 1, "one observation, however many deliveries"
+    assert len({e["event_id"] for e in body["events"]}) == 1
+
+
+def test_distinct_events_accumulate():
+    """The control for deduplication: different events must not collapse into one."""
+    app, _ = _app_with(None)
+    _post(app, _falco_event(pod="api-1", ts="2026-09-02T10:00:00Z"))
+    _post(app, _falco_event(pod="api-2", ts="2026-09-02T11:00:00Z"))
+    body = _get(app)[1]
+    assert body["total"] == 2
+    assert [e["pod"] for e in body["events"]] == ["api-2", "api-1"], "newest first"
+
+
+def test_ingesting_preserves_history_already_pulled_from_falco_logs():
+    """The push feed merges into the same block the pull feed writes. Replacing it would
+    lose the scan's own `--live` history the first time anything was pushed."""
+    app, _ = _app_with(_runtime_block([_correlation(pod="pulled-earlier")]))
+    assert _get(app)[1]["total"] == 1
+    _post(app, _falco_event(pod="pushed-later", ts="2026-09-02T12:00:00Z"))
+    pods = [e["pod"] for e in _get(app)[1]["events"]]
+    assert "pulled-earlier" in pods and "pushed-later" in pods
+
+
+def test_merged_counters_use_the_same_rule_as_the_correlator():
+    """A merged block must not claim a different number of exploitations than a freshly
+    correlated one. Both count DISTINCT (weakness, resource) pairs."""
+    from k8smatrixwarden.core.correlation import count_distinct
+    from k8smatrixwarden.core.runtime_events import merge_runtime
+    entries = [_correlation(pod="api-1", confidence="confirmed"),
+               _correlation(pod="api-1", confidence="confirmed",
+                            ts="2026-09-01T10:05:00Z"),
+               _correlation(pod="api-2", confidence="confirmed")]
+    merged = merge_runtime({}, _runtime_block(entries))
+    stored = merged["correlation"]
+    assert stored["total_alerts"] == 3, "volume is reported honestly"
+    assert stored["confirmed_exploitation"] == count_distinct(
+        stored["correlations"], lambda c: c.get("confidence") == "confirmed")
+    assert stored["confirmed_exploitation"] == 2, "two resources, not three alerts"
+
+
+def test_the_stored_block_is_bounded_and_says_when_it_dropped_older_events():
+    """A pushed feed is unbounded over a cluster's lifetime; a report is a document. Past
+    the cap the oldest go, and the fact is recorded rather than hidden."""
+    from k8smatrixwarden.core.runtime_events import merge_runtime
+    many = [_correlation(pod=f"pod-{i}", ts=f"2026-09-01T{i // 60:02d}:{i % 60:02d}:00Z")
+            for i in range(30)]
+    merged = merge_runtime({}, _runtime_block(many), cap=10)
+    assert len(merged["correlation"]["correlations"]) == 10
+    assert merged["dropped_older"] == 20
+    kept = {c["resource"] for c in merged["correlation"]["correlations"]}
+    assert "pod-29" in kept and "pod-0" not in kept, "newest kept"
+
+
+def test_post_keeps_its_original_response_shape():
+    """Existing clients (falcosidekick, scripts) must not break. Keys may be added; the
+    ones that were there must stay."""
+    app, _ = _app_with(None)
+    _, posted = _post(app, _falco_event())
+    for key in ("correlation", "drift", "detection_coverage", "identity_coverage",
+                "events_received"):
+        assert key in posted, f"POST response lost {key}"
+    assert posted["correlation"]["total_alerts"] == 1
+    assert posted["detection_coverage"]["discarded"] == 0
+
+
+def test_ingestion_still_answers_when_the_event_cannot_be_stored():
+    """Persistence is a convenience; receiving the event is the job. A read-only or broken
+    store must not turn a delivered alert into an HTTP failure that falcosidekick retries
+    forever."""
+    app, _ = _app_with(None)
+    # `WebApp.store` is a property handing back a fresh ReportStore, so the class method is
+    # what has to fail, not an instance attribute.
+    original = ReportStore.save
+    ReportStore.save = lambda self, result: (_ for _ in ()).throw(
+        OSError("read-only store"))
+    try:
+        status, posted = _post(app, _falco_event())
+    finally:
+        ReportStore.save = original
+    assert status == 200, "the event was still received and correlated"
+    assert posted["stored"] is False, "and the failure is stated, not hidden"
+    assert posted["correlation"]["total_alerts"] == 1
+
+
+def test_a_kmw_match_ingested_by_post_keeps_falco_as_supporting_evidence():
+    """The overlap case, through the push path: the curated rule owns the verdict and the
+    provider's rule name rides along, rather than becoming a second event."""
+    app, _ = _app_with(None)
+    _post(app, {"source": "syscall", "rule": "Terminal shell in container",
+                "priority": "Notice", "tags": ["mitre_execution"],
+                "time": "2026-09-02T10:00:00Z",
+                "output_fields": {"proc.name": "bash", "evt.type": "execve",
+                                  "k8s.ns.name": "default",
+                                  "k8s.pod.name": "api-9zskz"}})
+    body = _get(app)[1]
+    assert body["total"] == 1, "one event, not one per detector"
+    event = body["events"][0]
+    assert event["detection_source"] == "kmw"
+    assert event["rule"] == "rt-shell-in-container"
+    assert event["supporting_evidence"] == "falco:Terminal shell in container"
+
+
+def test_an_ingested_event_without_identity_is_kept_but_never_confirmed():
+    """Correlation safety across the push path: no namespace or pod means no resource-level
+    claim, and the event is still reported rather than dropped."""
+    app, _ = _app_with(None)
+    _post(app, {"source": "syscall", "rule": "Read sensitive file untrusted",
+                "priority": "Warning", "tags": ["mitre_credential_access"],
+                "time": "2026-09-02T10:00:00Z",
+                "output_fields": {"proc.name": "cat", "container.id": "deadbeef1234"}})
+    body = _get(app)[1]
+    assert body["total"] == 1, "kept as evidence"
+    event = body["events"][0]
+    assert event["identity_status"] == "unknown"
+    assert event["identity_reason"], "and it says why"
+    assert event["correlation"] != "confirmed"
+    assert event["namespace"] is None and event["pod"] is None, "nothing was guessed"
+
+
+def test_get_and_post_do_not_interfere_on_the_same_path():
+    """Method separation: interleaving reads and writes must be safe in both directions."""
+    app, _ = _app_with(None)
+    for i in range(3):
+        assert _post(app, _falco_event(pod=f"api-{i}",
+                                       ts=f"2026-09-02T1{i}:00:00Z"))[0] == 200
+        assert _get(app)[0] == 200
+    assert _get(app)[1]["total"] == 3
+    # A GET never mutates what a POST stored.
+    before = _get(app)[1]["events"]
+    _get(app, "source=falco")
+    _get(app, "limit=1")
+    assert _get(app)[1]["events"] == before
+
+
 if __name__ == "__main__":
     for _name, _fn in sorted(globals().items()):
         if _name.startswith("test_"):

@@ -287,13 +287,39 @@ class WebApp:
             detection_coverage["unusable"] = (detection_coverage["unusable"]
                                               + rejected)[:25]
         from ..core.timeutil import ist_timestamp
-        return _json({"correlation": correlate(result.findings, alerts,
-                                               cluster=result.cluster_name,
-                                               now=ist_timestamp()),
+        collected_at = ist_timestamp()
+        correlation = correlate(result.findings, alerts,
+                                cluster=result.cluster_name, now=collected_at)
+        drift = detect_drift(pods, events)
+
+        # Persist into the SAME block the pull feed writes, so an ingested event is
+        # actually readable afterwards. Without this the push path wrote to nowhere: an
+        # event delivered by falcosidekick was correlated, answered, and forgotten, so
+        # `GET /api/runtime` and the Runtime page never showed it. Merging (rather than
+        # replacing) keeps the pulled history, and re-delivering the same alert does not
+        # count twice. Isolated: ingestion must still answer even if the store is
+        # read-only or full.
+        from ..core.runtime_events import merge_runtime
+        incoming = {"source": "runtime-push", "collected_at": collected_at,
+                    "cluster": result.cluster_name, "correlation": correlation,
+                    "drift": drift, "detection_coverage": detection_coverage,
+                    "identity_coverage": identity_coverage}
+        stored = False
+        try:
+            result.runtime = merge_runtime(result.runtime, incoming)
+            self.store.save(result)
+            stored = True
+        except Exception:                      # pragma: no cover - defensive
+            stored = False
+
+        # Response shape is unchanged for existing clients; `stored` is additive.
+        return _json({"correlation": correlation,
                       "detection_coverage": detection_coverage,
                       "identity_coverage": identity_coverage,
                       "events_received": len(events) + len(rejected),
-                      "drift": detect_drift(pods, events)})
+                      "stored": stored,
+                      "scan_id": result.scan_id,
+                      "drift": drift})
 
     def _api_finding(self, q: dict) -> Response:
         """Full report-grade context for one finding (summary, impact, verification

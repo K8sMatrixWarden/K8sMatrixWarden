@@ -247,3 +247,87 @@ def summarize(records: list) -> dict:
     return {"total": len(records), "by_detector": tally("detection_source"),
             "by_source": tally("source"), "by_correlation": tally("correlation"),
             "by_severity": tally("severity"), "by_identity": tally("identity_status")}
+
+
+#: How many correlations a stored runtime block keeps. A pushed feed is unbounded over a
+#: cluster's lifetime, and a report is a document, not a time-series database: past this the
+#: oldest entries are dropped, newest kept, and `dropped_older` records that it happened.
+MAX_STORED = 500
+
+
+def merge_runtime(stored: Optional[dict], incoming: dict,
+                  cap: int = MAX_STORED) -> dict:
+    """Fold a freshly ingested runtime block into the one already on a scan.
+
+    The push endpoint used to correlate an event, answer with the result, and keep nothing,
+    so a falcosidekick-delivered alert was invisible to `GET /api/runtime` and to the
+    Runtime page: ingestion wrote to nowhere. This merges into the SAME block the pull feed
+    writes, rather than opening a second store that would drift from it.
+
+    Events already present are not appended twice. Identity is the derived `event_id`, the
+    content hash the read model already uses, so re-delivering the same alert (falcosidekick
+    retries; an operator replays a batch) leaves the counts alone. Counters are recomputed
+    over the merged set with `correlation.count_distinct`, the same rule the correlator
+    applies, so a merged block cannot claim a different number of exploitations than a
+    freshly correlated one would.
+    """
+    from .correlation import count_distinct
+
+    stored = stored or {}
+    stored_corr = (stored.get("correlation") or {}).get("correlations") or []
+    new_corr = (incoming.get("correlation") or {}).get("correlations") or []
+
+    seen, merged = set(), []
+    for entry in list(stored_corr) + list(new_corr):
+        if not isinstance(entry, dict):
+            continue
+        key = _from_correlation(entry, stored.get("cluster") or "")["event_id"]
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(entry)
+
+    merged.sort(key=lambda c: -_epoch(c.get("timestamp") or ""))
+    dropped = max(0, len(merged) - cap)
+    merged = merged[:cap]
+
+    stored_drift = (stored.get("drift") or {}).get("drift") or []
+    new_drift = (incoming.get("drift") or {}).get("drift") or []
+    drift_seen, drift_merged = set(), []
+    for entry in list(stored_drift) + list(new_drift):
+        if not isinstance(entry, dict):
+            continue
+        key = _from_drift(entry, stored.get("cluster") or "")["event_id"]
+        if key in drift_seen:
+            continue
+        drift_seen.add(key)
+        drift_merged.append(entry)
+
+    out = dict(stored)
+    out.update({
+        "source": incoming.get("source") or stored.get("source") or "runtime-push",
+        "collected_at": incoming.get("collected_at") or stored.get("collected_at"),
+        "cluster": stored.get("cluster") or incoming.get("cluster"),
+        "events_seen": len(merged),
+        "correlation": {
+            "total_alerts": len(merged),
+            "correlated": count_distinct(merged, lambda c: c.get("static_findings")),
+            "confirmed_exploitation": count_distinct(
+                merged, lambda c: c.get("confidence") == "confirmed"),
+            "runtime_only": count_distinct(
+                merged, lambda c: c.get("confidence") == "runtime-only"),
+            "correlations": merged,
+            "timeline": sorted(merged, key=lambda c: ((c.get("timestamp") or "") == "",
+                                                      c.get("timestamp") or "")),
+        },
+        "drift": {"drift": drift_merged, "drift_count": len(drift_merged),
+                  "pods_checked": (incoming.get("drift") or {}).get("pods_checked",
+                                                                   0),
+                  "events_seen": len(merged)},
+    })
+    for key in ("detection_coverage", "identity_coverage"):
+        if incoming.get(key):
+            out[key] = incoming[key]
+    if dropped:
+        out["dropped_older"] = out.get("dropped_older", 0) + dropped
+    return out

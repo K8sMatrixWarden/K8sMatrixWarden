@@ -261,22 +261,36 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
     # overstates the incident to exactly the audience least able to check it. Strength is
     # therefore counted over distinct (weakness, resource) pairs, while `total_alerts`
     # keeps reporting the raw volume.
-    def _distinct(predicate) -> int:
-        return len({((c.get("runtime") or {}).get("rule_id"), c["tactic"],
-                     c["namespace"], c["resource"])
-                    for c in correlations if predicate(c)})
-
     return {
         "total_alerts": len(alerts),
-        "correlated": _distinct(lambda c: c["static_findings"]),
-        "confirmed_exploitation": _distinct(lambda c: c["confidence"] == "confirmed"),
-        "runtime_only": _distinct(lambda c: c["confidence"] == "runtime-only"),
+        "correlated": count_distinct(correlations, lambda c: c["static_findings"]),
+        "confirmed_exploitation": count_distinct(
+            correlations, lambda c: c["confidence"] == "confirmed"),
+        "runtime_only": count_distinct(
+            correlations, lambda c: c["confidence"] == "runtime-only"),
         "correlations": correlations,
         # The same correlations in the order they HAPPENED, which is how an incident is
         # read. Events with no timestamp sort last rather than being dropped.
         "timeline": sorted(correlations,
                            key=lambda c: (c["timestamp"] == "", c["timestamp"])),
     }
+
+
+def count_distinct(correlations: list, predicate) -> int:
+    """Correlations matching `predicate`, counted over DISTINCT (weakness, resource) pairs.
+
+    Alert volume and evidence strength are different quantities. A shell held open in one
+    container emits the same Falco alert repeatedly; counting each copy turned one
+    observation into "50 confirmed exploitations", which overstates an incident to exactly
+    the audience least able to check it. `total_alerts` keeps reporting raw volume.
+
+    Exported because the push endpoint re-counts a merged set of stored correlations and
+    must apply the same rule; two implementations of "how many exploitations" would
+    eventually disagree, and that number is the strongest claim this tool makes.
+    """
+    return len({((c.get("runtime") or {}).get("rule_id"), c.get("tactic"),
+                 c.get("namespace"), c.get("resource"))
+                for c in correlations if predicate(c)})
 
 
 def _reason(level: str, pod: str, ns: str, matched: list) -> str:
