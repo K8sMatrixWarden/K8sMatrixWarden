@@ -490,7 +490,10 @@ class RbacGraph:
     def unevaluable_grants(self, principal: Node) -> list[dict]:
         """Roles held by this principal whose effective permissions cannot be read.
 
-        The case that matters is an **aggregated ClusterRole**: its `rules` are filled in
+        Two cases. A roleRef pointing at a role that is **not in this snapshot**: the
+        binding was read, so the grant is certain, but its contents are not, and a scan
+        that was refused permission to list ClusterRoles hits this on every binding at
+        once. And an **aggregated ClusterRole**: its `rules` are filled in
         by the controller from every ClusterRole matching its `aggregationRule` selectors.
         If a snapshot catches it before that happens, or the selectors match roles outside
         what was collected, the role looks empty. Reporting "no escalation" there is a
@@ -500,6 +503,28 @@ class RbacGraph:
         permission set is unknown, not that it is empty.
         """
         out = []
+        for binding, is_cluster in self.bindings_for(principal):
+            bkind = "ClusterRoleBinding" if is_cluster else "RoleBinding"
+            bns = None if is_cluster else self._ns(binding)
+            ref = binding.get("roleRef", {}) or {}
+            role_obj, _rnode = self.role_for(ref, bns)
+            if role_obj is not None:
+                continue
+            # The binding names a role this snapshot does not contain. `grant_edges` has to
+            # skip it, having no rules to walk, and that skip is precisely how a real
+            # escalation disappears: a scanner without permission to list ClusterRoles
+            # collects none of them, every roleRef dangles, and the walk reports "no paths,
+            # analysis complete" for a ServiceAccount bound to cluster-admin. What is
+            # unknown is the role's contents, not the binding, which was read directly.
+            out.append({
+                "role": f"{ref.get('kind') or 'Role'}/{ref.get('name') or ''}",
+                "namespace": bns, "reason": "not-collected",
+                "binding": f"{bkind}/{self._name(binding)}",
+                "note": (f"{bkind} {self._name(binding)} grants "
+                         f"{ref.get('kind') or 'Role'} {ref.get('name') or ''!r}, which is "
+                         "not in this snapshot (it may not exist, or the scan may not have "
+                         "been allowed to read it). Its permissions are UNKNOWN, not "
+                         "empty, and no escalation conclusion is drawn either way")})
         for _b, _r, role_obj, rnode, grant_ns in self.grant_edges(principal):
             agg = role_obj.get("aggregationRule")
             if agg and not (role_obj.get("rules") or []):

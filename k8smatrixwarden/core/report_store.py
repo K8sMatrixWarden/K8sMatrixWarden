@@ -16,6 +16,7 @@ import json
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -27,6 +28,27 @@ from .results import ScanResult, _scan_id
 _TIMELINE_LOCK = threading.Lock()
 
 
+def _open_json(path: str):
+    """Open a report for reading, retrying across the brief window of a concurrent write.
+
+    Replacing a file is not instantaneous on Windows: a reader that opens at exactly the
+    wrong moment gets PermissionError even though the file is neither missing nor locked by
+    anyone for long. Ingestion writes reports while the dashboard and the runtime API read
+    them, so without this a perfectly ordinary GET can fail during a falcosidekick push.
+
+    The same bounded budget as the writer, and then the error is raised: a read that cannot
+    succeed must fail loudly rather than return an empty report, which would render as a
+    clean cluster.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            return open(path, encoding="utf-8")
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_DELAY)
+
+
 def _peek_json(path: str) -> Optional[dict]:
     """The JSON at `path`, or None if it is absent or unreadable.
 
@@ -34,24 +56,58 @@ def _peek_json(path: str) -> Optional[dict]:
     treated as absent rather than as a blocker: refusing to save a new scan because an old
     one is corrupt would turn one damaged report into a lost one."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with _open_json(path) as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else None
     except Exception:
         return None
 
 
+#: How long to keep retrying the final rename, and how often. Windows refuses to replace a
+#: file another handle has open, and every reader of a report holds one for the moment it
+#: takes to parse, so a writer that gives up on the first refusal loses the write to a
+#: perfectly ordinary concurrent read.
+_REPLACE_ATTEMPTS = 25
+_REPLACE_DELAY = 0.02
+
+
+def _replace_with_retry(tmp: str, path: str) -> None:
+    """os.replace, retried briefly while the destination is held open elsewhere.
+
+    On POSIX a rename over an open file always succeeds. On Windows it raises
+    PermissionError (WinError 5) whenever any handle to the destination is open, and the
+    dashboard, the runtime API and the correlator all read reports while ingestion writes
+    them. Under concurrent load that surfaced as a runtime event being correlated, answered
+    200 with `stored: false`, and then simply not existing, which is the silent loss the
+    whole ingestion path is built to prevent.
+
+    Readers open a report only long enough to parse it, so the contention is brief and a
+    bounded retry clears it. Half a second of retrying, then the error is raised so the
+    caller reports the failure rather than pretending it wrote.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_DELAY)
+
+
 def _atomic_write_json(path: str, obj) -> None:
     """Write JSON durably: serialise to a temp file in the same dir, then os.replace(), 
     an atomic rename on POSIX/Windows, so a crash mid-write can never leave a half-written
     (unparseable) report or timeline index behind."""
-    tmp = f"{path}.{os.getpid()}.tmp"
+    # Thread id as well as pid: two threads writing the same report shared one temp file,
+    # so each could overwrite the other's half-serialised bytes before either renamed.
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(obj, fh, indent=2, default=str)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     except BaseException:
         # serialise failed mid-write, drop the partial temp so no stray file is left.
         try:
@@ -183,7 +239,7 @@ class ReportStore:
 
     def _load_timeline(self) -> dict:
         try:
-            with open(self._timeline_path(), encoding="utf-8") as fh:
+            with _open_json(self._timeline_path()) as fh:
                 return json.load(fh)
         except (FileNotFoundError, ValueError):
             return {}
@@ -297,7 +353,7 @@ class ReportStore:
             if os.path.basename(p).startswith("_"):
                 continue        # internal index (e.g. _timeline.json), not a report
             try:
-                with open(p, encoding="utf-8") as fh:
+                with _open_json(p) as fh:
                     d = json.load(fh)
             except Exception:
                 continue
@@ -331,7 +387,7 @@ class ReportStore:
         if not scan_id or not _SAFE_SCAN_ID.fullmatch(scan_id):
             raise FileNotFoundError(f"invalid scan id: {scan_id!r}")
         path = os.path.join(self.dir, f"{scan_id}.json")
-        with open(path, encoding="utf-8") as fh:
+        with _open_json(path) as fh:
             return ScanResult.from_dict(json.load(fh))
 
     def load_latest(self) -> Optional[ScanResult]:

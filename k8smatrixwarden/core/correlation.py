@@ -213,6 +213,16 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
         if not statics:
             conf, verdict, matched = ("runtime-only",
                 "unexpected runtime behaviour, no matching static weakness", [])
+        elif resource_hit and stale:
+            # The resource link is established, so this stays `confirmed`. What is NOT
+            # established is that it is happening now: an event from months ago says the
+            # weakness WAS exploited, and a present-tense verdict on it would read to an
+            # operator as a live intrusion. Reporting the age in the verdict keeps the
+            # finding at full strength without borrowing urgency the evidence lacks.
+            conf, verdict, matched = ("confirmed",
+                f"static weakness on this resource WAS exploited; the runtime evidence is "
+                f"{round(age)} days old, so this is history, not a live intrusion",
+                resource_hit)
         elif resource_hit:
             conf, verdict, matched = ("confirmed",
                 "static weakness on this resource is being actively exploited", resource_hit)

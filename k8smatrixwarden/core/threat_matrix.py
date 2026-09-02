@@ -456,12 +456,16 @@ def _runtime_by_tactic(runtime: Optional[dict]) -> dict:
             continue
         out.setdefault(c.get("tactic", ""), []).append({
             "level": c.get("confidence"), "timestamp": c.get("timestamp", ""),
+            # Carried so a step cannot be called `observed` on evidence that is months old;
+            # see _step_confidence.
+            "freshness": c.get("freshness", "unknown"),
             "rule_id": (c.get("runtime") or {}).get("rule_id"),
             "title": (c.get("runtime") or {}).get("title"),
             "resource": c.get("resource", ""), "namespace": c.get("namespace", "")})
     for drift in ((runtime or {}).get("drift") or {}).get("drift", []):
         out.setdefault(drift.get("tactic", ""), []).append({
             "level": "drift", "timestamp": drift.get("timestamp", ""),
+            "freshness": drift.get("freshness", "unknown"),
             "rule_id": "drift", "title": drift.get("verdict", ""),
             "resource": drift.get("pod", ""), "namespace": drift.get("namespace", "")})
     return out
@@ -470,11 +474,19 @@ def _runtime_by_tactic(runtime: Optional[dict]) -> dict:
 def _step_confidence(evidence: list) -> str:
     """How strongly this step is evidenced. `observed` requires runtime proof on the same
     tactic; without it a step is exactly what the scan can honestly claim, a configuration
-    that makes the tactic available."""
-    levels = {e.get("level") for e in evidence}
-    if "confirmed" in levels or "drift" in levels:
+    that makes the tactic available.
+
+    `observed` additionally requires that the proof not be stale. It is a present-tense
+    claim, and it is what ranks a path as live and drives the attention a report asks for.
+    An event from months ago establishes that the behaviour happened, not that it is
+    happening, so historical proof supports the step at `corroborated` rather than lifting
+    it to the top rank. The evidence is not discarded, only its tense is honest: correlation
+    still reports the link as `confirmed`, with the age attached.
+    """
+    proof = [e for e in evidence if e.get("level") in ("confirmed", "drift")]
+    if any(e.get("freshness") != "historical" for e in proof):
         return "observed"
-    if "corroborated" in levels:
+    if proof or any(e.get("level") == "corroborated" for e in evidence):
         return "corroborated"
     return "configuration-only"
 

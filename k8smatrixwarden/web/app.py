@@ -13,6 +13,7 @@ the cluster from any surface.
 from __future__ import annotations
 
 import json
+import threading
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -52,6 +53,10 @@ def _json(obj, status: int = 200) -> Response:
 
 def _text(s: str, status: int = 200) -> Response:
     return Response(status, "text/plain; charset=utf-8", s.encode("utf-8"))
+
+
+#: Serialises the read-modify-write that persists a runtime batch. See _api_runtime.
+_RUNTIME_PERSIST_LOCK = threading.Lock()
 
 
 class WebApp:
@@ -306,8 +311,22 @@ class WebApp:
                     "identity_coverage": identity_coverage}
         stored = False
         try:
-            result.runtime = merge_runtime(result.runtime, incoming)
-            self.store.save(result)
+            # Serialised, and re-read INSIDE the lock. Persisting a runtime batch is a
+            # read-modify-write of one stored scan, and falcosidekick pushes concurrently:
+            # without this, forty simultaneous POSTs each merged into the copy they had
+            # loaded before the others saved, and thirty-nine events vanished while every
+            # request answered 200. Silently losing an event the operator was told was
+            # received is the worst failure this endpoint has.
+            #
+            # ponytail: one process-wide lock, not one per scan. Ingestion is a merge and a
+            # write, not a scan; per-scan locks only matter if several clusters push into
+            # one endpoint hard enough to contend. Two SEPARATE processes serving the same
+            # report directory are still racy, which is what the store's own
+            # overwrite guard is there to bound.
+            with _RUNTIME_PERSIST_LOCK:
+                current = self.store.resolve(result.scan_id) or result
+                current.runtime = merge_runtime(current.runtime, incoming)
+                self.store.save(current)
             stored = True
         except Exception:                      # pragma: no cover - defensive
             stored = False
