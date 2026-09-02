@@ -335,6 +335,7 @@ def _topbar(active: str = "") -> str:
     return ("<div class='topbar'>"
             "<h1><span class='mark'>K8</span>K8sMatrixWarden</h1><span class='grow'></span>"
             + nav("/", "Dashboard", "home")
+            + nav("/runtime", "Runtime", "runtime")
             + nav("/matrix", "Coverage", "matrix")
             + nav("/compliance", "Compliance", "compliance")
             + nav("/federation", "Federation", "federation")
@@ -372,6 +373,183 @@ def matrix_page(tm: ThreatMatrix, *, result: ScanResult = None,
     return layout("K8sMatrixWarden · Threat Matrix",
                   _topbar("matrix") + crumb + head
                   + render_html_grid(tm, coverage_only=coverage_only))
+
+
+_RUNTIME_JS = """<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let ROWS = [], OPEN = null;
+
+// Who owns the verdict. A curated K8sMatrixWarden rule and a relayed Falco rule are
+// different claims and must never look alike.
+function detPill(r){
+  const d = r.detection_source;
+  if (r.kind === 'drift') return "<span class='tag high' title='K8sMatrixWarden compared the pod&#39;s declared securityContext against its observed behaviour'>DRIFT</span>";
+  if (d === 'kmw')   return "<span class='tag low' title='Detected by a curated K8sMatrixWarden runtime rule'>KMW</span>";
+  if (d === 'falco') return "<span class='tag info' title='Relayed from the Falco provider; not a K8sMatrixWarden rule'>Falco</span>";
+  return "<span class='tag muted' title='This report predates the provenance model'>unknown</span>";
+}
+function srcPill(r){
+  const s = r.source;
+  const help = {falco:'syscall stream', audit:'Kubernetes API audit stream',
+                drift:'declared-vs-observed comparison'}[s] || 'unrecorded';
+  return `<span class='tag muted' title='${esc(help)}'>${esc(s)}</span>`;
+}
+function corrPill(c){
+  const cls = {confirmed:'critical','runtime-only':'medium',corroborated:'high',
+               drift:'critical'}[c] || 'info';
+  return `<span class='tag ${cls}'>${esc(c)}</span>`;
+}
+function identPill(r){
+  if (r.identity_status === 'complete') return '';
+  const miss = (r.identity_missing || []).join(', ');
+  return `<span class='tag medium' title='${esc(r.identity_reason || '')}'>identity: ${esc(r.identity_status)}${miss ? ' (' + esc(miss) + ')' : ''}</span>`;
+}
+function freshPill(r){
+  if (r.freshness === 'recent') return '';
+  const age = (r.age_days || r.age_days === 0) ? ` ${Math.round(r.age_days)}d` : '';
+  return `<span class='tag medium' title='Observed, but not recently. Not evidence of current activity.'>${esc(r.freshness)}${age}</span>`;
+}
+
+function detail(r){
+  const row = (k, v) => (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length))
+      ? '' : `<tr><td class='k'>${esc(k)}</td><td><code>${esc(Array.isArray(v) ? v.join(', ') : v)}</code></td></tr>`;
+  return `<tr class='det'><td colspan='8'><div class='detbox'>
+    <div class='fm' style='margin-bottom:.5rem'>${esc(r.verdict || r.title || '')}</div>
+    <table class='kv'>
+      ${row('event id', r.event_id)}${row('timestamp', r.timestamp)}
+      ${row('detected by', r.detection_source)}${row('provider', r.provider)}
+      ${row('rule', r.rule)}${row('provider rule', r.provider_rule)}
+      ${row('provider priority', r.provider_priority)}
+      ${row('supporting evidence', r.supporting_evidence)}
+      ${row('event source', r.source)}${row('severity', r.severity)}
+      ${row('tactic', r.tactic)}${row('technique', r.technique_id ? (r.technique_id + ' ' + (r.technique_name||'')).trim() : null)}
+      ${row('cluster', r.cluster)}${row('namespace', r.namespace)}
+      ${row('workload', r.workload)}${row('pod', r.pod)}
+      ${row('container', r.container)}${row('process', r.process)}
+      ${row('correlation', r.correlation)}${row('freshness', r.freshness)}
+      ${row('age (days)', r.age_days)}
+      ${row('identity', r.identity_status)}${row('identity missing', r.identity_missing)}
+      ${row('identity reason', r.identity_reason)}
+      ${row('declared', r.declared)}${row('observed', r.observed)}
+      ${row('matched findings', r.static_findings)}
+    </table></div></td></tr>`;
+}
+
+function render(d){
+  const q = document.getElementById('rt-q');
+  ROWS = d.events || [];
+  const warn = (d.warnings || []).length
+    ? `<div class='warn'>${d.warnings.map(w => esc(w)).join('<br/>')}</div>` : '';
+  const s = d.summary || {};
+  const kv = o => Object.entries(o || {}).map(([k, v]) => `${esc(k)} ${v}`).join(' · ') || '—';
+  const head = `<div class='kpis'>
+      <div class='kpi'><div class='n'>${d.matched}</div><div class='l'>Matching events</div></div>
+      <div class='kpi'><div class='n'>${d.total}</div><div class='l'>Stored on this scan</div></div>
+      <div class='kpi'><div class='n'>${(s.by_detector||{}).kmw || 0}</div><div class='l'>Curated (KMW)</div></div>
+      <div class='kpi'><div class='n'>${(s.by_detector||{}).falco || 0}</div><div class='l'>Falco fallback</div></div>
+    </div>
+    <div class='fm' style='margin:.5rem 0'>by correlation: ${kv(s.by_correlation)} · by identity: ${kv(s.by_identity)}</div>`;
+
+  if (!ROWS.length){
+    q.innerHTML = warn + head + "<div class='empty'>No runtime events match. This does not mean nothing happened &mdash; widen the filters, or pull a fresh feed from the Runtime tab on the dashboard.</div>";
+    return;
+  }
+  const rows = ROWS.map((r, i) => `
+    <tr class='ev' data-i='${i}'>
+      <td><code>${esc((r.timestamp || '').replace('T', ' ').slice(0, 19) || 'unknown')}</code></td>
+      <td>${detPill(r)} ${srcPill(r)}</td>
+      <td><code>${esc(r.rule)}</code>${r.supporting_evidence ? `<div class='fm'>+ ${esc(r.supporting_evidence)}</div>` : ''}</td>
+      <td><span class='sev ${esc(r.severity)}'>${esc(r.severity)}</span></td>
+      <td>${esc(r.tactic)}${r.technique_id ? `<div class='fm'>${esc(r.technique_id)}</div>` : ''}</td>
+      <td>${esc(r.namespace || '—')}</td>
+      <td>${esc(r.workload || r.pod || '—')}${identPill(r)}</td>
+      <td>${corrPill(r.correlation)} ${freshPill(r)}</td>
+    </tr>` + (OPEN === i ? detail(r) : '')).join('');
+  q.innerHTML = warn + head + `<table class='rt'>
+      <thead><tr><th>Time</th><th>Detected by</th><th>Rule</th><th>Severity</th>
+      <th>Tactic</th><th>Namespace</th><th>Workload / Pod</th><th>Correlation</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class='fm' style='margin-top:.6rem'>Showing ${d.returned} of ${d.matched} matching (${d.total} stored). Select a row for the full event.</div>`;
+  q.querySelectorAll('tr.ev').forEach(tr => tr.onclick = () => {
+    const i = Number(tr.dataset.i);
+    OPEN = (OPEN === i) ? null : i;
+    render(LAST);
+  });
+}
+
+let LAST = {events: []};
+function load(){
+  const p = new URLSearchParams();
+  ['source','severity','namespace','since','limit'].forEach(k => {
+    const v = document.getElementById('f-' + k).value.trim();
+    if (v) p.set(k, v);
+  });
+  document.getElementById('rt-q').innerHTML = "<div class='empty'>Loading…</div>";
+  fetch('/api/runtime?' + p.toString())
+    .then(r => r.json())
+    .then(d => { if (d.error){ document.getElementById('rt-q').innerHTML = `<div class='empty'>${esc(d.error)}</div>`; return; } LAST = d; OPEN = null; render(d); })
+    .catch(e => { document.getElementById('rt-q').innerHTML = `<div class='empty'>${esc(e)}</div>`; });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('rt-go').onclick = load;
+  document.querySelectorAll('.f').forEach(el => el.onchange = load);
+  load();
+});
+</script>"""
+
+_RUNTIME_CSS = """
+table.rt{width:100%;border-collapse:collapse;font-size:.83rem}
+table.rt th{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);
+  color:var(--muted);font-weight:600;white-space:nowrap}
+table.rt td{padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+table.rt tr.ev{cursor:pointer}
+table.rt tr.ev:hover{background:var(--sunken)}
+.detbox{background:var(--sunken);padding:.7rem .9rem;border-radius:6px;margin:.2rem 0 .6rem}
+table.kv{border-collapse:collapse;font-size:.8rem}
+table.kv td{padding:.15rem .6rem .15rem 0;vertical-align:top}
+table.kv td.k{color:var(--muted);white-space:nowrap}
+.rtbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.6rem 0 1rem}
+.rtbar input,.rtbar select{background:var(--sunken);color:var(--fg);border:1px solid var(--line);
+  border-radius:6px;padding:.35rem .5rem;font-size:.82rem;font-family:inherit}
+.warn{background:var(--sunken);border-left:3px solid var(--medium);padding:.5rem .7rem;
+  border-radius:4px;margin-bottom:.7rem;font-size:.82rem}
+.tag.muted{background:var(--sunken);color:var(--muted)}
+"""
+
+
+def runtime_page() -> str:
+    """Read-only Runtime Events page. All data comes from GET /api/runtime."""
+    controls = (
+        "<div class='rtbar'>"
+        "<label class='fm'>Source "
+        "<select id='f-source' class='f'>"
+        "<option value='all'>all</option><option value='kmw'>KMW curated</option>"
+        "<option value='falco'>Falco fallback</option><option value='audit'>K8s audit</option>"
+        "<option value='drift'>drift</option></select></label>"
+        "<label class='fm'>Severity <input id='f-severity' class='f' size='14' "
+        "placeholder='CRITICAL,HIGH'></label>"
+        "<label class='fm'>Namespace <input id='f-namespace' class='f' size='14' "
+        "placeholder='default'></label>"
+        "<label class='fm'>Since <input id='f-since' class='f' size='8' "
+        "placeholder='2h'></label>"
+        "<label class='fm'>Limit <input id='f-limit' class='f' size='5' "
+        "placeholder='50'></label>"
+        "<button class='btn' id='rt-go'>Apply</button></div>")
+    head = ("<h1 style='font-size:1.3rem;margin:.2rem 0'>Runtime Events</h1>"
+            "<div class='sub'>Read-only view of runtime evidence already stored on the "
+            "latest scan. Ingestion is unchanged: <code>POST /api/runtime</code> still "
+            "receives events from Falco / falcosidekick.</div>"
+            "<div class='fm' style='margin:.5rem 0'>"
+            "<span class='tag low'>KMW</span> a curated K8sMatrixWarden rule owns the "
+            "verdict &nbsp; <span class='tag info'>Falco</span> the provider's own rule, "
+            "relayed under its name &nbsp; <span class='tag high'>DRIFT</span> declared "
+            "securityContext contradicted by observed behaviour</div>")
+    crumb = "<div class='crumbs'><a href='/'>Dashboard</a> › runtime events</div>"
+    body = (_topbar("runtime") + crumb + head + controls
+            + "<div id='rt-q'><div class='empty'>Loading…</div></div>" + _RUNTIME_JS)
+    return layout("K8sMatrixWarden · Runtime Events", body,
+                  extra_css=_APP_CSS + _RUNTIME_CSS)
 
 
 def error_page(status: int, message: str) -> str:

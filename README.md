@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-787%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-808%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -97,7 +97,7 @@ node the event named (`fully_observed: false`), never the whole path.
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (787/787 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (808/808 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -365,7 +365,7 @@ CIS-designated manual reviews (surfaced, never auto-passed).
 | Historical posture | `k8smatrixwarden/core/posture.py` + `report_store.py` (timeline) |
 | Health checks | `k8smatrixwarden/doctor.py` (PASS / WARN / FAIL / NOT CONFIGURED) |
 | Optional LLM layer | `k8smatrixwarden/agents/llm_provider.py` — provider/model agnostic, never used by the scanner |
-| Interactive Dashboard | `k8smatrixwarden/web/` — zero-dependency SPA, `/api/dashboard` · `/api/timeline` · `/api/runtime` |
+| Interactive Dashboard | `k8smatrixwarden/web/` — zero-dependency SPA, `/api/dashboard` · `/api/timeline` · `POST /api/runtime` (ingest) · `GET /api/runtime` (read) · `/runtime` page |
 | IST timestamps | `k8smatrixwarden/core/timeutil.py` |
 | Taxonomy / Config | `k8smatrixwarden/taxonomy/*.json` · `k8smatrixwarden/config/default_config.json` |
 
@@ -595,6 +595,37 @@ confirmation by exactly the same rules as a provider-reported one.
 `discarded` is 0 by construction. Missing MITRE metadata yields `tactic: Unknown` rather
 than an inferred one, and Falco priorities map to severities through a single documented
 table (`Warning → MEDIUM`, never silently `CRITICAL`).
+
+## Runtime Events API and page
+
+`POST /api/runtime` ingests from Falco / falcosidekick, unchanged. `GET /api/runtime` on the
+same path reads back what is already stored — it adds no storage, reshaping the scan's own
+runtime block so the API and the report cannot disagree about what was observed.
+
+```bash
+curl 'http://127.0.0.1:8080/api/runtime?source=falco&severity=CRITICAL,HIGH&since=2h&limit=20'
+```
+
+| Parameter | Meaning |
+|---|---|
+| `limit` | default **50**, capped at 1000 |
+| `source` | `all` (default) · `kmw` / `falco` select by **detector** · `audit` / `drift` select by **stream** |
+| `severity` | comma-separated, e.g. `CRITICAL,HIGH` |
+| `namespace` | exact match |
+| `since` | `90s`, `15m`, `2h`, `7d`, `1w`, or a number of seconds |
+| `scan_id` | defaults to the latest saved scan |
+
+Ordering is newest-first with a content-hash tie-break, so identical timestamps never
+reshuffle between requests. A malformed filter is **ignored and reported in `warnings[]`**
+rather than silently applied — a filter that quietly does nothing would make an unfiltered
+page read as a filtered one. Each event carries the full provenance model: `event_id`,
+`detection_source`, `provider`, `provider_rule`, `supporting_evidence`, `tactic` /
+`technique_id`, `namespace` / `workload` / `pod` / `container` / `process`, `correlation`,
+`freshness` and `identity_status`.
+
+The **Runtime** tab in the dashboard navigation renders the same data as a filterable table
+with a per-event detail view, labelling each row `KMW` (curated rule), `Falco` (relayed
+provider rule) or `DRIFT` (declared securityContext contradicted by observed behaviour).
 
 ## Validation status & known limitations
 

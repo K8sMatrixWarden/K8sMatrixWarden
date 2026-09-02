@@ -67,6 +67,11 @@ class RuntimeAlert:
     #: finding. Empty when Falco said nothing about this event.
     provider_rule: str = ""
     provider_priority: str = ""
+    #: ATT&CK technique behind the tactic. A curated rule carries one by construction; a
+    #: relayed Falco alert only has one when Falco tagged it (e.g. `T1555`), and an empty
+    #: string means the provider did not say rather than that none applies.
+    technique_id: str = ""
+    technique_name: str = ""
 
     def provenance(self) -> dict:
         """Who detected this, under whose name, with what provider corroboration.
@@ -80,6 +85,8 @@ class RuntimeAlert:
             "event_source": self.source,
             "provider_rule": self.provider_rule or None,
             "provider_priority": self.provider_priority or None,
+            "technique_id": self.technique_id or None,
+            "technique_name": self.technique_name or None,
             # A curated detection with provider corroboration is the overlap case: one
             # event, two detectors, one finding.
             "supporting_evidence": (
@@ -144,7 +151,12 @@ def _falco_native_alert(event: dict) -> Optional["RuntimeAlert"]:
     # tactic matches no static finding and the alert lands in `runtime-only`, which is
     # exactly what it is -- observed behaviour with no weakness to attach it to.
     severity = _FALCO_PRIORITY.get(str(event.get("priority") or "").lower(), S.MEDIUM)
+    # Falco tags techniques as bare ATT&CK ids (`T1555`, `T1059.004`). Taken verbatim when
+    # present, left empty when not: a technique is a claim like any other.
+    technique = next((t.upper() for t in tags
+                      if t.startswith("t1") and t[1:].replace(".", "").isdigit()), "")
     return RuntimeAlert(rule_id=f"falco:{rule}", title=f"Falco: {rule}",
+                        technique_id=technique,
                         severity=severity,
                         tactic=tactic.value if tactic else _UNKNOWN_TACTIC,
                         event=event, source="falco", surface="runtime",
@@ -348,7 +360,9 @@ class RuntimeAgent:
                                                r.tactic.tactic.value, event,
                                                source=r.source, surface=r.surface,
                                                detection_source=DETECTION_KMW,
-                                               provider=PROVIDER_KMW))
+                                               provider=PROVIDER_KMW,
+                                               technique_id=r.tactic.technique_id,
+                                               technique_name=r.tactic.technique_name))
             except Exception:
                 continue
         if alerts:

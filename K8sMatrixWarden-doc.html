@@ -2053,6 +2053,8 @@ behind your own authentication.</td></tr>
 <tr><td><code>GET /api/timeline</code></td><td>Finding age metrics (open/resolved, MTTD/MTTR, oldest critical).</td></tr>
 <tr><td><code>POST /api/scan</code></td><td>Run & save scan. Returns: scan id, rating, report URL, warnings[], evidence_ok flag.</td></tr>
 <tr><td><code>POST /api/runtime</code></td><td>Ingest Falco events → {correlation, drift}. Read-only.</td></tr>
+<tr><td><code>GET /api/runtime</code></td><td>Recent runtime events already stored on a scan, newest first. Query: <code>limit</code> (default 50, capped at 1000), <code>source</code> (<code>all|kmw|falco|audit|drift</code>), <code>severity</code> (comma-separated), <code>namespace</code>, <code>since</code> (<code>90s|15m|2h|7d|1w</code> or seconds), <code>scan_id</code>. Adds no storage &mdash; it reshapes the scan's own runtime block, so it cannot disagree with the report. A malformed filter is ignored and named in <code>warnings[]</code> rather than silently applied. Each event carries the full provenance model: <code>event_id</code>, <code>detection_source</code> (kmw|falco), <code>provider</code>, <code>provider_rule</code>, <code>supporting_evidence</code>, <code>tactic</code>/<code>technique_id</code>, <code>namespace</code>/<code>workload</code>/<code>pod</code>/<code>container</code>/<code>process</code>, <code>correlation</code>, <code>freshness</code> and <code>identity_status</code>.</td></tr>
+<tr><td><code>GET /runtime</code></td><td>Runtime Events page: the same data as a filterable table with an expandable per-event detail view, distinguishing K8sMatrixWarden curated detections, relayed Falco detections, Kubernetes audit events and configuration drift.</td></tr>
 <tr><td><code>GET /health</code></td><td>Liveness + rule/shard counts.</td></tr>
 </tbody>
 </table></div>
@@ -2695,7 +2697,7 @@ anchor, in Python and in the dashboard&#39;s JavaScript) is covered by a drift t
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">787</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">808</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>

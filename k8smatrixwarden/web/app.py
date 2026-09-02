@@ -118,6 +118,12 @@ class WebApp:
                 return self._api_runtime_refresh(body)
             if method == "POST" and path == "/api/runtime":
                 return self._api_runtime(body)
+            # Read side of the same path. Method dispatch keeps ingestion untouched: a
+            # falcosidekick POST and an operator GET never meet.
+            if method == "GET" and path == "/api/runtime":
+                return self._api_runtime_events(q)
+            if method == "GET" and path == "/runtime":
+                return self._runtime_page()
             # /report/<id>  and  /report/<id>/matrix
             if method == "GET" and len(parts) >= 2 and parts[0] == "report":
                 if len(parts) == 2:
@@ -317,6 +323,71 @@ class WebApp:
                       "impact": explanation["why_it_matters"],
                       "validation": explanation["validation_steps"],
                       "explanation": explanation})
+
+    def _api_runtime_events(self, q: dict) -> Response:
+        """GET /api/runtime, the recent runtime events already stored on a scan.
+
+        Read-only and additive: POST on this path still ingests. Nothing new is stored, the
+        records are reshaped from the scan's own runtime block, so this view can never
+        disagree with the report about what was observed.
+
+        Query: `limit` (default 50), `source` (all|kmw|falco|audit|drift), `severity`
+        (comma-separated), `namespace`, `since` (90s|15m|2h|7d|1w or seconds), `scan_id`.
+        A malformed value is ignored and named in `warnings` rather than silently applied,
+        because a filter that quietly does nothing hides events.
+        """
+        from ..core.runtime_events import (apply_filters, flatten, parse_since, summarize,
+                                           SOURCES)
+        result = self.store.resolve(q.get("scan_id"))
+        if result is None:
+            return _json({"error": "no saved scan yet, scan first"}, 400)
+
+        warnings = []
+        limit, raw_limit = 50, (q.get("limit") or "").strip()
+        if raw_limit:
+            if raw_limit.isdigit() and int(raw_limit) > 0:
+                limit = min(int(raw_limit), 1000)
+            else:
+                warnings.append(f"ignored limit={raw_limit!r}, expected a positive integer")
+        source = (q.get("source") or "all").strip().lower() or "all"
+        if source not in SOURCES:
+            warnings.append(f"ignored source={source!r}, expected one of "
+                            f"{', '.join(SOURCES)}")
+            source = "all"
+        since_raw = (q.get("since") or "").strip()
+        since_seconds = parse_since(since_raw)
+        if since_raw and since_seconds is None:
+            warnings.append(f"ignored since={since_raw!r}, expected e.g. 15m, 2h, 7d or "
+                            f"a number of seconds")
+
+        runtime = result.runtime or {}
+        every = flatten(runtime, result.cluster_name)
+        matched = apply_filters(every, source=source,
+                                severity=(q.get("severity") or "").strip(),
+                                namespace=(q.get("namespace") or "").strip(),
+                                since_seconds=since_seconds)
+        return _json({
+            "scan_id": result.scan_id,
+            "cluster": result.cluster_name,
+            "collected_at": runtime.get("collected_at"),
+            "feed_source": runtime.get("source"),
+            # Totals before the limit, so a truncated page still says how much exists.
+            "total": len(every),
+            "matched": len(matched),
+            "returned": min(limit, len(matched)),
+            "limit": limit,
+            "filters": {"source": source, "severity": (q.get("severity") or "").strip(),
+                        "namespace": (q.get("namespace") or "").strip(),
+                        "since": since_raw or None},
+            "warnings": warnings,
+            "summary": summarize(matched),
+            "detection_coverage": runtime.get("detection_coverage"),
+            "identity_coverage": runtime.get("identity_coverage"),
+            "events": matched[:limit],
+        })
+
+    def _runtime_page(self) -> Response:
+        return _html(pages.runtime_page())
 
     def _api_runtime_refresh(self, body: bytes) -> Response:
         """Live-pull Falco events from the cluster, re-correlate against the current scan,
