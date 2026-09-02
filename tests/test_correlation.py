@@ -45,8 +45,11 @@ def test_normalize_falco_audit_event():
                              "ka.target.resource": "clusterrolebindings",
                              "ka.target.namespace": "production"}}
     ev = normalize_falco_event(raw)
+    # Falco's k8saudit plugin renders the same API-server record the audit log carries, so
+    # it flattens to the same shape, including the provider that produced the evidence.
     assert ev == {"source": "audit", "verb": "create",
-                  "resource": "clusterrolebindings", "namespace": "production"}
+                  "resource": "clusterrolebindings", "namespace": "production",
+                  "provider": "kubernetes-audit"}
 
 
 def test_normalize_events_single_and_flat_passthrough():

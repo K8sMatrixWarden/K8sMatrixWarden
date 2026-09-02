@@ -96,6 +96,8 @@ def enrich_event(event: dict, index: dict) -> dict:
     if not isinstance(event, dict):
         return event
     out = dict(event)
+    if out.get("source") == "audit":
+        return _audit_identity(out)
     has_ns, has_pod = bool(out.get("namespace")), bool(out.get("pod"))
 
     if not (has_ns and has_pod):
@@ -136,6 +138,36 @@ def enrich_event(event: dict, index: dict) -> dict:
         else:
             out["identity_reason"] = "the provider supplied no container id to resolve"
     return out
+
+
+def _audit_identity(event: dict) -> dict:
+    """Identity for a Kubernetes audit event, judged on the object the request named.
+
+    The pod/namespace test is the right one for a syscall: a process runs inside a
+    container. It is the wrong one for an audit record, where the subject is an API object
+    that may be cluster-scoped by design. Creating a ClusterRoleBinding has no namespace and
+    no pod, yet the record names exactly which object was created; reporting that as
+    `unknown` understates what the API server told us, and `unknown` is supposed to mean we
+    could not tell.
+
+    So audit identity is `complete` when the record names both a resource kind and a
+    specific object, `partial` for a collection operation (a `list` has no single object to
+    name), and `unknown` when the record identifies no resource at all.
+    """
+    resource, name = event.get("resource"), event.get("resource_name")
+    if resource and name:
+        event["identity_status"] = COMPLETE
+    elif resource:
+        event["identity_status"] = PARTIAL
+        event["identity_missing"] = ["resource_name"]
+        event["identity_reason"] = (
+            "a collection request names no single object, which is the request's nature "
+            "rather than missing evidence")
+    else:
+        event["identity_status"] = UNKNOWN
+        event["identity_missing"] = ["resource"]
+        event["identity_reason"] = "the audit record identifies no resource"
+    return event
 
 
 def enrich_events(events: list, pods: list) -> tuple:

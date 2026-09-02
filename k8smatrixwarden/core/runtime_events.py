@@ -77,9 +77,28 @@ def _event_id(record: dict) -> str:
     may change between requests. Hashes the fields that identify the observation rather than
     using a counter, so it survives re-reading the same report.
     """
-    seed = "|".join(str(record.get(key) or "") for key in
-                    ("kind", "timestamp", "rule", "detection_source", "namespace", "pod",
-                     "process", "title"))
+    audit_id = record.get("audit_id")
+    if audit_id:
+        # The API server stamps exactly one auditID per request, so two records carrying the
+        # same one describe the same API call however they reached us. A cluster running
+        # both a native audit feed and Falco's k8saudit plugin sees every call twice, and
+        # without this the same `kubectl get secrets` would be listed, counted and charted
+        # as two separate events.
+        #
+        # The rule is part of the identity because one request can legitimately trip more
+        # than one detection (a deletion that is both log tampering and part of a spike).
+        # Those are two findings about one call, not one finding reported twice.
+        seed = f"audit|{audit_id}|{record.get('rule') or ''}"
+    else:
+        # No auditID to join on, so identity falls back to the observable content. That
+        # collapses a redelivery of the identical event, which is what at-least-once
+        # transports like falcosidekick actually produce, at the cost of collapsing two
+        # genuinely separate calls that differ in nothing we can see. The trade is taken
+        # deliberately: an operator who retries a POST should not see doubled counts, and
+        # the fix for the other direction is an auditID, not a heuristic.
+        seed = "|".join(str(record.get(key) or "") for key in
+                        ("kind", "timestamp", "rule", "detection_source", "namespace",
+                         "pod", "process", "title"))
     return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
 
 
@@ -131,6 +150,13 @@ def _from_correlation(entry: dict, cluster: str) -> dict:
         "identity_status": event.get("identity_status") or "unknown",
         "identity_missing": event.get("identity_missing") or [],
         "identity_reason": event.get("identity_reason"),
+        # Kubernetes audit carries facts a syscall event cannot: who made the request, from
+        # where, and whether it succeeded. Present only on audit-sourced events, and never
+        # defaulted -- an absent field means the record did not contain it.
+        **{key: event[key] for key in
+           ("verb", "resource", "resource_name", "api_group", "username", "user_groups",
+            "source_ip", "user_agent", "request_uri", "response_status", "audit_id")
+           if event.get(key) not in (None, "", [])},
         # Distinct rule ids, in order. One runtime event commonly matches the same rule on
         # several resources; listing that id five times reads as a duplication bug rather
         # than as "five findings share this weakness".

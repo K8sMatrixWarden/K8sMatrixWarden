@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-819%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-856%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -97,7 +97,7 @@ node the event named (`fully_observed: false`), never the whole path.
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (819/819 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (856/856 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -598,8 +598,9 @@ table (`Warning → MEDIUM`, never silently `CRITICAL`).
 
 ## Runtime Events API and page
 
-`POST /api/runtime` ingests from Falco / falcosidekick, unchanged. `GET /api/runtime` on the
-same path reads back what is already stored — it adds no storage, reshaping the scan's own
+`POST /api/runtime` ingests from Falco / falcosidekick and from the Kubernetes API server's
+own audit log, unchanged. `GET /api/runtime` on the same path reads back what is already
+stored — it adds no storage, reshaping the scan's own
 runtime block so the API and the report cannot disagree about what was observed.
 
 ```bash
@@ -627,6 +628,33 @@ The **Runtime** tab in the dashboard navigation renders the same data as a filte
 with a per-event detail view, labelling each row `KMW` (curated rule), `Falco` (relayed
 provider rule) or `DRIFT` (declared securityContext contradicted by observed behaviour).
 
+### Kubernetes audit events
+
+The ingest accepts native `audit.k8s.io/v1` Events exactly as the API server writes them,
+alongside Falco's `k8saudit` rendering of the same records. No agent is required: an
+operator who can set `--audit-policy-file` can feed the audit log straight in.
+
+An audit detection is marked `source: audit`, `detection_source: kmw` and
+`provider: kubernetes-audit`, and the rendered reports name the stream beside the detector
+(`K8sMatrixWarden (audit)`) so an API-call detection is never read as a syscall one. The
+actor is carried through — `username`, `user_groups`, `source_ip`, `user_agent`,
+`request_uri`, `response_status`, `audit_id` — because "who did this, from where, and did it
+succeed" is what makes the finding actionable.
+
+Three behaviours are worth knowing:
+
+* Only `ResponseComplete` records are acted on. A `RequestReceived` record for the same
+  request is the same action reported twice, so it is **rejected with a reason** rather than
+  counted or silently dropped.
+* Mass deletion is a **rate**, and the API server writes one record per deleted object. The
+  tally is recovered by grouping a batch per `(user, resource, namespace)`, and only one
+  record carries it, so a burst of 25 deletions raises one alert. The other 24 are reported
+  as *counted into* that tally, never as "no rule matched".
+* Deduplication joins on `auditID`, which the API server stamps once per request, so a
+  cluster running both a native feed and Falco's `k8saudit` plugin sees each call once.
+  Without an auditID, identity falls back to content, which collapses an at-least-once
+  redelivery.
+
 ## Validation status & known limitations
 
 What has actually been exercised, and what has not. Nothing below is a bug; they are the
@@ -639,7 +667,7 @@ boundaries of what the tool claims.
 | All 8 report formats, MCP, web dashboard | **Tested** |
 | LLM layer (provider/model agnostic, optional) | **Tested** against a local OpenAI-compatible endpoint; no vendor endpoint exercised |
 | `POST /api/runtime` push feed (falcosidekick) | **Tested live** — falcosidekick 2.x → `POST OK (200)`; push and pull produce identical security meaning for the same event |
-| Kubernetes **audit** event rules | **Fixture-tested** — Docker Desktop exposes no audit log |
+| Kubernetes **audit** event rules | **Fixture-tested end to end** against native `audit.k8s.io/v1` records — all 5 rules, ingest through API, UI and all 8 report formats. Not live-tested: enabling `--audit-policy-file` on this Docker Desktop control plane was attempted and reverted (see below). |
 | Multi-node runtime identity | **Synthetic only** — validated on a single-node cluster |
 | NetworkPolicy **ports** | Carried in peer data, deliberately **not** used to narrow reachability. `restricted` already counts as isolating, so the model errs away from claiming reachability. |
 | Aggregated ClusterRoles | A live API server materialises `admin`/`edit`/`view` rules, and those resolve. An un-materialised `aggregationRule` is reported **`unknown`**, never as empty permissions. |

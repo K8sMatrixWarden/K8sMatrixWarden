@@ -697,6 +697,11 @@ def _coverage_lines(result: ScanResult) -> list[str]:
     return lines
 
 
+#: The stream a runtime detection came from is annotated in reports EXCEPT for this one,
+#: which is the ordinary case and would be noise on every row.
+SOURCE_SYSCALL = "falco"
+
+
 def _runtime_rows(result: ScanResult) -> list[tuple]:
     """(confidence, freshness, tactic, resource, namespace, falco rule) per correlation.
 
@@ -712,6 +717,16 @@ def _runtime_rows(result: ScanResult) -> list[tuple]:
         # is ours, anything else is the provider's verdict relayed under its own name.
         detector = ("K8sMatrixWarden" if rt_view.get("detection_source", "kmw") == "kmw"
                     else "Falco")
+        # Which stream the verdict rests on. Without it a Kubernetes-audit detection and a
+        # syscall detection read identically in a report, though they answer different
+        # questions ("who called the API" vs "what ran in the container") and are trusted
+        # differently. The stream name is the same vocabulary `GET /api/runtime?source=`
+        # filters on, so a reader can go from a report row to the events behind it.
+        # ASCII deliberately: the PDF writer emits WinAnsi strings, so a typographic
+        # separator would render as mojibake in one of the eight outputs.
+        stream = rt_view.get("event_source")
+        if stream and stream != SOURCE_SYSCALL:
+            detector = f"{detector} ({stream})"
         supporting = rt_view.get("supporting_evidence") or ""
         # Identity quality is reported beside the correlation, because "not confirmed"
         # because we could not place the event is a different statement from "not

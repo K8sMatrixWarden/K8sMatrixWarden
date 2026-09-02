@@ -178,6 +178,12 @@ def _unusable_reason(event) -> str:
         return ("unsupported: raw syscall with no Falco rule verdict and no curated rule "
                 "match, so there is nothing to report")
     if event.get("source") == "audit":
+        if event.get("counted_in"):
+            # It did contribute to a detection, as one deletion inside a rate. Saying "no
+            # rule matched" here would report the twenty-four records behind an alert as
+            # evidence nothing found, which is the opposite of what happened.
+            return (f"counted into the deletion-rate tally reported on audit record "
+                    f"{event['counted_in']}")
         return "no curated audit rule matched this verb/resource combination"
     return "no curated rule matched and the provider raised no verdict"
 
@@ -208,6 +214,72 @@ def _audit(verb=None, resource=None, ns=None):
     return _m
 
 
+#: The API server stamps every audit record with this apiVersion prefix. Used to tell a
+#: NATIVE Kubernetes audit Event from Falco's k8saudit-plugin rendering of one, which
+#: carries the same facts under `ka.*` keys inside `output_fields`.
+_AUDIT_API_PREFIX = "audit.k8s.io/"
+
+#: Audit stages. `ResponseComplete` is the one worth acting on: the request finished and
+#: `responseStatus` says whether it succeeded. A `RequestReceived` record for the same
+#: request describes an attempt, not an outcome, and counting both would report one action
+#: twice.
+AUDIT_STAGE_COMPLETE = "ResponseComplete"
+
+
+def is_kubernetes_audit_event(raw) -> bool:
+    """True for a native Kubernetes audit Event as the API server writes it."""
+    return (isinstance(raw, dict) and raw.get("kind") == "Event"
+            and str(raw.get("apiVersion") or "").startswith(_AUDIT_API_PREFIX))
+
+
+def normalize_audit_event(raw: dict) -> dict:
+    """Map ONE native Kubernetes audit Event to the flat internal shape rules match on.
+
+    The API server's record is richer than Falco's k8saudit rendering: it names the user,
+    their groups, the source IP, the user agent, the request URI and the response code.
+    Those are exactly the fields that make an audit finding actionable ("who did this, from
+    where, and did it succeed?"), so they are carried through rather than discarded.
+
+    `objectRef` supplies the resource identity. A subresource is joined to its parent with a
+    slash (`pods/exec`), which is the form Kubernetes itself uses in RBAC and the form the
+    curated rules already match on.
+
+    Absent fields are omitted, never defaulted. An audit record that does not name a
+    namespace is a cluster-scoped action, not an action in namespace "".
+    """
+    obj = raw.get("objectRef") or {}
+    user = raw.get("user") or {}
+    resource = obj.get("resource") or ""
+    if obj.get("subresource"):
+        resource = f"{resource}/{obj['subresource']}"
+    source_ips = raw.get("sourceIPs") or []
+    status = raw.get("responseStatus") or {}
+    ev = {
+        "source": "audit",
+        # The provider's own timestamp, recorded as given. `stageTimestamp` is when the
+        # stage completed; `requestReceivedTimestamp` is the fallback.
+        "time": raw.get("stageTimestamp") or raw.get("requestReceivedTimestamp") or "",
+        "verb": raw.get("verb"),
+        "resource": resource or None,
+        "resource_name": obj.get("name"),
+        "namespace": obj.get("namespace"),
+        "api_group": obj.get("apiGroup"),
+        "username": user.get("username"),
+        "user_groups": list(user.get("groups") or []) or None,
+        "source_ip": source_ips[0] if source_ips else None,
+        "user_agent": raw.get("userAgent"),
+        "request_uri": raw.get("requestURI"),
+        "response_status": status.get("code"),
+        "audit_id": raw.get("auditID"),
+        "stage": raw.get("stage"),
+        "provider": "kubernetes-audit",
+    }
+    # The curated rules key off `pod` for the exec case, where the object IS the pod.
+    if obj.get("name") and resource.startswith("pods"):
+        ev["pod"] = obj["name"]
+    return {k: v for k, v in ev.items() if v not in (None, "", [])}
+
+
 def normalize_falco_event(raw: dict) -> dict:
     """Map ONE Falco/falcosidekick native event to the flat internal shape the rule
     matchers expect. Falco nests everything under `output_fields` with dotted keys
@@ -219,12 +291,30 @@ def normalize_falco_event(raw: dict) -> dict:
     # in an attack sequence, Falco's own `time` field first, then the syscall timestamp.
     when = raw.get("time") or of.get("evt.time") or ""
     if raw.get("source") == "k8s_audit" or "ka.verb" in of:
+        # Falco's k8saudit plugin renders the SAME API-server record the audit log carries,
+        # so it is flattened to the same shape as `normalize_audit_event`. It previously put
+        # `ka.target.name` in `pod`, which labels a ClusterRoleBinding a Pod, and left the
+        # two renderings of one action looking like two different events.
+        resource = of.get("ka.target.resource") or ""
+        if of.get("ka.target.subresource"):
+            resource = f"{resource}/{of['ka.target.subresource']}"
         ev = {"source": "audit", "verb": of.get("ka.verb"),
-              "resource": of.get("ka.target.resource"),
+              "resource": resource or None,
+              "resource_name": of.get("ka.target.name"),
               "namespace": of.get("ka.target.namespace"),
-              "pod": of.get("ka.target.name"), "time": when,
+              "username": of.get("ka.user.name"),
+              "user_groups": list(of.get("ka.user.groups") or []) or None,
+              "source_ip": of.get("ka.source.ip"),
+              "user_agent": of.get("ka.useragent"),
+              "request_uri": of.get("ka.uri"),
+              "response_status": of.get("ka.response.code"),
+              "audit_id": of.get("ka.auid") or of.get("ka.req.uid"),
+              "time": when, "provider": "kubernetes-audit",
               "rule": raw.get("rule", "")}
-        return {k: v for k, v in ev.items() if v not in (None, "")}
+        # `pod` only when the object really is one, so pod-scoped reasoning stays honest.
+        if of.get("ka.target.name") and resource.startswith("pods"):
+            ev["pod"] = of["ka.target.name"]
+        return {k: v for k, v in ev.items() if v not in (None, "", [])}
     fd = of.get("fd.name") or ""
     # network fd if Falco gave a sip/rip, or the fd looks like host:port (not a path)
     is_net = bool(of.get("fd.sip") or of.get("fd.rip")) or (":" in fd and "/" not in fd)
@@ -277,11 +367,62 @@ def normalize_batch(raw) -> tuple:
                                        f"not an event object",
                              "event": {"repr": str(e)[:80]}})
             continue
-        if "output_fields" in e or e.get("source") in ("syscall", "k8s_audit"):
+        if is_kubernetes_audit_event(e):
+            # A native API-server audit record. Only completed requests are acted on: a
+            # RequestReceived record for the same request is the same action reported
+            # twice, once as an attempt and once as an outcome.
+            if e.get("stage") and e.get("stage") != AUDIT_STAGE_COMPLETE:
+                rejected.append({
+                    "reason": f"unsupported: audit stage {e.get('stage')!r}, only "
+                              f"{AUDIT_STAGE_COMPLETE} carries an outcome",
+                    "event": {"source": "audit", "verb": e.get("verb"),
+                              "stage": e.get("stage")}})
+                continue
+            out.append(normalize_audit_event(e))
+        elif "output_fields" in e or e.get("source") in ("syscall", "k8s_audit"):
             out.append(normalize_falco_event(e))
         else:
             out.append(e)  # already flat internal shape
+    _tally_deletions(out)
     return out, rejected
+
+
+def _tally_deletions(events: list) -> None:
+    """Attach a deletion tally to ONE record per (user, resource, namespace) burst.
+
+    Mass deletion is a rate, not a request. The API server writes one audit record per
+    deleted object, so no individual record can say "twenty-five pods were deleted", and
+    the curated rule that keys off `count` could never fire from native audit data without
+    this step. The count is recovered by grouping the batch, which is the only window we
+    can honestly claim to have observed.
+
+    Only the representative record carries the tally, so a burst of twenty-five deletions
+    raises one alert rather than twenty-five. The representative is the earliest by
+    timestamp with the audit id as a tiebreak, so the same batch marks the same record
+    however the entries were ordered on the wire.
+
+    A caller that did its own aggregation keeps it: an event that already carries `count`
+    is left alone rather than overwritten with this batch's narrower view.
+    """
+    groups: dict = {}
+    for e in events:
+        if (isinstance(e, dict) and e.get("source") == "audit"
+                and e.get("verb") == "delete" and "count" not in e):
+            groups.setdefault((e.get("username"), e.get("resource"),
+                               e.get("namespace")), []).append(e)
+    for members in groups.values():
+        # A single deletion is a deletion and carries no rate; claiming "count: 1" would
+        # invite a threshold to be read as met by one ordinary request.
+        if len(members) > 1:
+            representative = min(members, key=lambda e: (str(e.get("time") or ""),
+                                                         str(e.get("audit_id") or "")))
+            representative["count"] = len(members)
+            # The other members are not unmatched evidence, they ARE the rate. Marking them
+            # keeps the accounting honest: they are reported as counted, not as nothing.
+            marker = representative.get("audit_id") or representative.get("time") or "batch"
+            for member in members:
+                if member is not representative:
+                    member["counted_in"] = marker
 
 
 class RuntimeAgent:
@@ -356,18 +497,28 @@ class RuntimeAgent:
         for r in self.rules:
             try:
                 if r.matcher(event):
+                    # `provider` names the telemetry the verdict rests on. For a curated
+                    # rule that is this project, except on the audit stream, where the
+                    # evidence is the API server's own record and saying so is what lets a
+                    # reader tell an audit finding from a syscall one at a glance.
+                    provider = (event.get("provider") or PROVIDER_KMW
+                                if isinstance(event, dict) else PROVIDER_KMW)
                     alerts.append(RuntimeAlert(r.id, r.title, r.severity,
                                                r.tactic.tactic.value, event,
                                                source=r.source, surface=r.surface,
                                                detection_source=DETECTION_KMW,
-                                               provider=PROVIDER_KMW,
+                                               provider=provider,
                                                technique_id=r.tactic.technique_id,
                                                technique_name=r.tactic.technique_name))
             except Exception:
                 continue
         if alerts:
             # Overlap: keep Falco's provenance on the curated finding, do not double-count.
-            provider_rule = (event.get("rule") or "") if isinstance(event, dict) else ""
+            # Audit events carry no provider rule (the API server does not raise alerts, it
+            # records requests), so nothing is attached and no Falco evidence is invented.
+            provider_rule = ((event.get("rule") or "")
+                             if isinstance(event, dict)
+                             and event.get("source") != "audit" else "")
             if provider_rule:
                 for a in alerts:
                     a.provider_rule = provider_rule
