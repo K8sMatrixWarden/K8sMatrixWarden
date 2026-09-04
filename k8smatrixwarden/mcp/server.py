@@ -1344,6 +1344,103 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 for f in picked[:max(1, limit)]],
         }
 
+    def get_runtime_events(
+            scan_id: _ScanIdOpt = None,
+            source: Annotated[str, _F(description=(
+                "Which events to return: 'all' (default), 'kmw' or 'falco' select by "
+                "DETECTOR, 'audit' or 'drift' select by event STREAM. An unrecognised "
+                "value is ignored and named in `warnings` rather than silently applied."
+            ))] = "all",
+            severity: Annotated[str, _F(description=(
+                "Comma-separated severities to keep, e.g. 'CRITICAL,HIGH'. Empty keeps all."
+            ))] = "",
+            namespace: _Namespace = None,
+            since: Annotated[str, _F(description=(
+                "Only events newer than this age: '90s', '15m', '2h', '7d', '1w', or a "
+                "number of seconds. Empty keeps all. An event with no readable timestamp "
+                "is kept, because dropping it would let a time filter hide evidence."
+            ))] = "",
+            limit: Annotated[int, _F(description=(
+                "Maximum events to return (default 50, capped at 1000). `total` and "
+                "`matched` report the full counts behind the limit."
+            ))] = 50,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
+        """Read the runtime events already stored on a saved scan: Falco alerts, curated
+        K8sMatrixWarden runtime detections, Kubernetes audit records and config drift, with
+        their correlation verdict, provenance and identity.
+
+        This is the READ side of the runtime feed, and the answer to "what has actually been
+        observed in this cluster". It stores nothing and recomputes nothing: the records are
+        reshaped from the scan's own runtime block by the same
+        `core/runtime_events.query_runtime` the web dashboard's `GET /api/runtime` calls, so
+        the two surfaces cannot disagree about what was seen.
+
+        Ingestion is a different operation. `evaluate_runtime_events` and
+        `correlate_runtime` judge a batch you supply; `refresh_runtime_feed` pulls a fresh
+        batch from Falco in the cluster. This tool only reads what is already recorded.
+
+        Each event carries `detection_source` (kmw | falco), `provider`, `source` (the
+        event stream), `correlation` (confirmed | corroborated | runtime-only),
+        `freshness` and `identity_status`, so a relayed provider verdict is never mistaken
+        for one of this project's own.
+        """
+        from ..core.report_store import ReportStore
+        from ..core.runtime_events import query_runtime
+        try:
+            result = ReportStore(reports_dir).resolve(scan_id)
+        except FileNotFoundError:
+            return {"error": f"no stored report with scan-id {scan_id!r}"}
+        if result is None:
+            return {"error": "no saved scan to read runtime events from, scan first"}
+        return query_runtime(result, limit=limit, source=source, severity=severity,
+                             namespace=namespace or "", since=since)
+
+    def refresh_runtime_feed(
+            scan_id: _ScanIdOpt = None,
+            falco_namespace: Annotated[str, _F(description=(
+                "Namespace Falco runs in (default 'falco')."
+            ))] = "falco",
+            kubeconfig: _Kubeconfig = None,
+            context: _Context = None,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
+        """Pull the current Falco events from the cluster, correlate them against a saved
+        scan, and persist the result so `get_runtime_events` can read them back.
+
+        Read-only with respect to Kubernetes: it reads Falco's pod logs and writes only to
+        this tool's own report store. The counterpart push path (falcosidekick POSTing to
+        `/api/runtime`) is unaffected and is still the way to get a live stream.
+
+        Needs cluster access. Without it the call fails with a reason rather than returning
+        an empty feed, because "no events" and "could not look" are different answers and
+        only one of them means the cluster is quiet.
+        """
+        from ..core.falco_feed import build_runtime_feed
+        from ..core.report_store import ReportStore
+        store = ReportStore(reports_dir)
+        try:
+            result = store.resolve(scan_id)
+        except FileNotFoundError:
+            return {"error": f"no stored report with scan-id {scan_id!r}"}
+        if result is None:
+            return {"error": "no saved scan to correlate against, scan first"}
+        try:
+            collector = platform.make_collector(mock=False, kubeconfig=kubeconfig,
+                                                context=context)
+            feed = build_runtime_feed(collector, result.findings,
+                                      Scope(ScopeLevel.CLUSTER),
+                                      namespace=falco_namespace or "falco")
+        except RuntimeError as exc:
+            return {"error": f"live Falco pull needs cluster access: {exc}"}
+        if feed is None:
+            return {"scan_id": result.scan_id, "runtime": None,
+                    "message": f"no Falco events found in namespace "
+                               f"{falco_namespace!r}",
+                    "warnings": list(getattr(collector, "warnings", []))}
+        result.runtime = feed
+        store.save(result)
+        return {"scan_id": result.scan_id, "runtime": feed,
+                "warnings": list(getattr(collector, "warnings", []))}
+
     def get_cluster_coverage(
             scan_id: _ScanIdOpt = None,
             reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR) -> dict:
@@ -1459,10 +1556,79 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "get_rule": get_rule,
         "explain_finding": explain_finding,
         "get_cluster_coverage": get_cluster_coverage,
+        "get_runtime_events": get_runtime_events,
+        "refresh_runtime_feed": refresh_runtime_feed,
         "posture_history": posture_history,
         # 4. platform
         "generate_rbac_manifest": generate_rbac_manifest,
     }
+
+
+#: MCP stdio uses STDOUT for the protocol itself, so every log line goes to stderr. A
+#: single stray print to stdout corrupts the JSON-RPC stream and the client disconnects.
+def _log(event: str, **fields) -> None:
+    """One structured line on stderr: `ts=... event=... k=v ...`.
+
+    The MCP SDK logs only "Processing request of type CallToolRequest", which does not say
+    which tool ran, how long it took, or whether it failed, so a failing session cannot be
+    debugged from the log alone. These lines close that gap and nothing more.
+
+    Values are never tool ARGUMENTS or RESULTS. Arguments can carry a kubeconfig path and
+    results routinely carry finding detail; both are the caller's data and neither belongs
+    in a log by default. Argument NAMES are logged, which is enough to see what was asked
+    without recording what was said.
+    """
+    import sys as _sys
+    from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    parts = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
+    print(f"ts={stamp} event={event} {parts}".rstrip(), file=_sys.stderr, flush=True)
+
+
+def observe(name: str, fn):
+    """Wrap one tool so its call is observable: start, duration, outcome, result size.
+
+    A pass-through in every other respect. The wrapper does not touch arguments, does not
+    change the return value, and re-raises whatever the tool raised, so behaviour is
+    identical with logging on or off.
+    """
+    import functools
+    import time
+    import uuid
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        request_id = uuid.uuid4().hex[:12]
+        # Names only. A value could be a kubeconfig path or a namespace the operator would
+        # rather not have in a shared log.
+        _log("tool.started", request_id=request_id, tool=name,
+             args=",".join(sorted(kwargs)) or "-")
+        started = time.perf_counter()
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as exc:
+            _log("tool.failed", request_id=request_id, tool=name,
+                 duration_ms=round((time.perf_counter() - started) * 1000),
+                 error=type(exc).__name__)
+            raise
+        duration = round((time.perf_counter() - started) * 1000)
+        # A tool that returns {"error": ...} succeeded as a call and failed as an
+        # operation. Logging those the same way would hide every handled failure.
+        status = ("tool.error" if isinstance(result, dict) and "error" in result
+                  else "tool.completed")
+        _log(status, request_id=request_id, tool=name, duration_ms=duration,
+             result_bytes=_size(result))
+        return result
+
+    return wrapped
+
+
+def _size(result) -> int:
+    """Serialized size of a result, for the log. Never the content."""
+    try:
+        return len(json.dumps(result, default=str))
+    except Exception:
+        return -1
 
 
 def serve(config_path: Optional[str] = None) -> None:
@@ -1497,8 +1663,10 @@ def serve(config_path: Optional[str] = None) -> None:
 
     tools = build_tools(config_path)
     app = FastMCP("k8smatrixwarden-mcp")
+    _log("server.starting", tools=len(tools))
     for name, fn in tools.items():
-        app.tool(name=name)(fn)
+        app.tool(name=name)(observe(name, fn))
+    _log("server.ready", tools=len(tools), transport="stdio")
     app.run()
 
 

@@ -22,6 +22,7 @@ ALL_TOOLS = {
     "analyze_rbac_paths", "analyze_network_policy",
     "list_reports", "download_report", "federation_blast_radius",
     "get_rule", "explain_finding", "get_cluster_coverage", "posture_history",
+    "get_runtime_events", "refresh_runtime_feed",
     "generate_rbac_manifest",
 }
 

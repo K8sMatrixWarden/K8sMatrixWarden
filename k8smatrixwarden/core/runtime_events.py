@@ -278,6 +278,64 @@ def summarize(records: list) -> dict:
 #: How many correlations a stored runtime block keeps. A pushed feed is unbounded over a
 #: cluster's lifetime, and a report is a document, not a time-series database: past this the
 #: oldest entries are dropped, newest kept, and `dropped_older` records that it happened.
+def query_runtime(result, *, limit=50, source="all", severity="", namespace="",
+                  since="") -> dict:
+    """The stored runtime events on a scan, filtered, with the totals behind the filter.
+
+    ONE implementation, called by `GET /api/runtime` and by the MCP `get_runtime_events`
+    tool, so the two surfaces cannot disagree about what was observed. Nothing is stored
+    and nothing is recomputed: the records are reshaped from the scan's own runtime block,
+    so this view can never drift from the report.
+
+    A malformed filter is IGNORED and named in `warnings` rather than silently applied. A
+    filter that quietly does nothing hides events, which is the one failure this whole
+    read path exists to avoid.
+    """
+    warnings: list = []
+    effective_limit = 50
+    raw_limit = str(limit if limit is not None else "").strip()
+    if raw_limit:
+        if raw_limit.isdigit() and int(raw_limit) > 0:
+            effective_limit = min(int(raw_limit), 1000)
+        else:
+            warnings.append(f"ignored limit={raw_limit!r}, expected a positive integer")
+    wanted = (source or "all").strip().lower() or "all"
+    if wanted not in SOURCES:
+        warnings.append(f"ignored source={wanted!r}, expected one of {', '.join(SOURCES)}")
+        wanted = "all"
+    since_raw = (since or "").strip()
+    since_seconds = parse_since(since_raw)
+    if since_raw and since_seconds is None:
+        warnings.append(f"ignored since={since_raw!r}, expected e.g. 15m, 2h, 7d or a "
+                        f"number of seconds")
+
+    runtime = result.runtime or {}
+    every = flatten(runtime, result.cluster_name)
+    matched = apply_filters(every, source=wanted,
+                            severity=(severity or "").strip(),
+                            namespace=(namespace or "").strip(),
+                            since_seconds=since_seconds)
+    return {
+        "scan_id": result.scan_id,
+        "cluster": result.cluster_name,
+        "collected_at": runtime.get("collected_at"),
+        "feed_source": runtime.get("source"),
+        # Totals before the limit, so a truncated page still says how much exists.
+        "total": len(every),
+        "matched": len(matched),
+        "returned": min(effective_limit, len(matched)),
+        "limit": effective_limit,
+        "filters": {"source": wanted, "severity": (severity or "").strip(),
+                    "namespace": (namespace or "").strip(),
+                    "since": since_raw or None},
+        "warnings": warnings,
+        "summary": summarize(matched),
+        "detection_coverage": runtime.get("detection_coverage"),
+        "identity_coverage": runtime.get("identity_coverage"),
+        "events": matched[:effective_limit],
+    }
+
+
 MAX_STORED = 500
 
 

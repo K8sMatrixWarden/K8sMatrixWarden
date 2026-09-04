@@ -550,7 +550,7 @@ footer.site-footer {
     <input id="search" type="text" placeholder="Filter the docs…" autocomplete="off" spellcheck="false">
   </div>
   <div class="topbar-right">
-    <span class="badge-version">v1.0 · 60 rules · 36 MCP tools · IST</span>
+    <span class="badge-version">v1.0 · 60 rules · 40 MCP tools · IST</span>
     <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">◐</button>
   </div>
 </div>
@@ -782,7 +782,7 @@ footer.site-footer {
 <h1>Overview</h1>
 <p class="lede">K8sMatrixWarden is an <strong>MCP-native</strong> Kubernetes security platform.
 Its whole surface — scanning, the CIS benchmark, the threat matrix, kill-chain attack paths,
-and scan×runtime correlation — is exposed as <strong>36 MCP tools</strong>, so an AI agent
+and scan×runtime correlation — is exposed as <strong>40 MCP tools</strong>, so an AI agent
 (Claude, Cursor, VS&nbsp;Code, Windsurf) drives it conversationally. The <a href="#cli">CLI</a>
 and <a href="#web">web dashboard</a> run the same engine for anyone not on an MCP client. It is
 <em>detect-and-report only</em> — read-only on every surface, no apply/remediate path.</p>
@@ -1687,7 +1687,7 @@ Scope=cluster-wide  Selector=tactic=Persistence
 <tbody>
 <tr><td><code>native</code></td><td>25</td><td>Runs the mapped domain-shard rule — rule fired ⇒ FAIL</td></tr>
 <tr><td><code>builtin</code></td><td>2</td><td>Purpose-built evaluator (HostPorts, default namespace)</td></tr>
-<tr><td><code>component</code></td><td>38</td><td>Control-plane / kubelet process flags, read from static-pod specs — <strong>no node access</strong></td></tr>
+<tr><td><code>component</code></td><td>40</td><td>Control-plane / kubelet process flags, read from static-pod specs — <strong>no node access</strong></td></tr>
 <tr><td><code>kube-bench</code></td><td>31</td><td>True node file-permission reads — resolved from <code>kube-bench --json</code></td></tr>
 <tr><td><code>manual</code></td><td>34</td><td>CIS itself marks these subjective — surfaced, never auto-passed</td></tr>
 </tbody>
@@ -1823,7 +1823,7 @@ same engine. Pick whichever fits the moment.</p>
 <tr><td><code>federation</code></td><td>Cross-cluster blast radius from the saved per-cluster scans</td></tr>
 <tr><td><code>posture</code></td><td>What changed since the previous scan of the same scope, new / resolved / persistent / regressed, with MTTD and MTTR</td></tr>
 <tr><td><code>doctor</code></td><td>Full health check: shards, config, rules, taxonomy, MCP, report formats, runtime, LLM, dependencies, read-only invariants (<code>--probe</code>, <code>-o json</code>)</td></tr>
-<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 38 tools</td></tr>
+<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 40 tools</td></tr>
 </tbody>
 </table></div>
 
@@ -2105,7 +2105,7 @@ path-traversal-guarded, and <code>--no-scan</code> serves existing reports fully
 
 <section id="mcp-connect">
 <h1>MCP Server</h1>
-<p class="lede">This is the intended way to run K8sMatrixWarden. 38 tools across four layers
+<p class="lede">This is the intended way to run K8sMatrixWarden. 40 tools across four layers
 let any MCP-compatible AI agent — Claude, Cursor, VS&nbsp;Code, Windsurf — do everything the CLI
 can: scan, audit, project the threat matrix and kill-chain, correlate a live runtime feed against
 static findings, and export reports. Every tool's docstring and all 150 parameters carry their own
@@ -2131,7 +2131,7 @@ setup — there is nothing to write and no path to fill in.</p>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">02</div><div class="fs-t">Open the folder</div><div class="fs-d">Open the repo root in Cursor, Claude Code, or VS&nbsp;Code. The config is found automatically.</div></div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 38 tools load.</div></div>
+  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 40 tools load.</div></div>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">04</div><div class="fs-t">Ask in plain English</div><div class="fs-d">Open the agent chat and describe the scan you want — no flags.</div></div>
 </div>
@@ -2139,7 +2139,7 @@ setup — there is nothing to write and no path to fill in.</p>
 <p>Per-client where to check that step 3 worked:</p>
 <ul>
 <li><strong>Cursor</strong> — <em>Settings → Tools &amp; MCP</em>. <code>k8smatrixwarden</code> should
-be listed and toggled on, with 38 tools underneath it.</li>
+be listed and toggled on, with 40 tools underneath it.</li>
 <li><strong>Claude Code</strong> — run <code>/mcp</code>. A project-scoped
 <code>.mcp.json</code> asks for approval the first time you open the folder; approve it, then the
 server shows as <em>connected</em>.</li>
@@ -2207,13 +2207,13 @@ explicit <code>"type": "stdio"</code>, while everyone else uses <code>mcpServers
 clients converge on a shared path, three small files is the floor for zero-config support, and the
 two global-config clients need the one-time paste above. The upside: the <em>server</em> never
 forks — all five clients run the identical <code>k8smatrixwarden mcp</code> process and see the
-identical 38 tools.</p></div>
+identical 40 tools.</p></div>
 </div>
 
 <h3>Verify, then talk to it</h3>
 <div class="code-card">
   <div class="code-head"><span class="code-lang">bash</span><button class="copy-btn" data-copy>Copy</button></div>
-  <pre><code><span class="c-mut"># lists all 38 tools without starting the server — the fastest wiring check</span>
+  <pre><code><span class="c-mut"># lists all 40 tools without starting the server — the fastest wiring check</span>
 python -m k8smatrixwarden mcp --list-tools
 
 <span class="c-mut"># start it over stdio yourself (this is what the client runs for you)</span>
@@ -2304,6 +2304,8 @@ fails the build if a write-capable tool name ever appears.</p></div>
 <tr><td><code>explain_finding</code></td><td>One finding, fully explained as structured fields: what is wrong, why it matters, the evidence, the affected resource and owner, network reachability, the RBAC escalation path, any runtime evidence, the attack-path step it feeds, and a confidence score with its reasons.</td></tr>
 <tr><td><code>get_cluster_coverage</code></td><td>How much of the cluster a saved scan actually read: evidence coverage and assessment confidence, per resource type and per domain, with the basis for each number (<code>measured</code> / <code>estimated</code> / <code>heuristic</code> / <code>unknown</code>).</td></tr>
 <tr><td><code>posture_history</code></td><td>What changed since the previous scan <em>of the same scope</em>: new, resolved, persistent, regressed, plus the MTTD/MTTR timeline. A rule that did not re-run lands in <code>not_rescanned</code>, never in <code>resolved</code>.</td></tr>
+<tr><td><code>get_runtime_events</code></td><td>Read the runtime events already stored on a saved scan — Falco alerts, curated runtime detections, Kubernetes audit records and drift — filtered by stream, severity, namespace and age. The read side of the feed: it stores nothing and shares <code>query_runtime</code> with the dashboard's <code>GET /api/runtime</code>, so the two cannot disagree about what was observed.</td></tr>
+<tr><td><code>refresh_runtime_feed</code></td><td>Pull the current Falco events from the cluster, correlate them against a saved scan and persist the result. Reads Falco's pod logs; writes only to the report store. Without cluster access it fails with a reason rather than returning an empty feed, because "no events" and "could not look" are different answers.</td></tr>
 </tbody>
 </table></div>
 <div class="callout">
@@ -2728,7 +2730,7 @@ anchor, in Python and in the dashboard&#39;s JavaScript) is covered by a drift t
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">946</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">966</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>

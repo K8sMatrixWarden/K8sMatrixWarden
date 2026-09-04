@@ -268,7 +268,14 @@ def latest_change(store, scan_id: Optional[str] = None) -> dict:
     reports = store.list()
     if not reports:
         return {}
-    target = scan_id if any(r.scan_id == scan_id for r in reports) else reports[0].scan_id
+    known = {r.scan_id for r in reports}
+    if scan_id and scan_id not in known:
+        # Asking about a scan that is not here is a question with no answer. Falling back
+        # to the newest scan used to look helpful and was a silent wrong answer: the caller
+        # asked what changed in scan X and got scan Y's diff, with nothing saying so. An
+        # OMITTED scan_id still means "the latest", which is a different request.
+        raise FileNotFoundError(f"no stored report with scan-id {scan_id!r}")
+    target = scan_id if scan_id in known else reports[0].scan_id
     index = next(i for i, r in enumerate(reports) if r.scan_id == target)
     here = reports[index]
     scope = store.scope_key_of(here.cluster, here.scope)

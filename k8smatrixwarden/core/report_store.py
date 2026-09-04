@@ -357,10 +357,21 @@ class ReportStore:
                     d = json.load(fh)
             except Exception:
                 continue
+            # A report says what it is. Anything else in this directory is somebody
+            # else's file and is not listed.
+            #
+            # This used to fall back to the FILENAME when `scan_id` was absent, which
+            # turned every parseable .json into a row: pointed at an unrelated directory
+            # the store happily reported `wrapperMap` and `ecoscore_config` as scans. That
+            # is a garbage row in the dashboard history, and, because `reports_dir` is a
+            # caller-supplied argument on the CLI and over MCP, it also let a caller
+            # enumerate the .json filenames of any directory it could read.
+            if not isinstance(d, dict) or not d.get("scan_id"):
+                continue
             risk = d.get("risk", {}) or {}
             counts = d.get("counts", {}) or {}
             total = sum(v for k, v in counts.items() if k != "INFO")
-            scan_id = d.get("scan_id", os.path.basename(p)[:-5])
+            scan_id = d["scan_id"]
             out.append(StoredReport(
                 scan_id=scan_id,
                 path=p,
