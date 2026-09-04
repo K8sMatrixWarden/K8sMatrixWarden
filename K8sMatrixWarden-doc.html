@@ -1258,13 +1258,44 @@ is reachable from three different tactic queries.</li>
 
 <div class="code-card">
   <div class="code-head"><span class="code-lang">core/scoring.py</span></div>
-  <pre><code>finding_score  = severity_weight × exploitability × blast_radius × path_multiplier
+  <pre><code>issue_score    = severity_weight × exploitability × blast_radius × path_multiplier
 path_multiplier = 1 + 0.25 × (distinct_tactics_on_finding − 1)   <span class="c-mut"># attack-path bonus</span>
 
-raw            = Σ finding_score                       <span class="c-mut"># INFO findings score 0</span>
+raw            = Σ issue_score over WORKLOAD ISSUES    <span class="c-mut"># one per (rule × owning workload)</span>
 cluster_risk   = 10 × raw / (raw + K)                  <span class="c-mut"># K = 60.0, saturating</span>
 security_score = round((1 − cluster_risk / 10) × 100)  <span class="c-mut"># 0–100</span></code></pre>
 </div>
+
+<h3>Two counts: evidence, and things to fix</h3>
+<p>Kubernetes represents one workload as a chain of objects, so a Deployment whose pod
+template runs as root produces that finding on the Deployment, on every ReplicaSet it has
+created, and on every Pod. Three findings, one misconfiguration, one edit to fix it. A live
+scan of an eight-namespace cluster produced 517 findings of which 353 sat on such derived
+objects. Every report therefore publishes two numbers, under names that cannot be read as
+each other:</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>Count</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>resource_findings</code></td><td>Every Kubernetes object carrying a flaw. The
+evidence, unchanged and never hidden — the findings table, the JSON, the API and MCP all
+still list each one.</td></tr>
+<tr><td><code>workload_issues</code></td><td>One per <strong>(rule × owning workload)</strong>.
+The number of separate fixes. This is what the risk score is summed over.</td></tr>
+</tbody>
+</table></div>
+
+<p>Scoring on issues stops a controller's chain multiplying the score. It is not a discount
+and nothing is divided: two workloads with the same flaw still score twice, two rules on one
+workload still score twice, and a standalone Pod scores on its own. Grouping follows
+Kubernetes <code>ownerReferences</code> only — never a name prefix or a similarity, so
+<code>Deployment/api</code> and <code>Deployment/api-server</code> stay two workloads — and
+namespace and cluster are part of workload identity, so the same name in two namespaces or
+two clusters never collapses. A Pod whose controller is absent from the evidence keeps its
+own identity rather than being attached to a plausible-looking parent.</p>
+
+<p>Runtime evidence is a separate concept and is <em>not</em> aggregated this way: five shell
+executions in one workload remain five runtime alerts.</p>
 
 <div class="table-scroll"><table>
 <thead><tr><th>Factor</th><th>Values</th></tr></thead>
@@ -2697,7 +2728,7 @@ anchor, in Python and in the dashboard&#39;s JavaScript) is covered by a drift t
 <section id="quality">
 <h1>Testing &amp; Quality</h1>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">939</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">946</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>

@@ -701,7 +701,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 return {"error": str(exc)}
         return {"error": f"unknown output_format: {output_format}"}
 
-    def evaluate_runtime_events(events: _Events) -> list[dict]:
+    def evaluate_runtime_events(events: _Events) -> dict:
         """Evaluate a batch of runtime events (Falco-style syscall events or Kubernetes
         audit events) against the Runtime Agent's rule catalog (§8) and return any
         alerts that fired. Each event needs a `source` key of 'falco' or 'audit' plus
