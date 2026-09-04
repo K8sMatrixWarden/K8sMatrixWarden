@@ -160,6 +160,13 @@ def _encode_report(content) -> dict:
     return {"content": content}
 
 
+def _agg(result) -> dict:
+    """Resource-finding and workload-issue counts, recomputed when a stored report predates
+    workload aggregation so an old scan still reports both."""
+    from ..core.reporting import workload_summary
+    return workload_summary(result)
+
+
 def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     """Return the callable tool implementations (usable with or without the MCP SDK)."""
     platform = build_platform(config_path)
@@ -484,7 +491,12 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                    "risk": {"cluster_risk": result.risk.cluster_risk,
                            "security_score": result.risk.security_score,
                            "rating": result.risk.rating},
-                   "total_findings": result.total()}
+                   "total_findings": result.total(),
+                   # Both counts under names that cannot be confused: the evidence, and
+                   # the number of separate fixes it amounts to.
+                   "resource_findings": result.total(),
+                   "workload_issues": (result.aggregation or {}).get("workload_issues"),
+                   "aggregation": result.aggregation or {}}
 
         doc = json.loads(platform.reporting.json(result))
         if max_findings is not None and len(doc["findings"]) > max_findings:
@@ -1353,6 +1365,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 "mode": result.mode, "evidence_ok": result.evidence_ok,
                 "warnings": list(result.warnings),
                 "risk": result.risk.as_dict(),
+                "aggregation": _agg(result),
                 "coverage": result.coverage or {
                     "note": "this scan predates coverage tracking"}}
 

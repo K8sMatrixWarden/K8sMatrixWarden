@@ -59,6 +59,13 @@ def _text(s: str, status: int = 200) -> Response:
 _RUNTIME_PERSIST_LOCK = threading.Lock()
 
 
+def _workload_summary(result) -> dict:
+    """Resource-finding and workload-issue counts for the dashboard, recomputed for reports
+    saved before workload aggregation existed so an old scan still shows both."""
+    from ..core.reporting import workload_summary
+    return workload_summary(result)
+
+
 class WebApp:
     def __init__(self, platform, reports_dir: str = DEFAULT_DIR,
                  allow_scan: bool = True, allow_client_kubeconfig: bool = True):
@@ -223,6 +230,11 @@ class WebApp:
             # What changed since the previous scan of this cluster (§16).
             "posture": self._posture(selected),
             "inventory": latest.inventory,
+            # Both counts, and the remediation units behind the evidence. The findings list
+            # below is unchanged and remains the resource-level record; this is the same
+            # information grouped by the object an operator would edit.
+            "aggregation": _workload_summary(latest),
+            "workload_issues": list(latest.workload_issues or []),
             "findings": [f.as_dict() for f in latest.findings],
             "threat_matrix": matrix.as_dict(),
             "attack_path": attack_paths(matrix, latest.runtime,

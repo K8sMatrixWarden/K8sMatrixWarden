@@ -9,10 +9,11 @@ from k8smatrixwarden.core.models import (BlastRadius, Exploitability, Finding, M
 from k8smatrixwarden.core.scoring import RiskScoringEngine
 
 
-def _finding(sev, tactics, expl=Exploitability.REMOTE, blast=BlastRadius.CLUSTER):
+def _finding(sev, tactics, expl=Exploitability.REMOTE, blast=BlastRadius.CLUSTER,
+             name="x"):
     return Finding(
         rule_id="r", title="t", severity=sev,
-        resource=ResourceRef("Pod", "x", "ns"), message="m",
+        resource=ResourceRef("Pod", name, "ns"), message="m",
         mitre=[MitreTag(t, "T1610", "Deploy Container") for t in tactics],
         exploitability=expl, blast_radius=blast)
 
@@ -34,8 +35,14 @@ def test_cluster_risk_bounded_and_monotonic():
     eng = RiskScoringEngine()
     low = eng.score([_finding(Severity.LOW, [Tactic.DISCOVERY],
                               Exploitability.LOCAL, BlastRadius.POD)])
-    high = eng.score([_finding(Severity.CRITICAL, [Tactic.PRIVILEGE_ESCALATION])
-                      for _ in range(20)])
+    # Twenty DISTINCT criticals. The fixture used to build twenty copies of one finding on
+    # one Pod, which the aggregator would have merged before scoring ever saw them; scoring
+    # now counts one contributor per (rule x owning workload), so twenty identical copies
+    # correctly score as the one problem they are. Twenty real problems is what this test
+    # means, so it now says so.
+    high = eng.score([_finding(Severity.CRITICAL, [Tactic.PRIVILEGE_ESCALATION],
+                               name=f"pod-{i}")
+                      for i in range(20)])
     assert 0 <= low.cluster_risk <= 10
     assert 0 <= high.cluster_risk <= 10
     assert high.cluster_risk > low.cluster_risk

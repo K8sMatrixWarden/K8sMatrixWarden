@@ -24,6 +24,16 @@ _ZEBRA = "F1F3F6"
 _SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
 
+
+def _workload_issue_count(result):
+    """Remediation units behind the resource findings: one per (rule x owning workload).
+
+    Reported beside the raw count rather than instead of it, so a reader can see both how
+    much evidence there is and how many separate fixes it amounts to."""
+    from .reporting import workload_summary
+    agg = workload_summary(result)
+    return agg.get("workload_issues", result.total())
+
 def render_xlsx(result: ScanResult) -> bytes:
     """Render a ScanResult to a styled multi-sheet .xlsx and return the raw bytes."""
     try:
@@ -104,7 +114,8 @@ def _sheet_summary(ws, result: ScanResult, style_sheet) -> None:
         ("Overall risk score", f"{r.cluster_risk} / 10"),
         ("Security score", f"{r.security_score} / 100"),
         ("Risk rating", r.rating),
-        ("Total findings", result.total()),
+        ("Resource-level findings", result.total()),
+        ("Owning-workload issues", _workload_issue_count(result)),
         ("", ""),
         ("Critical", c.get("CRITICAL", 0)),
         ("High", c.get("HIGH", 0)),

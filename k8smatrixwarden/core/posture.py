@@ -120,6 +120,72 @@ def compare(previous: Optional[ScanResult], current: ScanResult,
         "not_rescanned": [_view(prev[k]) for k in not_rescanned],
         "summary": _summary(previous, current, new_keys, resolved_keys,
                             persistent_keys, regressed, len(carried)),
+        # The same comparison at the remediation level. Reported alongside, never instead:
+        # the resource-level lists above remain the evidence.
+        "workload": _workload_compare(previous, current, rescanned),
+    }
+
+
+def _workload_key(finding, cluster: str) -> str:
+    """Cross-scan identity of a workload-level issue: rule x owning workload.
+
+    Recomputed from the resource rather than read off `finding.aggregation_group`, because a
+    report saved before workload aggregation existed carries no group and would otherwise
+    compare as a different issue purely because of when it was written.
+    """
+    from .workload import aggregation_group
+    return aggregation_group(finding, cluster)
+
+
+def _workload_compare(previous: Optional[ScanResult], current: ScanResult,
+                      rescanned: set) -> dict:
+    """new / resolved / persistent at the (rule x owning workload) level.
+
+    This is the level at which "did anything actually change?" can be answered. Kubernetes
+    replaces Pods constantly: a rollout deletes Pod-abc, creates ReplicaSet-def and
+    Pod-def-xyz, and every resource key changes even though the workload's configuration is
+    identical. At resource level that is honestly reported as findings resolved and findings
+    appeared; read as a posture summary it says the cluster changed when it did not.
+
+    The rule about resolution is the same one the resource level uses and is not relaxed
+    here: an issue counts as resolved only if the rule that raised it actually ran again.
+    """
+    def by_issue(result):
+        if result is None:
+            return {}
+        cluster = getattr(result, "cluster_name", "") or ""
+        out: dict = {}
+        for finding in result.findings:
+            if finding.severity.weight <= 0:
+                continue
+            out.setdefault(_workload_key(finding, cluster), finding)
+        return out
+
+    cur, prev = by_issue(current), by_issue(previous)
+    appeared = [k for k in cur if k not in prev]
+    gone = [k for k in prev if k not in cur]
+    resolved = [k for k in gone if prev[k].rule_id in rescanned]
+    not_rescanned = [k for k in gone if prev[k].rule_id not in rescanned]
+    persistent = [k for k in cur if k in prev]
+
+    def view(key, finding):
+        from .workload import workload_id
+        cluster = getattr(current, "cluster_name", "") or ""
+        return {"key": key, "rule_id": finding.rule_id, "title": finding.title,
+                "severity": finding.severity.label,
+                "owning_workload_id": workload_id(finding.resource, cluster),
+                "namespace": finding.resource.namespace}
+
+    return {
+        "previous_issues": len(prev),
+        "current_issues": len(cur),
+        "new": [view(k, cur[k]) for k in appeared],
+        "resolved": [view(k, prev[k]) for k in resolved],
+        "persistent": [view(k, cur[k]) for k in persistent],
+        "not_rescanned": [view(k, prev[k]) for k in not_rescanned],
+        "summary": (f"{len(appeared)} new, {len(resolved)} resolved, "
+                    f"{len(persistent)} still open, at the (rule x owning workload) "
+                    f"level"),
     }
 
 

@@ -716,12 +716,37 @@ function hero(){
   return `${meta}
   <div class='kpis'>
     <div class='kpi lead ${rk}'><div class='n'>${s.cluster_risk.toFixed(1)}<span class='max'>/10</span></div><div class='l'>Risk score</div>${delta}</div>
-    <div class='kpi ${rk}'><div class='n'>${esc(s.rating)}</div><div class='l'>Security posture</div><div class='s fm'>${s.total} findings</div></div>
+    <div class='kpi ${rk}'><div class='n'>${esc(s.rating)}</div><div class='l'>Security posture</div><div class='s fm'>${s.total} resource findings</div></div>
+    <div class='kpi'><div class='n'>${wlCount()}</div><div class='l'>Workload issues</div><div class='s fm'>${wlNote()}</div></div>
     <div class='kpi ${hp?'crit':'good'}'><div class='n'>${hp}</div><div class='l'>Critical &amp; high</div><div class='s fm'>${hp?'need attention':'all clear'}</div></div>
     <div class='kpi good'><div class='n'>${cov}<span class='max'>%</span></div><div class='l'>Detection coverage</div><div class='s fm'>${D.threat_matrix.summary.techniques_covered} techniques</div></div>
   </div>
   ${tot?`<div class='sevbar'>${segs}</div><div class='sevleg'>${leg}</div>`:''}
+  ${wlExplain()}
   ${exposureBar()}`;
+}
+// The two counts are different questions and the dashboard says so in words, because a bare
+// pair of numbers invites a reader to assume one of them is wrong.
+//   resource findings , every Kubernetes object carrying a flaw, the evidence
+//   workload issues   , one per (rule x owning workload), the number of separate fixes
+// A Deployment's misconfiguration appears on the Deployment, its ReplicaSets and every Pod;
+// that is three findings and one thing to fix.
+function agg(){ return D.aggregation||{}; }
+function wlCount(){ const a=agg(); return a.workload_issues!=null?a.workload_issues:'-'; }
+function wlNote(){
+  const a=agg(); if(a.workload_issues==null) return 'not computed for this scan';
+  const d=a.duplication_factor||1;
+  return d>1.05?`${d}x evidence per issue`:'one issue per finding';
+}
+function wlExplain(){
+  const a=agg(); if(a.workload_issues==null) return '';
+  if(!a.derived_resource_findings) return '';
+  return `<div class='fm' style='margin:.5rem 0 0'>
+    <b>${a.resource_findings}</b> resource-level findings are the evidence;
+    <b>${a.workload_issues}</b> owning-workload issues are the separate fixes.
+    ${a.derived_resource_findings} findings sit on Pods and ReplicaSets that Kubernetes
+    generated from a controller, so they are evidence for an issue fixed on that controller.
+    Nothing is hidden, the findings table below still lists every one.</div>`;
 }
 // Pod exposure bar (reachability): worst-wins buckets over EVERY pod, so the segments have an
 // honest denominator. Reuses the sevbar/sevleg idiom. Renders nothing for pre-inventory scans.
@@ -866,10 +891,40 @@ function runtimeReadiness(){
     <div class='fm' style='margin-top:.5rem'>Pull live events in the <a href='javascript:showTab("runtime")'>Runtime</a> tab.</div>`;
 }
 /* ---- findings ---- */
+// Workload view: the same findings grouped by the object an operator would edit. A grouping
+// of the resource-level table, never a replacement for it -- that table stays exactly as it
+// was, and clicking a workload row here reveals the resource findings underneath it.
+let wlOpen=null;
+function workloadView(){
+  const issues=D.workload_issues||[];
+  if(!issues.length) return '';
+  const rows=issues.map((i,ix)=>{
+    const open=ix===wlOpen;
+    const ev=open?`<tr class='wl-ev'><td colspan='6'><div class='fm'>
+        Resource-level evidence for this issue:</div><ul>${
+        (i.resources||[]).map(r=>`<li><code>${esc(r)}</code></li>`).join('')}</ul></td></tr>`:'';
+    return `<tr class='clk${open?' sel':''}' onclick='wlOpen=${open?'null':ix};render()'>
+      <td><code>${esc(i.workload)}</code>${i.namespace?` <span class='fm'>(${esc(i.namespace)})</span>`:''}</td>
+      <td><span class='s-${i.severity}'></span> ${i.severity}</td>
+      <td>${esc(i.rule_id)}</td>
+      <td>${i.resource_count}${i.derived_resource_count?` <span class='fm'>(${i.derived_resource_count} derived)</span>`:''}</td>
+      <td>${(i.tactics||[]).length}</td>
+      <td>${(i.score||0).toFixed(2)}</td></tr>${ev}`;
+  }).join('');
+  return `<details class='panel' style='margin-top:1rem'>
+    <summary><strong>Workload issues</strong> &middot; ${issues.length} separate fixes behind
+      ${D.findings.length} resource-level findings</summary>
+    <div class='fm' style='margin:.5rem 0'>One row per rule &times; owning workload. Click a
+      row to see the resource-level findings that are its evidence.</div>
+    <div class='tw'><table><thead><tr>
+      <th>Workload</th><th>Severity</th><th>Rule</th><th>Resources</th><th>Tactics</th>
+      <th>Score</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+
 function findingsView(){
   const chips=SEV.slice(0,4).map(s=>`<span class='chip' data-sev='${s}' onclick='toggleSev("${s}")'>${s}</span>`).join('');
   const tacs=[...new Set(D.findings.flatMap(f=>f.mitre.map(m=>m.tactic)))].sort();
-  return `<div class='panel'>${healthNote()}
+  return workloadView()+`<div class='panel'>${healthNote()}
     <div class='ctl'>
       <input type='search' id='fsearch' placeholder='Search findings, rules, or resources…' oninput='fText=this.value.toLowerCase();renderFindings()'>
       ${chips}

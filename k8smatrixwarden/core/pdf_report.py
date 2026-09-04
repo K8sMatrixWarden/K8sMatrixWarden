@@ -293,8 +293,16 @@ def _executive_summary(pdf, result: ScanResult, findings: list[Finding]) -> None
     c = result.counts
     total = result.total()
     _scan_warnings(pdf, result)
+    from .reporting import workload_summary
+    agg = workload_summary(result)
+    # Both counts, because the raw number is read as "how much is wrong" and on a real
+    # cluster most of it is one workload's configuration repeated on the objects Kubernetes
+    # generated from it.
+    scale = (f"{total} resource-level finding(s) across "
+             f"{agg['workload_issues']} owning-workload issue(s)"
+             if agg.get("workload_issues") else f"{total} actionable finding(s)")
     _body(pdf, f"Overall risk {r.cluster_risk}/10 ({r.rating}) -- security score "
-              f"{r.security_score}/100, based on {total} actionable finding(s) across "
+              f"{r.security_score}/100, based on {scale} across "
               f"{len(result.resolved_rule_ids)} rule(s) evaluated in "
               f"{len(result.by_shard)} domain(s).")
     pdf.ln(2)

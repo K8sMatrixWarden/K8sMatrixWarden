@@ -114,7 +114,11 @@ def test_explanation_shares_sum_to_one_hundred_percent():
     total = sum(v["share_pct"] for v in r.explanation["by_severity"].values())
     assert abs(total - 100.0) < 0.5
     assert r.explanation["raw_total"] == r.raw
-    assert r.explanation["scored_findings"] == 4
+    # `scored_issues`, not `scored_findings`: the score sums one contributor per
+    # (rule x owning workload), and the explanation names the basis it actually used.
+    assert r.explanation["scored_issues"] == 4
+    assert r.explanation["scoring_basis"] == "workload_issues"
+    assert r.explanation["resource_findings"] == 4
 
 
 def test_top_contributors_are_ordered_and_carry_their_breakdown():

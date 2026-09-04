@@ -152,6 +152,13 @@ class ScanResult:
     #: risk score on purpose, "how bad is it" and "how much did we see" are different
     #: questions. Empty for scans saved before this existed.
     coverage: dict = field(default_factory=dict)
+    #: Workload-level aggregation (core/workload.py). `workload_issues` is one entry per
+    #: (rule x owning workload), the remediation units behind the resource-level findings;
+    #: `aggregation` carries both counts and how they relate. The findings list is
+    #: untouched and remains the evidence. Empty on scans saved before this existed, so an
+    #: old report simply shows the resource count on its own.
+    workload_issues: list = field(default_factory=list)
+    aggregation: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.scan_id:
@@ -191,6 +198,8 @@ class ScanResult:
                 "explanation": self.risk.explanation,
             },
             "counts": self.counts,
+            "workload_issues": list(self.workload_issues),
+            "aggregation": self.aggregation,
             "by_tactic": self.by_tactic,
             "by_shard": self.by_shard,
             "findings": [f.as_dict() for f in self.findings],
@@ -221,6 +230,8 @@ class ScanResult:
             risk=risk,
             resolved_rule_ids=list(d.get("resolved_rules", [])),
             counts=d.get("counts", {}) or {},
+            workload_issues=list(d.get("workload_issues", []) or []),
+            aggregation=d.get("aggregation", {}) or {},
             by_tactic=d.get("by_tactic", {}) or {},
             by_shard=d.get("by_shard", {}) or {},
             name=d.get("name", ""),

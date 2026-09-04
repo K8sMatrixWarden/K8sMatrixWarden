@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-38-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-892%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-939%20passing-success"/>
   <img src="https://img.shields.io/badge/live%20demo-Kubernetes%20Goat-red"/>
 </p>
 
@@ -97,7 +97,7 @@ node the event named (`fully_observed: false`), never the whole path.
 there is no dependency that can lag a new Python release. The 3.10 floor comes from the optional
 extras (`mcp`, `kubernetes` and `fpdf2` each require 3.10+), not from the engine.
 
-Verified on 3.11 and 3.14 (892/892 tests on both). **3.11 or 3.12 is the safest choice** for a
+Verified on 3.11 and 3.14 (939/939 tests on both). **3.11 or 3.12 is the safest choice** for a
 real deployment — every extra has shipped wheels for them for years.
 
 If you have more than one Python installed, note that MCP clients launch whichever one `python`
@@ -675,6 +675,8 @@ boundaries of what the tool claims.
 | Concurrent report I/O on **Windows** | Reports are written by atomic rename and read with a bounded retry across that window, so ingestion and the dashboard can run at once. Two limits no retry can remove: a reader that holds a handle open indefinitely blocks a write (stdlib `open` cannot request share-delete), and a reader polling with no pause at all starves the writer. Neither is a normal profile; a failed write is reported as `stored: false` rather than assumed. |
 | Runtime **ingest concurrency** | Persisting a batch is serialised within a process, so simultaneous falcosidekick pushes cannot overwrite each other. Two separate processes serving one report directory are bounded by the store's overwrite guard, not by that lock. |
 | Stale runtime **evidence** | A correlation older than 7 days is reported as `historical`, states its age in the verdict, and cannot lift an attack-path step to `observed`. The resource link is still `confirmed`: what ages is the claim that it is happening now, not the claim that it happened. |
+| **Two finding counts** | Reports publish `resource_findings` (every Kubernetes object carrying a flaw, the evidence) and `workload_issues` (one per rule x owning workload, the separate fixes). A live scan showed 517 and 173: Kubernetes reports one Deployment's misconfiguration on the Deployment, its ReplicaSets and every Pod. Neither number replaces the other and no finding is hidden. Grouping follows `ownerReferences` only, never a name prefix; namespace and cluster are part of workload identity. |
+| **Risk scoring basis** | The score sums one contributor per workload issue, not per Kubernetes object, so a controller's chain cannot multiply it. Not a discount: two workloads with the same flaw still score twice, and a standalone Pod scores on its own. On the 517-finding scan this moved raw 4408 -> 1932 and the score 9.9 -> 9.7, the curve being flat that far above the saturation constant. |
 | Scan **id** uniqueness | Unique and strictly increasing **within a process**, which is what a run of rapid scans needs. The id format is unchanged (`<name>-YYYYMMDD-HHMMSS-<4 hex>`); the trailing field is now seeded from the clock and advanced by the process rather than read from it, because a wall clock that ticks every 15.6 ms cannot carry uniqueness. Two separate processes share no counter, so the store additionally refuses to write a report over one it did not write, filing the newcomer under a fresh id. |
 | Kubernetes object **UID** | Deliberately **not** part of finding identity. A recreated Pod with the same flaw is the same finding, not a fix followed by a regression. |
 

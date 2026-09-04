@@ -341,6 +341,19 @@ class Finding:
     #: when the finding is not on a workload.
     rbac_paths: list = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
+    #: Workload-level aggregation identity (core/workload.py). Stamped after the rules run
+    #: and before scoring, so every surface groups findings the same way. These describe the
+    #: finding; they never change, merge or hide it. Empty on a hand-built Finding that has
+    #: not been through a scan.
+    #:   resource_finding_id , stable id of THIS finding on THIS object
+    #:   owning_workload_id  , Kind/name|namespace|cluster of the workload it belongs to
+    #:   is_derived_resource , True when Kubernetes generated the object from a controller
+    #:                         we can actually see (so the fix is on the controller)
+    #:   aggregation_group   , rule@workload: the remediation unit this is evidence for
+    resource_finding_id: str = ""
+    owning_workload_id: str = ""
+    is_derived_resource: bool = False
+    aggregation_group: str = ""
     score: float = 0.0                      # filled in by RiskScoringEngine
     #: The four factors whose product IS `score`, published so the number is reproducible
     #: by hand (§7). Filled in by RiskScoringEngine; empty for INFO/engine findings.
@@ -372,6 +385,10 @@ class Finding:
             "rule_id": self.rule_id,
             "title": self.title,
             "severity": self.severity.label,
+            "resource_finding_id": self.resource_finding_id,
+            "owning_workload_id": self.owning_workload_id,
+            "is_derived_resource": self.is_derived_resource,
+            "aggregation_group": self.aggregation_group,
             "resource": {"kind": self.resource.kind, "name": self.resource.name,
                          "namespace": self.resource.namespace,
                          "owner_kind": self.resource.owner_kind,
@@ -430,6 +447,14 @@ class Finding:
         f.rbac_paths = list(d.get("rbac_paths", []) or [])
         f.score = float(d.get("score", 0.0))
         f.score_breakdown = d.get("score_breakdown", {}) or {}
+        # Absent on reports saved before workload aggregation existed. Left empty rather
+        # than recomputed here: the ids depend on the cluster name the scan ran against,
+        # and inventing them from a stored report would make an old scan claim an identity
+        # it never had. Surfaces recompute when they need to group.
+        f.resource_finding_id = d.get("resource_finding_id", "") or ""
+        f.owning_workload_id = d.get("owning_workload_id", "") or ""
+        f.is_derived_resource = bool(d.get("is_derived_resource", False))
+        f.aggregation_group = d.get("aggregation_group", "") or ""
         return f
 
 

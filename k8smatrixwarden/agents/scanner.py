@@ -40,7 +40,22 @@ class ScannerAgent:
         evaluated = [r for r in rule_ids if r not in set(failed)]
 
         findings = self.p.aggregator.aggregate(findings)
-        risk = self.p.scoring.score(findings)
+
+        # Resolved BEFORE scoring: the cluster name is part of workload identity, so two
+        # clusters' reports in one store can never merge a workload by name alone.
+        cluster = "target-cluster"
+        try:
+            cluster = collector.cluster_label() or cluster
+        except Exception:
+            pass
+
+        risk = self.p.scoring.score(findings, cluster)
+        # Findings are already stamped with their aggregation identity by scoring; this
+        # groups them into the remediation units the headline count reports, without
+        # removing, merging or hiding any of the evidence underneath.
+        from ..core.workload import summarize, workload_issues
+        issues = workload_issues(findings, cluster)
+        aggregation = summarize(findings, issues)
 
         # A collector that could read nothing produces zero findings, which scores as
         # "Excellent". That is a lie about a cluster we never inspected, so the rating is
@@ -51,14 +66,6 @@ class ScannerAgent:
         if not evidence_ok:
             risk = RiskResult(cluster_risk=0.0, security_score=0, rating="Unknown",
                               rating_emoji="⚠️", raw=0.0)
-
-        # Record WHICH cluster this scan hit, so a saved report can be grouped by cluster
-        # in the federation/blast-radius view. Falls back to the model default.
-        cluster = "target-cluster"
-        try:
-            cluster = collector.cluster_label() or cluster
-        except Exception:
-            pass
 
         # Cluster inventory + pod exposure buckets for the dashboard scope bar. The collector
         # caches buckets, so kinds the rules already fetched cost nothing here; only Node /
@@ -92,6 +99,8 @@ class ScannerAgent:
             resolved_rule_ids=evaluated,
             failed_rule_ids=failed,
             counts=self.p.aggregator.counts(findings),
+            workload_issues=[i.as_dict() for i in issues],
+            aggregation=aggregation,
             by_tactic=self.p.aggregator.by_tactic(findings),
             by_shard=self.p.aggregator.by_shard(findings),
             name=name,

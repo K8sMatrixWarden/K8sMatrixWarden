@@ -121,6 +121,13 @@ class ReportingEngine:
             f"Mode {result.mode}   Rules {len(result.resolved_rule_ids)}\n"
             f"🔴 {c['CRITICAL']} Critical   🟠 {c['HIGH']} High   "
             f"🟡 {c['MEDIUM']} Medium   🟢 {c['LOW']} Low")
+        # Both counts wherever the count appears. The raw number is read as "how much is
+        # wrong"; on a real cluster most of it is one workload's configuration repeated on
+        # the objects Kubernetes generated from it.
+        agg = workload_summary(result)
+        if agg.get("workload_issues"):
+            summary += (f"\n{agg['resource_findings']} resource-level findings   "
+                        f"{agg['workload_issues']} owning-workload issues")
         # Coverage belongs next to the score wherever the score appears: a 9.9 from 95%
         # coverage is a different statement from a 9.9 from 40%, and the terminal was the
         # only surface showing the score without it.
@@ -202,6 +209,10 @@ class ReportingEngine:
         # How much of the cluster the verdict above is based on. Printed next to the score
         # so the two are read together, a 9.7 from 40% coverage is a different statement
         # from a 9.7 from 100%.
+        agg = workload_summary(result)
+        if agg.get("workload_issues"):
+            out += [f"  FINDINGS  {agg['resource_findings']} resource-level"
+                    f"   ·   {agg['workload_issues']} owning-workload issues"]
         out += [f"  {line}" for line in _coverage_lines(result)]
         # Runtime correlation sits beside coverage: both qualify what the findings mean.
         out += [f"  {line}" for line in _runtime_lines(result)]
@@ -329,9 +340,13 @@ class ReportingEngine:
         md += [
             f"| **Total** | **{total}** | |",
             "",
-            f"- **Findings:** {total} actionable "
+            f"- **Resource-level findings:** {total} actionable "
             f"({c['CRITICAL']} critical, {c['HIGH']} high, {c['MEDIUM']} medium, "
             f"{c['LOW']} low)",
+            (f"- **Owning-workload issues:** {_wl(result)} "
+             f"(the same findings grouped by rule x the workload that owns the object, "
+             f"which is the number of separate fixes)"
+             if _wl(result) is not None else ""),
             f"- **MITRE ATT&CK tactics implicated:** {len(result.by_tactic)} / 9",
             f"- **Attack-path amplified findings:** {len(multi)} "
             f"(one issue enabling multiple tactics)" if multi else
@@ -459,6 +474,12 @@ class ReportingEngine:
             "risk_score": result.risk.cluster_risk,
             "security_score": result.risk.security_score,
             "total_findings": total,
+            # Both counts, under names that cannot be mistaken for each other.
+            # `resource_findings` is the evidence: every Kubernetes object carrying a flaw.
+            # `workload_issues` is the remediation count: one per (rule x owning workload).
+            "resource_findings": total,
+            "workload_issues": (workload_summary(result) or {}).get("workload_issues"),
+            "aggregation": workload_summary(result),
             "severity_percent": {s.label: _pct_num(c[s.label], total)
                                  for s in _SEV_DISPLAY},
             "attack_path_amplified": sum(1 for f in result.findings
@@ -672,7 +693,8 @@ class ReportingEngine:
             chips=chips, filters=filters,
             gaugepct=min(100, round(r.cluster_risk * 10)),
             cards=("".join(cards) or "<p class='ok'>✅ No findings for this scan.</p>"),
-            total=total, tactics=len(result.by_tactic))
+            total=total, tactics=len(result.by_tactic),
+            workload_issues=(_wl(result) if _wl(result) is not None else total))
 
 
 # ======================================================================= #
@@ -700,6 +722,48 @@ def _coverage_lines(result: ScanResult) -> list[str]:
 #: The stream a runtime detection came from is annotated in reports EXCEPT for this one,
 #: which is the ordinary case and would be noise on every row.
 SOURCE_SYSCALL = "falco"
+
+
+def _wl(result: ScanResult):
+    """Workload-issue count, or None when there is nothing to report."""
+    return (workload_summary(result) or {}).get("workload_issues")
+
+
+def workload_summary(result: ScanResult) -> dict:
+    """The two counts, for every surface, computed once.
+
+    Falls back to recomputing from the findings when a stored report predates workload
+    aggregation, so an old report still shows both numbers rather than a blank. Returns an
+    empty dict only when there is nothing to count.
+    """
+    agg = dict(getattr(result, "aggregation", None) or {})
+    if agg:
+        return agg
+    if not result.findings:
+        return {}
+    from .workload import summarize, workload_issues
+    cluster = getattr(result, "cluster_name", "") or ""
+    issues = workload_issues(list(result.findings), cluster)
+    return summarize(list(result.findings), issues)
+
+
+def workload_line(result: ScanResult) -> str:
+    """One sentence naming both counts, in words that cannot be read as the same thing.
+
+    The distinction matters because the raw count is what a reader treats as "how much is
+    wrong". On a real cluster most of it is one workload's configuration reported again on
+    every object Kubernetes generated from it.
+    """
+    agg = workload_summary(result)
+    if not agg or not agg.get("workload_issues"):
+        return ""
+    resources, issues = agg["resource_findings"], agg["workload_issues"]
+    if resources == issues:
+        return f"{resources} resource-level findings, each its own workload issue"
+    return (f"{resources} resource-level findings across {issues} owning-workload issues "
+            f"({agg.get('derived_resource_findings', 0)} of the findings sit on Pods and "
+            f"ReplicaSets generated from a controller, so they are evidence for an issue "
+            f"fixed on that controller)")
 
 
 def _runtime_rows(result: ScanResult) -> list[tuple]:
@@ -1492,7 +1556,8 @@ _HTML_TMPL = """<!doctype html><html><head><meta charset="utf-8">
 <div class="hero">
  <div class="score {rating_class}">{rating_emoji} {risk}/10 <span style="font-size:1rem">({rating})</span></div>
  <div class="gauge"><div class="pin" style="left:{gaugepct}%"></div></div>
- <div>Security score <strong>{sec}/100</strong> · <strong>{total}</strong> findings ·
+ <div>Security score <strong>{sec}/100</strong> · <strong>{total}</strong> resource-level
+  findings · <strong>{workload_issues}</strong> owning-workload issues ·
   <strong>{tactics}/9</strong> MITRE tactics · <strong>{rules}</strong> rules ·
   scope <code>{scope}</code> · selector <code>{selector}</code></div>
  <p>{verdict}</p>
