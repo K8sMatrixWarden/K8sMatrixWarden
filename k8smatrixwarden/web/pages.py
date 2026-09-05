@@ -335,7 +335,7 @@ def _topbar(active: str = "") -> str:
     return ("<div class='topbar'>"
             "<h1><span class='mark'>K8</span>K8sMatrixWarden</h1><span class='grow'></span>"
             + nav("/", "Dashboard", "home")
-            + nav("/runtime", "Runtime", "runtime")
+            + nav("/runtime", "Runtime Management", "runtime")
             + nav("/runtime-events", "Runtime Events", "runtime-events")
             + nav("/matrix", "Coverage", "matrix")
             + nav("/compliance", "Compliance", "compliance")
@@ -566,7 +566,7 @@ def runtime_page() -> str:
     # buttons that install and remove the thing producing the events belong on the Runtime
     # page, where an operator goes to manage the integration rather than to read it.
     crumb = ("<div class='crumbs'><a href='/'>Dashboard</a> › "
-             "<a href='/runtime'>Runtime</a> › runtime events</div>")
+             "<a href='/runtime'>Runtime Management</a> › runtime events</div>")
     body = (_topbar("runtime-events") + crumb + head + controls
             + "<div id='rt-q'><div class='empty'>Loading…</div></div>" + _RUNTIME_JS)
     return layout("K8sMatrixWarden · Runtime Events", body,
@@ -1595,8 +1595,8 @@ def runtime_ops_page() -> str:
     screen, with their real state. The event feed is a separate page: mixing a live feed
     with buttons that uninstall the thing feeding it is how somebody clicks the wrong one.
     """
-    crumb = "<div class='crumbs'><a href='/'>Dashboard</a> \u203a runtime</div>"
-    head = ("<h1 style='font-size:1.3rem;margin:.2rem 0'>Runtime</h1>"
+    crumb = "<div class='crumbs'><a href='/'>Dashboard</a> \u203a runtime management</div>"
+    head = ("<h1 style='font-size:1.3rem;margin:.2rem 0'>Runtime Management</h1>"
             "<div class='sub'>Runtime provider status and lifecycle. Cluster scanning "
             "stays read-only; the actions here change this machine or the cluster and are "
             "refused unless the write gate is set. The event feed is on "
@@ -1620,7 +1620,7 @@ def runtime_ops_page() -> str:
             "<div id='he-detail' class='ops-detail'></div>"
             "<div id='he-msg' class='fm ops-msg'></div></div>")
     body = (_topbar("runtime") + crumb + head + falco + helm + _OPS_JS)
-    return layout("K8sMatrixWarden \u00b7 Runtime", body,
+    return layout("K8sMatrixWarden \u00b7 Runtime Management", body,
                   extra_css=_APP_CSS + _RUNTIME_CSS)
 
 
