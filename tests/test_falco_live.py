@@ -320,3 +320,73 @@ if __name__ == "__main__":
             _fn()
             print("ok", _name)
     print("all passed")
+
+
+# --------------------------------------------------------------------------- #
+# The "no events" diagnostic must name the RIGHT cause
+# --------------------------------------------------------------------------- #
+
+_QUIET_LOG = """Sat Sep 05 17:22:06 2026: Falco initialized with configuration files
+Sat Sep 05 17:22:06 2026: Loaded event sources: syscall
+Sat Sep 05 17:22:06 2026: Opening 'syscall' source with modern BPF probe."""
+
+_TEXT_ALERT_LOG = """Sat Sep 05 17:22:06 2026: Falco initialized
+17:23:17.954850046: Notice Shell spawned by untrusted binary (proc=sh)
+17:23:20.946349276: Warning Sensitive file opened for reading (file=/etc/shadow)"""
+
+
+def test_plain_text_alerts_are_recognised():
+    """The discriminator. Falco writing alerts as text and Falco writing nothing produce
+    an identical empty event list, and the two need opposite advice."""
+    from k8smatrixwarden.core.falco_feed import counts_text_alerts
+    assert counts_text_alerts(_TEXT_ALERT_LOG) == 2
+    assert counts_text_alerts(_QUIET_LOG) == 0
+
+
+def test_a_json_log_is_never_counted_as_plain_text():
+    from k8smatrixwarden.core.falco_feed import counts_text_alerts, parse_falco_log
+    line = ('{"rule":"Shell","output":"x","output_fields":{"proc.name":"sh"},'
+            '"priority":"Warning","time":"2026-09-05T17:23:17Z"}')
+    assert len(parse_falco_log(line)) == 1
+    assert counts_text_alerts(line) == 0
+
+
+def test_a_quiet_cluster_is_not_told_to_enable_json_output():
+    """REGRESSION. The dashboard told an operator whose json_output was already true to
+    enable json_output, because the code could not tell "no alerts happened" from "alerts
+    happened but not as JSON" and asserted the second. That sends somebody to change a
+    setting that was never the problem."""
+    from k8smatrixwarden.core.falco_feed import counts_text_alerts, no_events_reason
+    reason = no_events_reason(counts_text_alerts(_QUIET_LOG), 3600)
+    assert "json_output" not in reason, reason
+    assert "raised no alerts" in reason
+    assert "normal state of a quiet cluster" in reason
+    assert "1 hour" in reason, "the window is the actual reason and must be stated"
+
+
+def test_text_only_alerts_do_advise_enabling_json_output():
+    """The other branch: here the advice is right and must still be given."""
+    from k8smatrixwarden.core.falco_feed import counts_text_alerts, no_events_reason
+    reason = no_events_reason(counts_text_alerts(_TEXT_ALERT_LOG), 3600)
+    assert "falco.json_output=true" in reason
+    assert "PLAIN TEXT" in reason
+    assert "2 alert(s)" in reason
+
+
+def test_the_window_is_reported_in_human_terms():
+    from k8smatrixwarden.core.falco_feed import window_text
+    assert window_text(3600) == "1 hour"
+    assert window_text(7200) == "2 hours"
+    assert window_text(900) == "15 minutes"
+    assert window_text(86400) == "1 day"
+    assert window_text(90) == "90 seconds"
+
+
+def test_the_collector_uses_the_shared_message_not_its_own():
+    """One implementation: a second copy in the collector would drift from this one."""
+    import inspect
+
+    from k8smatrixwarden.core import evidence
+    source = inspect.getsource(evidence.LiveEvidenceCollector.collect_runtime_events)
+    assert "no_events_reason(" in source
+    assert "enable JSON output" not in source, "the old inline message is back"

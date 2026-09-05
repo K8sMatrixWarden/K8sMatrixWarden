@@ -13,6 +13,8 @@ and reading their logs) lives on the live collector; this module only parses tex
 """
 from __future__ import annotations
 
+import re
+
 import json
 
 #: A parsed line is treated as a Falco event when it looks like one: Falco's native JSON
@@ -64,6 +66,58 @@ def _as_text(payload) -> str:
                 # Worst case, at least restore the line breaks so the alerts are parseable.
                 return body.replace("\\n", "\n")
     return text
+
+
+#: Falco's PLAIN-TEXT alert line, e.g. `17:23:20.946349276: Warning Sensitive file ...`.
+#: Recognising it is what separates "Falco is alerting but not in JSON" from "Falco had
+#: nothing to alert about" -- two situations that produce an identical empty event list and
+#: need opposite advice.
+_TEXT_ALERT = re.compile(
+    r"^\d{2}:\d{2}:\d{2}\.\d+:\s+"
+    r"(Emergency|Alert|Critical|Error|Warning|Notice|Informational|Debug)\s",
+    re.MULTILINE)
+
+
+def counts_text_alerts(text) -> int:
+    """How many PLAIN-TEXT Falco alerts the log holds.
+
+    Zero JSON events can mean the operator has json_output off, or simply that nothing
+    happened. Only one of those is worth acting on, and telling somebody to enable a
+    setting that is already enabled sends them to fix the wrong thing.
+    """
+    return len(_TEXT_ALERT.findall(_as_text(text)))
+
+
+def window_text(seconds) -> str:
+    """A window an operator reads at a glance: '1 hour', not '3600 seconds'."""
+    seconds = int(seconds or 0)
+    for size, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        if seconds >= size and seconds % size == 0:
+            n = seconds // size
+            return f"{n} {unit}{'s' if n != 1 else ''}"
+    return f"{seconds} second{'s' if seconds != 1 else ''}"
+
+
+def no_events_reason(text_alerts: int, since_seconds: int,
+                     namespace: str = "falco") -> str:
+    """Why the feed came back empty, in the words the operator needs.
+
+    An empty event list has two very different causes that used to share one message:
+    Falco writing alerts as plain text (json_output off), and Falco having nothing to
+    alert about. The old message asserted the first and told everybody to enable
+    json_output -- including operators whose json_output was already true, sending them to
+    change a setting that was never the problem. `text_alerts` is the discriminator.
+    """
+    window = window_text(since_seconds)
+    if text_alerts:
+        return (f"Falco feed: Falco raised {text_alerts} alert(s) in the last {window} but "
+                f"wrote them as PLAIN TEXT, so none could be read. Enable JSON output: "
+                f"helm upgrade falco falcosecurity/falco -n {namespace} --reuse-values "
+                f"--set falco.json_output=true")
+    return (f"Falco feed: Falco is running and raised no alerts in the last {window}, "
+            f"which is the normal state of a quiet cluster rather than a fault. Nothing is "
+            f"wrong with the feed; there was simply nothing to report. If you expected "
+            f"alerts, generate some activity and refresh, or widen the window.")
 
 
 def parse_falco_log(text) -> list[dict]:

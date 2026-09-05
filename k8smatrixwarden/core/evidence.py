@@ -477,7 +477,8 @@ class LiveEvidenceCollector(EvidenceCollector):
         """Read recent Falco alerts from the DaemonSet's pod logs (json_output=true) using
         the same authenticated client the scan already loaded. Best-effort: any failure is
         recorded as a warning and returns whatever was read, never aborting the scan."""
-        from .falco_feed import parse_falco_log
+        from .falco_feed import (counts_text_alerts, no_events_reason,
+                                 parse_falco_log)
 
         core = self._client.CoreV1Api(self._api)
         items = []
@@ -502,6 +503,7 @@ class LiveEvidenceCollector(EvidenceCollector):
 
         events: list[dict] = []
         read_any = False
+        text_alerts = 0
         for pod in items:
             log = self._read_falco_pod_log(core, pod.metadata.name, namespace,
                                            since_seconds, tail_lines)
@@ -509,11 +511,13 @@ class LiveEvidenceCollector(EvidenceCollector):
                 continue
             read_any = True
             events.extend(parse_falco_log(log))
+            text_alerts += counts_text_alerts(log)
         if read_any and not events:
+            # Two different situations produce an empty event list and need opposite
+            # advice; core/falco_feed.no_events_reason holds that decision, so the message
+            # is one implementation rather than one per caller.
             self.warnings.append(
-                "Falco feed: Falco is running but produced no JSON events in the window, "
-                "enable JSON output (helm --set falco.json_output=true) and confirm there "
-                "is cluster activity to alert on")
+                no_events_reason(text_alerts, since_seconds, namespace))
         return events
 
     def _read_falco_pod_log(self, core, name: str, namespace: str,
