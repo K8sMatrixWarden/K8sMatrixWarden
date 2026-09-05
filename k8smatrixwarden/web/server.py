@@ -7,6 +7,7 @@ of the tool takes, so `k8smatrixwarden web` runs on a bare Python install.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,21 @@ from typing import Optional
 from ..bootstrap import build_platform
 from ..core.report_store import DEFAULT_DIR
 from .app import WebApp
+
+#: THE default dashboard host and port. One definition, imported by the CLI's `web` command
+#: and by the MCP `start_web_server` tool, so "the dashboard" means the same address however
+#: it was started. $K8SMATRIXWARDEN_WEB_PORT overrides it for both at once.
+DEFAULT_HOST = "127.0.0.1"
+
+
+def default_port() -> int:
+    raw = (os.environ.get("K8SMATRIXWARDEN_WEB_PORT") or "").strip()
+    if raw.isdigit() and 1 <= int(raw) <= 65535:
+        return int(raw)
+    return 8080
+
+
+DEFAULT_PORT = default_port()
 
 _MAX_BODY = 2 * 1024 * 1024  # 2 MiB cap on POST bodies
 
@@ -95,7 +111,7 @@ def background_status() -> dict:
                 "uptime_seconds": round(time.time() - started, 1) if started else None}
 
 
-def start_background(host: str = "127.0.0.1", port: int = 8080,
+def start_background(host: str = DEFAULT_HOST, port: int = 0,
                      reports_dir: str = DEFAULT_DIR,
                      config_path: Optional[str] = None, allow_scan: bool = True,
                      allow_remote_kubeconfig: bool = False) -> dict:
@@ -114,6 +130,7 @@ def start_background(host: str = "127.0.0.1", port: int = 8080,
     A bind failure is returned as an error, not raised: the caller is an RPC handler and
     "port in use" is information, not a crash.
     """
+    port = port or default_port()
     with _BACKGROUND_LOCK:
         thread = _BACKGROUND.get("thread")
         if thread and thread.is_alive():
@@ -159,11 +176,12 @@ def stop_background() -> dict:
         return {"status": "stopped", "host": host, "port": port}
 
 
-def serve(host: str = "127.0.0.1", port: int = 8080,
+def serve(host: str = DEFAULT_HOST, port: int = 0,
           reports_dir: str = DEFAULT_DIR,
           config_path: Optional[str] = None, allow_scan: bool = True,
           open_browser: bool = False,
           allow_remote_kubeconfig: bool = False) -> None:
+    port = port or default_port()
     platform = build_platform(config_path)
     # A kubeconfig in a request body is arbitrary code: loading it runs its credential
     # plugin as this process's user. On loopback the only caller is the operator, so the

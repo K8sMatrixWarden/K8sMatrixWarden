@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
-  <img src="https://img.shields.io/badge/MCP%20tools-44-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-1004%20passing-success"/>
+  <img src="https://img.shields.io/badge/MCP%20tools-47-blueviolet"/>
+  <img src="https://img.shields.io/badge/tests-1034%20passing-success"/>
   <img src="https://img.shields.io/badge/license-see%20LICENSE-lightgrey"/>
 </p>
 
@@ -65,6 +65,7 @@ git clone <repo-url> && cd K8sMatrixWarden
 
 python -m k8smatrixwarden doctor        # verify the install
 python -m k8smatrixwarden falco status  # is the runtime event source up?
+python -m k8smatrixwarden helm status   # is Helm available for the Falco lifecycle?
 python -m k8smatrixwarden scan --mock   # full scan, zero dependencies
 python -m k8smatrixwarden web --open    # dashboard on 127.0.0.1:8080
 ```
@@ -86,7 +87,7 @@ scratch for [EKS](GETTING-STARTED.md#9-amazon-eks),
 ## Use it from an AI agent (MCP)
 
 **This is the intended way to run the product.** Rather than composing flags, you describe
-what you want and the agent picks from **44 MCP tools**, all read-only.
+what you want and the agent picks from **47 MCP tools**, all read-only.
 
 The repository **ships the config file for every MCP client with project-local discovery**,
 so there is nothing to write and no path to fill in.
@@ -322,7 +323,7 @@ front of the port before exposing it.
 
 **Python 3.10 through 3.14, and nothing else.** The core engine imports only the standard
 library, so no dependency can lag a new Python release. The 3.10 floor comes from the
-optional extras, not the engine. Verified on 3.11 and 3.14 with 1004 of 1004 tests passing.
+optional extras, not the engine. Verified on 3.11 and 3.14 with 1034 of 1034 tests passing.
 **3.11 or 3.12 is the safest choice** for a real deployment.
 
 ```bash
@@ -383,7 +384,7 @@ live call. Full detail: [Getting Started, Section 21](GETTING-STARTED.md#21-conf
 | falcosidekick push feed | Tested live, 2.x. Push and pull produce identical security meaning. |
 | Kubernetes audit rules | Fixture-tested end to end against native `audit.k8s.io/v1` records |
 | All 8 report formats, MCP, dashboard | Tested |
-| Test suite | 1004 passing, 0 failures |
+| Test suite | 1034 passing, 0 failures |
 
 Two reported numbers are worth understanding before reading a report:
 

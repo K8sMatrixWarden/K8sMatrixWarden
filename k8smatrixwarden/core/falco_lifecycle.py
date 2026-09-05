@@ -82,9 +82,23 @@ def _validate(namespace: str, release: str) -> Optional[str]:
     return None
 
 
+def _helm_binary() -> Optional[str]:
+    """The helm this process should use, from the shared discovery layer.
+
+    Deliberately NOT `shutil.which("helm")`: a helm K8sMatrixWarden installed itself lives
+    in its own directory and is not on the PATH of an already-running process, and a second
+    copy of the lookup here would disagree with `helm status` the moment either changed.
+    """
+    from .helm_lifecycle import find_helm
+    return find_helm()[0]
+
+
 def _helm(*args, timeout: int = 120):
     """Run helm with a fixed argument list. Never a shell, never a caller-built string."""
-    return subprocess.run(["helm", *args], capture_output=True, text=True,
+    binary = _helm_binary()
+    if not binary:
+        raise FileNotFoundError("helm not found")
+    return subprocess.run([binary, *args], capture_output=True, text=True,
                           timeout=timeout)
 
 
@@ -93,11 +107,29 @@ def _kubectl(*args, timeout: int = 30):
                           timeout=timeout)
 
 
+def _helm_unavailable_reason() -> Optional[str]:
+    """Why helm cannot be used, in the words `helm status` would use, or None.
+
+    Routed through the Helm status layer so the two surfaces cannot disagree, and so the
+    reason is actionable rather than "not found": an operator is told whether helm is
+    absent (installable) or present but broken (not).
+    """
+    from .helm_lifecycle import INSTALLED, NOT_INSTALLED
+    from .helm_lifecycle import status as helm_status
+    state = helm_status()
+    if state["status"] == INSTALLED:
+        return None
+    if state["status"] == NOT_INSTALLED:
+        return ("Helm is not installed; install it with the helm lifecycle "
+                "(install_helm / `k8smatrixwarden helm install`) or provide your own")
+    return f"Helm executable unavailable: {state.get('reason', 'state undetermined')}"
+
+
 def _tooling(need_kubectl: bool = True) -> Optional[dict]:
     """A structured error when the binaries this needs are absent, or None."""
-    if shutil.which("helm") is None:
-        return {"error": "helm not found on PATH; install helm (https://helm.sh) or "
-                         "deploy Falco yourself with the commands from deploy(dry-run)"}
+    reason = _helm_unavailable_reason()
+    if reason:
+        return {"error": reason, "helm_available": False}
     if need_kubectl and shutil.which("kubectl") is None:
         return {"error": "kubectl not found on PATH; install kubectl or check status "
                          "with your own tooling"}

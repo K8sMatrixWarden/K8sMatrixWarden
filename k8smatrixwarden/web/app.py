@@ -140,7 +140,17 @@ class WebApp:
                 return self._api_falco("deploy", body, q)
             if method == "POST" and path == "/api/falco/remove":
                 return self._api_falco("remove", body, q)
+            if method == "GET" and path == "/api/helm/status":
+                return self._api_helm("status")
+            if method == "POST" and path == "/api/helm/install":
+                return self._api_helm("install")
+            if method == "POST" and path == "/api/helm/remove":
+                return self._api_helm("remove")
             if method == "GET" and path == "/runtime":
+                return _html(pages.runtime_ops_page())
+            # The event feed moved here when /runtime became the operations page. The old
+            # address still works so a bookmark or an open tab does not 404.
+            if method == "GET" and path in ("/runtime-events", "/runtime/events"):
                 return self._runtime_page()
             # /report/<id>  and  /report/<id>/matrix
             if method == "GET" and len(parts) >= 2 and parts[0] == "report":
@@ -447,6 +457,27 @@ class WebApp:
                 # when something calls the endpoint directly without saying.
                 webhook = "http://host.docker.internal:8080/api/runtime"
             return _json(falco.deploy(webhook, namespace=namespace, release=release))
+        except Exception as exc:                       # never leak a stack trace
+            return _json({"status": "error", "error": str(exc)}, 500)
+
+    def _api_helm(self, action: str) -> Response:
+        """Helm lifecycle for the dashboard: status (GET), install / remove (POST).
+
+        A thin adapter over core/helm_lifecycle, the same service the CLI's `helm` command
+        and the MCP tools call. There are no parameters by design — the version, the
+        download host and the checksums are constants in the service, and an endpoint that
+        accepted any of them from a browser would be an arbitrary-download endpoint.
+
+        Install and remove write to this machine and are refused by the service unless the
+        write gate is set. The refusal is a normal 200 describing why, not an error: the
+        operator asked a fair question.
+        """
+        from ..core import helm_lifecycle as helm
+        try:
+            return _json({"status": helm.status, "install": helm.install,
+                          "remove": helm.remove}[action]())
+        except KeyError:
+            raise _NotFound(f"no such helm action: {action}")
         except Exception as exc:                       # never leak a stack trace
             return _json({"status": "error", "error": str(exc)}, 500)
 

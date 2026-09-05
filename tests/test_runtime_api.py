@@ -360,20 +360,26 @@ def test_an_old_report_without_provenance_still_renders():
 # The page
 # =========================================================================== #
 def test_the_runtime_page_renders_and_is_linked_from_the_navigation():
-    app, _ = _app_with(_runtime_block([_correlation()]))
-    page = app.route("GET", "/runtime")
-    assert page.status == 200
-    body = page.text
-    assert "Runtime Events" in body
-    assert "/api/runtime" in body, "the page reads the documented endpoint"
-    for control in ("f-source", "f-severity", "f-namespace", "f-since", "f-limit"):
-        assert control in body, f"missing the {control} filter control"
-    # The three detection kinds must be visually distinguishable, not merged.
-    for label in ("KMW", "Falco", "DRIFT"):
-        assert label in body
-    # Reachable from every page's navigation.
-    assert 'href="/runtime"' in body or "href='/runtime'" in body
+    """The event feed now lives at /runtime-events; /runtime became the operations page
+    that manages the providers. Both are reachable and both are in the navigation."""
+    app, _store = _app_with()
+    events = app.route("GET", "/runtime-events")
+    assert events.status == 200
+    assert "f-source" in events.text, "the feed lost its filters"
+    assert "rt-q" in events.text
+    # Lifecycle controls belong on the operations page, not on the feed.
+    assert "fa-deploy" not in events.text and "he-install" not in events.text
 
+    ops = app.route("GET", "/runtime")
+    assert ops.status == 200
+    assert "fa-deploy" in ops.text and "he-install" in ops.text
+
+    for page in (events.text, ops.text):
+        assert "href='/runtime'" in page and "href='/runtime-events'" in page
+        assert "Runtime Events" in page
+
+    # The old address still resolves, so an open tab or a bookmark does not 404.
+    assert app.route("GET", "/runtime/events").status == 200
 
 def test_the_dashboard_navigation_offers_the_runtime_page():
     app, _ = _app_with(_runtime_block([_correlation()]))

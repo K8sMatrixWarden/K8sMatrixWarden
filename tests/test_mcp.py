@@ -17,6 +17,7 @@ ALL_TOOLS = {
     "run_cis_benchmark", "run_compliance_audit", "evaluate_runtime_events",
     "correlate_runtime",
     "detect_drift", "deploy_falco", "get_falco_status", "remove_falco",
+    "get_helm_status", "install_helm", "remove_helm",
     "list_runtime_detections",
     "build_threat_matrix", "build_attack_path",
     "analyze_rbac_paths", "analyze_network_policy",

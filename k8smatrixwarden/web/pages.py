@@ -336,6 +336,7 @@ def _topbar(active: str = "") -> str:
             "<h1><span class='mark'>K8</span>K8sMatrixWarden</h1><span class='grow'></span>"
             + nav("/", "Dashboard", "home")
             + nav("/runtime", "Runtime", "runtime")
+            + nav("/runtime-events", "Runtime Events", "runtime-events")
             + nav("/matrix", "Coverage", "matrix")
             + nav("/compliance", "Compliance", "compliance")
             + nav("/federation", "Federation", "federation")
@@ -497,86 +498,16 @@ document.addEventListener('DOMContentLoaded', () => {
   load();
 });
 
-// ---- Falco lifecycle -------------------------------------------------------
-// The browser NEVER builds a helm command. Every button is one call to
-// /api/falco/*, which is a thin adapter over the same core service the CLI and the
-// MCP tools use. Deployment logic living in three places is how three places drift.
-const FA_TAG = {running:'low', degraded:'high', failed:'crit', 'not-installed':'muted',
-                unknown:'muted'};
-
-function faBusy(on, label){
-  ['fa-deploy','fa-remove','fa-refresh'].forEach(id => {
-    const b = document.getElementById(id); if (b) b.disabled = on;
-  });
-  if (on && label) document.getElementById('fa-msg').textContent = label;
-}
-
-function faRender(s){
-  const state = s.state || 'unknown';
-  const tag = document.getElementById('fa-state');
-  tag.className = 'tag ' + (FA_TAG[state] || 'muted');
-  tag.textContent = state;
-  const bits = [];
-  if (s.namespace) bits.push('ns/' + s.namespace);
-  if (s.release) bits.push('release ' + s.release);
-  if (s.app_version) bits.push('v' + s.app_version);
-  if (s.pods_ready != null && s.pods_desired != null)
-    bits.push(s.pods_ready + '/' + s.pods_desired + ' pods ready');
-  document.getElementById('fa-detail').textContent = bits.join(' · ');
-  // Deploying when it is already there, or removing when it is not, are the two
-  // mistakes a button can invite. Disable rather than let the server refuse.
-  document.getElementById('fa-deploy').disabled = ['running','degraded'].includes(state);
-  document.getElementById('fa-remove').disabled = (state === 'not-installed');
-  const msg = document.getElementById('fa-msg');
-  msg.textContent = s.error || s.message || '';
-  msg.className = 'fm falco-msg' + (s.error ? ' bad' : '');
-}
-
-async function faStatus(){
-  try {
-    const r = await fetch('/api/falco/status');
-    faRender(await r.json());
-  } catch (e) {
-    faRender({state:'unknown', error:'could not reach the server'});
-  }
-}
-
-async function faAct(action, confirmText){
-  if (confirmText && !confirm(confirmText)) return;
-  faBusy(true, action === 'deploy' ? 'Installing Falco…' : 'Removing Falco…');
-  try {
-    const body = {webhook_url: location.protocol + '//host.docker.internal:'
-                  + (location.port || '8080') + '/api/runtime'};
-    const r = await fetch('/api/falco/' + action, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)});
-    const out = await r.json();
-    const msg = document.getElementById('fa-msg');
-    if (out.status === 'dry-run') {
-      msg.className = 'fm falco-msg bad';
-      msg.textContent = out.error + ' — commands that would run: '
-                        + (out.commands || []).join('  ;  ');
-    } else {
-      msg.className = 'fm falco-msg' + (out.error ? ' bad' : '');
-      msg.textContent = out.error || out.note || ('Falco ' + out.status);
-    }
-    if (out.falco) faRender(out.falco); else await faStatus();
-  } catch (e) {
-    document.getElementById('fa-msg').textContent = 'request failed';
-  } finally {
-    faBusy(false);
-    load();                      // runtime events may have changed
-  }
-}
-
-document.getElementById('fa-refresh').onclick = faStatus;
-document.getElementById('fa-deploy').onclick = () => faAct('deploy');
-document.getElementById('fa-remove').onclick = () => faAct('remove',
-  'Uninstall the Falco helm release? The namespace and anything else in it are kept.');
-faStatus();
 </script>"""
 
 _RUNTIME_CSS = """
+.ops-panel{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem;
+  margin:.7rem 0;background:var(--panel)}
+.ops-head{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.ops-detail{margin-top:.4rem;color:var(--muted);font-size:.85rem;word-break:break-all}
+.ops-msg{margin-top:.35rem;color:var(--muted);word-break:break-word}
+.ops-msg.bad{color:var(--crit)}
+
 .falco-panel{border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;
   margin:.6rem 0;background:var(--panel)}
 .falco-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
@@ -631,22 +562,12 @@ def runtime_page() -> str:
             "verdict &nbsp; <span class='tag info'>Falco</span> the provider's own rule, "
             "relayed under its name &nbsp; <span class='tag high'>DRIFT</span> declared "
             "securityContext contradicted by observed behaviour</div>")
-    # Falco is what produces most of the evidence on this page, so its lifecycle belongs
-    # here rather than on a settings screen an operator would have to go looking for.
-    falco = ("<div class='falco-panel'>"
-             "<div class='falco-row'>"
-             "<strong>Falco</strong>"
-             "<span id='fa-state' class='tag muted'>checking…</span>"
-             "<span id='fa-detail' class='fm'></span>"
-             "<span style='flex:1'></span>"
-             "<button class='btn' id='fa-refresh'>Refresh</button>"
-             "<button class='btn' id='fa-deploy'>Deploy Falco</button>"
-             "<button class='btn danger' id='fa-remove'>Remove Falco</button>"
-             "</div>"
-             "<div id='fa-msg' class='fm falco-msg'></div>"
-             "</div>")
-    crumb = "<div class='crumbs'><a href='/'>Dashboard</a> › runtime events</div>"
-    body = (_topbar("runtime") + crumb + head + falco + controls
+    # Lifecycle controls deliberately do NOT live here. This page is the event feed; the
+    # buttons that install and remove the thing producing the events belong on the Runtime
+    # page, where an operator goes to manage the integration rather than to read it.
+    crumb = ("<div class='crumbs'><a href='/'>Dashboard</a> › "
+             "<a href='/runtime'>Runtime</a> › runtime events</div>")
+    body = (_topbar("runtime-events") + crumb + head + controls
             + "<div id='rt-q'><div class='empty'>Loading…</div></div>" + _RUNTIME_JS)
     return layout("K8sMatrixWarden · Runtime Events", body,
                   extra_css=_APP_CSS + _RUNTIME_CSS)
@@ -1665,3 +1586,189 @@ const domainName=s=>String(s||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpper
 boot();
 </script>
 """
+
+
+def runtime_ops_page() -> str:
+    """The Runtime page: manage the runtime integration, rather than read its output.
+
+    Falco produces the events and Helm installs Falco, so both lifecycles live here, on one
+    screen, with their real state. The event feed is a separate page: mixing a live feed
+    with buttons that uninstall the thing feeding it is how somebody clicks the wrong one.
+    """
+    crumb = "<div class='crumbs'><a href='/'>Dashboard</a> \u203a runtime</div>"
+    head = ("<h1 style='font-size:1.3rem;margin:.2rem 0'>Runtime</h1>"
+            "<div class='sub'>Runtime provider status and lifecycle. Cluster scanning "
+            "stays read-only; the actions here change this machine or the cluster and are "
+            "refused unless the write gate is set. The event feed is on "
+            "<a href='/runtime-events'>Runtime Events</a>.</div>")
+    falco = ("<div class='ops-panel'>"
+             "<div class='ops-head'><strong>Falco</strong>"
+             "<span id='fa-state' class='tag muted'>checking\u2026</span>"
+             "<span style='flex:1'></span>"
+             "<button class='btn' id='fa-refresh'>Refresh</button>"
+             "<button class='btn' id='fa-deploy'>Deploy Falco</button>"
+             "<button class='btn danger' id='fa-remove'>Remove Falco</button></div>"
+             "<div id='fa-detail' class='ops-detail'></div>"
+             "<div id='fa-msg' class='fm ops-msg'></div></div>")
+    helm = ("<div class='ops-panel'>"
+            "<div class='ops-head'><strong>Helm</strong>"
+            "<span id='he-state' class='tag muted'>checking\u2026</span>"
+            "<span style='flex:1'></span>"
+            "<button class='btn' id='he-refresh'>Refresh</button>"
+            "<button class='btn' id='he-install'>Install Helm</button>"
+            "<button class='btn danger' id='he-remove'>Remove Helm</button></div>"
+            "<div id='he-detail' class='ops-detail'></div>"
+            "<div id='he-msg' class='fm ops-msg'></div></div>")
+    body = (_topbar("runtime") + crumb + head + falco + helm + _OPS_JS)
+    return layout("K8sMatrixWarden \u00b7 Runtime", body,
+                  extra_css=_APP_CSS + _RUNTIME_CSS)
+
+
+_OPS_JS = """<script>
+// ---- Falco lifecycle -------------------------------------------------------
+// The browser NEVER builds a helm command. Every button is one call to
+// /api/falco/*, which is a thin adapter over the same core service the CLI and the
+// MCP tools use. Deployment logic living in three places is how three places drift.
+const FA_TAG = {running:'low', degraded:'high', failed:'crit', 'not-installed':'muted',
+                unknown:'muted'};
+
+function faBusy(on, label){
+  ['fa-deploy','fa-remove','fa-refresh'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.disabled = on;
+  });
+  if (on && label) document.getElementById('fa-msg').textContent = label;
+}
+
+function faRender(s){
+  const state = s.state || 'unknown';
+  const tag = document.getElementById('fa-state');
+  tag.className = 'tag ' + (FA_TAG[state] || 'muted');
+  tag.textContent = state;
+  const bits = [];
+  if (s.namespace) bits.push('ns/' + s.namespace);
+  if (s.release) bits.push('release ' + s.release);
+  if (s.app_version) bits.push('v' + s.app_version);
+  if (s.pods_ready != null && s.pods_desired != null)
+    bits.push(s.pods_ready + '/' + s.pods_desired + ' pods ready');
+  document.getElementById('fa-detail').textContent = bits.join(' · ');
+  // Deploying when it is already there, or removing when it is not, are the two
+  // mistakes a button can invite. Disable rather than let the server refuse.
+  document.getElementById('fa-deploy').disabled = ['running','degraded'].includes(state);
+  document.getElementById('fa-remove').disabled = (state === 'not-installed');
+  const msg = document.getElementById('fa-msg');
+  msg.textContent = s.error || s.message || '';
+  msg.className = 'fm falco-msg' + (s.error ? ' bad' : '');
+}
+
+async function faStatus(){
+  try {
+    const r = await fetch('/api/falco/status');
+    faRender(await r.json());
+  } catch (e) {
+    faRender({state:'unknown', error:'could not reach the server'});
+  }
+}
+
+async function faAct(action, confirmText){
+  if (confirmText && !confirm(confirmText)) return;
+  faBusy(true, action === 'deploy' ? 'Installing Falco…' : 'Removing Falco…');
+  try {
+    const body = {webhook_url: location.protocol + '//host.docker.internal:'
+                  + (location.port || '8080') + '/api/runtime'};
+    const r = await fetch('/api/falco/' + action, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)});
+    const out = await r.json();
+    const msg = document.getElementById('fa-msg');
+    if (out.status === 'dry-run') {
+      msg.className = 'fm falco-msg bad';
+      msg.textContent = out.error + ' — commands that would run: '
+                        + (out.commands || []).join('  ;  ');
+    } else {
+      msg.className = 'fm falco-msg' + (out.error ? ' bad' : '');
+      msg.textContent = out.error || out.note || ('Falco ' + out.status);
+    }
+    if (out.falco) faRender(out.falco); else await faStatus();
+  } catch (e) {
+    document.getElementById('fa-msg').textContent = 'request failed';
+  } finally {
+    faBusy(false);
+    load();                      // runtime events may have changed
+  }
+}
+
+document.getElementById('fa-refresh').onclick = faStatus;
+document.getElementById('fa-deploy').onclick = () => faAct('deploy');
+document.getElementById('fa-remove').onclick = () => faAct('remove',
+  'Uninstall the Falco helm release? The namespace and anything else in it are kept.');
+faStatus();
+
+// ---- Helm lifecycle --------------------------------------------------------
+// Same rule as Falco: the browser calls /api/helm/*, it never constructs an install.
+// Authorization is the backend's write gate; these buttons only reflect it.
+const HE_TAG = {installed:'low', 'not-installed':'muted', unknown:'high',
+                refused:'high', error:'crit'};
+
+function heRender(s){
+  const st = s.status || 'unknown';
+  const tag = document.getElementById('he-state');
+  tag.className = 'tag ' + (HE_TAG[st] || 'muted');
+  tag.textContent = st + (s.source ? ' \u00b7 ' + s.source : '');
+  const bits = [];
+  if (s.version) bits.push(s.version);
+  if (s.path) bits.push(s.path);
+  if (s.path_available === false && s.source === 'kmw-managed')
+    bits.push('not on PATH (found directly by KMW)');
+  document.getElementById('he-detail').textContent = bits.join(' \u00b7 ');
+
+  const writes = s.writes_allowed === true;
+  const external = s.source === 'system';
+  const unknown = st === 'unknown';
+  // Unknown disables BOTH: acting on a state we could not determine is how a lifecycle
+  // button does something nobody intended.
+  document.getElementById('he-install').disabled =
+    !writes || unknown || st === 'installed';
+  document.getElementById('he-remove').disabled =
+    !writes || unknown || external || st !== 'installed';
+
+  const msg = document.getElementById('he-msg');
+  let note = s.reason || '';
+  if (external) note = 'Externally managed \u2014 KMW will not remove it.';
+  if (!writes) note = (note ? note + ' \u00b7 ' : '')
+    + 'Writes are disabled (K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE is not set).';
+  msg.textContent = note;
+  msg.className = 'fm ops-msg' + (unknown || s.error ? ' bad' : '');
+}
+
+async function heStatus(){
+  try { heRender(await (await fetch('/api/helm/status')).json()); }
+  catch (e) { heRender({status:'unknown', reason:'could not reach the server'}); }
+}
+
+async function heAct(action, confirmText){
+  if (confirmText && !confirm(confirmText)) return;
+  ['he-install','he-remove','he-refresh'].forEach(i =>
+    document.getElementById(i).disabled = true);
+  document.getElementById('he-msg').textContent =
+    action === 'install' ? 'Downloading and verifying Helm\u2026' : 'Removing Helm\u2026';
+  try {
+    const out = await (await fetch('/api/helm/' + action, {method:'POST'})).json();
+    const msg = document.getElementById('he-msg');
+    msg.textContent = out.error || out.note || out.message || ('Helm ' + out.status);
+    msg.className = 'fm ops-msg' + (out.error ? ' bad' : '');
+    if (out.helm) heRender(out.helm); else await heStatus();
+  } catch (e) {
+    document.getElementById('he-msg').textContent = 'request failed';
+  } finally {
+    document.getElementById('he-refresh').disabled = false;
+    await heStatus();
+    await faStatus();     // Falco status depends on Helm being usable
+  }
+}
+
+document.getElementById('he-refresh').onclick = heStatus;
+document.getElementById('he-install').onclick = () => heAct('install');
+document.getElementById('he-remove').onclick = () => heAct('remove',
+  'Remove the K8sMatrixWarden-managed Helm? A system Helm is never touched.');
+heStatus();
+</script>"""

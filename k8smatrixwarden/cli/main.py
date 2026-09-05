@@ -18,6 +18,7 @@ import sys
 from ..bootstrap import build_platform
 from ..core.models import (ScanMode, ScanRequest, Scope, ScopeLevel, Selector, Severity)
 from ..core.report_store import DEFAULT_DIR as _DEFAULT_REPORTS_DIR
+from ..web.server import DEFAULT_PORT as _WEB_PORT
 from ..core.falco_lifecycle import (DEFAULT_NAMESPACE as _FALCO_NS,
                                     DEFAULT_RELEASE as _FALCO_RELEASE)
 from ..agents.orchestrator import Orchestrator
@@ -245,6 +246,29 @@ def cmd_roles(a) -> int:
             fh.write(out)
         print(f"\n[written] {a.output_file}", file=sys.stderr)
     return 0
+
+
+def cmd_helm(a) -> int:
+    """Helm lifecycle: status, install, remove.
+
+    Calls core/helm_lifecycle, the same service the MCP tools and the dashboard use.
+    `install` and `remove` write to this machine and honour the same write gate as the
+    Falco lifecycle; `status` is read-only.
+    """
+    import json as _json
+    from ..core import helm_lifecycle as helm
+
+    out = {"status": helm.status, "install": helm.install,
+           "remove": helm.remove}[a.helm_cmd]()
+    if getattr(a, "output", "text") == "json":
+        print(_json.dumps(out, indent=2))
+    else:
+        print(f"Helm: {out.get('status')}"
+              + (f"  ({out['source']})" if out.get("source") else ""))
+        for key in ("version", "path", "message", "note", "reason", "error"):
+            if out.get(key):
+                print(f"  {key}: {out[key]}")
+    return 1 if out.get("status") in ("error",) else 0
 
 
 def cmd_falco(a) -> int:
@@ -768,6 +792,17 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--output", "-o", help="output filename (default: print to stdout)")
     rd.set_defaults(func=cmd_report)
 
+    he = sub.add_parser("helm",
+                        help="install / inspect / remove the K8sMatrixWarden-managed Helm")
+    hesub = he.add_subparsers(dest="helm_cmd", required=True)
+    for name, helptext in (
+            ("status", "where Helm is, who owns it, and whether it works"),
+            ("install", "install a pinned, checksum-verified Helm (needs the write gate)"),
+            ("remove", "remove ONLY the K8sMatrixWarden-managed Helm (needs the gate)")):
+        hp = hesub.add_parser(name, help=helptext)
+        hp.add_argument("--output", "-o", default="text", choices=["text", "json"])
+        hp.set_defaults(func=cmd_helm)
+
     fa = sub.add_parser("falco",
                         help="deploy / inspect / remove Falco (runtime event source)")
     fasub = fa.add_subparsers(dest="falco_cmd", required=True)
@@ -797,7 +832,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     w = sub.add_parser("web", help="launch the Security Dashboard web interface")
     w.add_argument("--host", default="127.0.0.1")
-    w.add_argument("--port", type=int, default=8080)
+    w.add_argument("--port", type=int, default=_WEB_PORT,
+                   help=f"dashboard port (shared default: {_WEB_PORT}; "
+                        f"override for CLI and MCP alike with "
+                        f"$K8SMATRIXWARDEN_WEB_PORT)")
     w.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
     w.add_argument("--no-scan", action="store_true",
                    help="serve saved reports read-only; disable the in-dashboard scan button")

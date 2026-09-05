@@ -87,6 +87,7 @@ def run_checks(platform, *, probe_llm: bool = False) -> list[Section]:
         _mcp(platform),
         _reporting(platform),
         _runtime(),
+        _helm(),
         _llm(probe_llm),
         _dependencies(),
         _safety(platform),
@@ -171,6 +172,26 @@ def _mcp(platform) -> Section:
     except Exception as exc:
         return Section("MCP", [Check("MCP tools registered", FAIL,
                                      f"build_tools() failed: {exc}")])
+    # A connected MCP client caches tools/list at initialize time. Restarting the SERVER
+    # does not refresh it, so a client can sit on a stale registry indefinitely and the
+    # symptom -- "no such tool" for a tool the server clearly has -- looks like a bug in the
+    # server. Publishing a capability fingerprint makes that diagnosable: compare this
+    # against what the client advertises, and if they differ the session must reconnect.
+    try:
+        import hashlib as _hashlib
+
+        from . import __version__ as _kmw_version
+        digest = _hashlib.sha256(
+            "\n".join(sorted(tools)).encode("utf-8")).hexdigest()[:12]
+        checks.append(Check("MCP capability set", PASS,
+                            f"version {_kmw_version}, protocol 2024-11-05, "
+                            f"{len(tools)} tools, fingerprint {digest} "
+                            f"(a connected client showing a different tool count or "
+                            f"fingerprint has a stale registry and must reconnect; "
+                            f"restarting the server alone does not refresh it)"))
+    except Exception as exc:                            # pragma: no cover - defensive
+        checks.append(Check("MCP capability set", WARN,
+                            f"could not fingerprint the tool set: {exc}"))
     try:
         import mcp  # noqa: F401
         checks.append(Check("MCP SDK", PASS, "installed, `k8smatrixwarden mcp` can serve"))
@@ -277,6 +298,46 @@ def _llm(probe: bool) -> Section:
               "AVAILABLE, unaffected by LLM status"),
     ]
     return Section("LLM (optional)", checks)
+
+
+def _helm() -> Section:
+    """Is Helm usable, who owns it, and can the Falco lifecycle run?
+
+    Reported here because a missing Helm is the most likely reason an operator finds Falco
+    status stuck on `unknown`, and "unknown" without a reason is a dead end. NOT_INSTALLED
+    is only ever claimed when both the K8sMatrixWarden directory and PATH were checked; an
+    executable that will not answer is WARN with the reason, never a clean "absent".
+    """
+    try:
+        from .core.helm_lifecycle import INSTALLED, NOT_INSTALLED, status
+        state = status()
+    except Exception as exc:                            # pragma: no cover - defensive
+        return Section("Helm", [Check("Helm executable", WARN,
+                                      f"could not determine Helm state: {exc}")])
+
+    checks = []
+    if state["status"] == INSTALLED:
+        checks.append(Check("Helm executable", PASS,
+                            f"{state.get('version')} ({state.get('source')}) at "
+                            f"{state.get('path')}"))
+        checks.append(Check("Falco lifecycle supported", PASS,
+                            "deploy / status / remove can run"))
+    elif state["status"] == NOT_INSTALLED:
+        checks.append(Check("Helm executable", NOT_CONFIGURED,
+                            state.get("reason", "not installed")))
+        checks.append(Check("Falco lifecycle supported", NOT_CONFIGURED,
+                            "Falco status will read `unknown` until Helm is available; "
+                            "`k8smatrixwarden helm install` places a pinned, verified copy"))
+    else:
+        # Found but unusable. A WARN, not a NOT CONFIGURED: something IS there and is broken.
+        checks.append(Check("Helm executable", WARN,
+                            state.get("reason", "state could not be determined")))
+        checks.append(Check("Falco lifecycle supported", WARN,
+                            "Helm state is unknown, so Falco lifecycle results will be too"))
+    checks.append(Check("Helm install target", PASS,
+                        f"K8sMatrixWarden-managed path: {state.get('managed_path')} "
+                        f"(system PATH is never modified)"))
+    return Section("Helm", checks)
 
 
 def _dependencies() -> Section:

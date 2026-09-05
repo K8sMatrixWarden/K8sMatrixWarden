@@ -832,6 +832,64 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         from ..core.falco_lifecycle import deploy
         return deploy(webhook_url, namespace=namespace, release=release, timeout=timeout)
 
+    def get_helm_status() -> dict:
+        """Is helm available to K8sMatrixWarden, where, and who owns it? Read-only.
+
+        The Falco lifecycle runs on helm, so when helm is missing Falco status is `unknown`
+        and an operator has no way forward. This says which of four situations they are in:
+        `installed` from a `kmw-managed` copy, `installed` from a `system` copy this project
+        did not place, `not-installed`, or `unknown`.
+
+        `unknown` is never a synonym for `not-installed`. Absent means both the KMW bin
+        directory and PATH were checked and helm is in neither; unknown means the question
+        could not be answered — typically a binary that will not report its version — and it
+        always carries a `reason`.
+
+        `path_available` says whether helm is on this process's PATH, which is separate from
+        whether K8sMatrixWarden can use it: a KMW-managed copy is found directly, so it works
+        without a PATH edit or a restart.
+        """
+        from ..core.helm_lifecycle import status as helm_status
+        return helm_status()
+
+    def install_helm() -> dict:
+        """Install a pinned, checksum-verified helm into the K8sMatrixWarden directory.
+
+        THIS WRITES TO THIS MACHINE and is refused unless the environment sets
+        K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 — the same gate the Falco lifecycle uses, not
+        a second permission system. Cluster scanning stays read-only either way.
+
+        There are no parameters, deliberately. The version, the download host and the SHA-256
+        of every supported artifact are constants in this project's source. A caller that
+        could choose a version could choose a URL, and a caller that can choose a URL can
+        install anything. The digest is pinned rather than fetched: a checksum served by the
+        same host as the binary proves only that the host is self-consistent, which is what
+        an attacker controlling it would arrange.
+
+        The archive is verified before anything is unpacked, and nothing downloaded is ever
+        executed before that check passes. Installation lands in the KMW bin directory only:
+        the system PATH is not modified, no system helm is touched, and no package manager
+        is invoked. An existing helm — KMW-managed or system — is reported and left alone
+        rather than upgraded over.
+        """
+        from ..core.helm_lifecycle import install
+        return install()
+
+    def remove_helm() -> dict:
+        """Remove the helm K8sMatrixWarden installed, and only that.
+
+        Gated exactly as `install_helm` is. A helm from Homebrew, Chocolatey, Scoop, a distro
+        package or a hand-placed directory is reported as `not_removed` with
+        `reason: "Helm is externally managed"` and left in place. This project did not put it
+        there, and a security tool that deletes binaries it did not install is a worse
+        problem than a missing dependency.
+
+        Ownership is decided by the file's location inside the KMW directory. There is no
+        path parameter, so nothing else can be named as a deletion target.
+        """
+        from ..core.helm_lifecycle import remove
+        return remove()
+
     def get_falco_status(
             namespace: Annotated[str, _F(description=(
                 "Namespace Falco is installed in. Default 'falco'."))] = _FALCO_NS,
@@ -1501,7 +1559,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                 "allowed unless allow_remote is set, because the dashboard has NO "
                 "authentication of its own."
             ))] = "127.0.0.1",
-            port: Annotated[int, _F(description="TCP port, 1-65535 (default 8080).")] = 8080,
+            port: Annotated[int, _F(description=(
+                "TCP port, 1-65535. Defaults to the same port the CLI's `web` command "
+                "uses, so the dashboard is at one address however it was started."
+            ))] = 0,
             reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR,
             allow_scan: Annotated[bool, _F(description=(
                 "Allow the dashboard's in-browser scan button. True by default; set False "
@@ -1528,9 +1589,15 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
 
         A port already in use comes back as a structured error, not an exception.
         """
-        from ..web.server import is_loopback, start_background
-        if not isinstance(port, int) or not 1 <= port <= 65535:
-            return {"error": f"invalid port {port!r}, expected an integer 1-65535"}
+        from ..web.server import default_port, is_loopback, start_background
+        # 0 is the documented sentinel for "the shared default", and the ONLY falsy value
+        # accepted: None or "" reaching here is a caller mistake, not a request for the
+        # default, and answering it with a running server would hide the mistake.
+        if port == 0 and isinstance(port, int) and not isinstance(port, bool):
+            port = default_port()
+        if not isinstance(port, int) or isinstance(port, bool)                 or not 1 <= port <= 65535:
+            return {"error": f"invalid port {port!r}, expected an integer 1-65535 "
+                             f"(or 0 for the shared default)"}
         if not is_loopback(host) and not allow_remote:
             return {"error": (f"refusing to bind {host!r}: the dashboard has no "
                               f"authentication, so a non-loopback bind publishes every "
@@ -1610,6 +1677,9 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "evaluate_runtime_events": evaluate_runtime_events,
         "correlate_runtime": correlate_runtime,
         "detect_drift": detect_drift,
+        "get_helm_status": get_helm_status,
+        "install_helm": install_helm,
+        "remove_helm": remove_helm,
         "deploy_falco": deploy_falco,
         "get_falco_status": get_falco_status,
         "remove_falco": remove_falco,

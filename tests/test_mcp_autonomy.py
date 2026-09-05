@@ -159,10 +159,24 @@ def test_a_non_loopback_bind_is_refused_without_an_explicit_opt_in():
 
 
 def test_an_invalid_port_is_refused():
-    for bad in (0, -1, 99999, 65536, "8080", None, 3.5):
+    for bad in (-1, 99999, 65536, "8080", None, 3.5):
         out = TOOLS["start_web_server"](port=bad)
         assert "error" in out, f"port {bad!r} was accepted"
         assert "invalid port" in out["error"]
+    assert TOOLS["get_web_server_status"]()["running"] is False
+
+
+def test_port_zero_means_the_shared_default():
+    """0 is the sentinel for "whatever the CLI would use", so one address means one
+    dashboard however it was started. It is not a bindable port, so it cannot collide
+    with a real request."""
+    from k8smatrixwarden.web.server import DEFAULT_PORT
+    try:
+        out = TOOLS["start_web_server"](port=0)
+        assert out["status"] == "started"
+        assert out["port"] == DEFAULT_PORT
+    finally:
+        _stop()
     assert TOOLS["get_web_server_status"]()["running"] is False
 
 
@@ -176,6 +190,7 @@ def test_a_remote_bind_never_accepts_a_client_supplied_kubeconfig():
 def test_the_dashboard_lifecycle_is_concurrency_safe():
     """Several clients may ask at once; exactly one server must exist afterwards."""
     port = _free_port()
+    _stop()                      # no leaked server from an earlier test
     outcomes, lock = [], threading.Lock()
 
     def racer():
