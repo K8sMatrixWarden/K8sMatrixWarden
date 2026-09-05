@@ -423,7 +423,7 @@ and scans from any of them are saved to the same report store.
 
 | Interface | Best for | Section |
 |---|---|---|
-| **AI agent client (MCP)** | The intended primary workflow. Describe what you want; the agent selects from 40 tools. | [19](#19-ai-agent-integration-mcp) |
+| **AI agent client (MCP)** | The intended primary workflow. Describe what you want; the agent selects from 47 tools. | [19](#19-ai-agent-integration-mcp) |
 | **Command line** | Scripting, CI pipelines, and precise control over scope and selectors. | [13](#13-running-a-live-scan) |
 | **Web dashboard** | Reviewing results, browsing scan history, and sharing findings. | [14](#14-the-web-dashboard) |
 
@@ -1690,7 +1690,7 @@ correlation, RBAC analysis, threat matrix construction, and reporting.
 pip install -e ".[mcp]"
 ```
 
-Confirm the server works before configuring any client. This prints all 40 tools without
+Confirm the server works before configuring any client. This prints all 47 tools without
 starting the server:
 
 ```bash
@@ -1725,7 +1725,7 @@ write and no path to fill in.
 
    | Client | Where to look |
    |---|---|
-   | Cursor | Settings, then Tools and MCP. `k8smatrixwarden` should be listed, enabled, showing 40 tools. |
+   | Cursor | Settings, then Tools and MCP. `k8smatrixwarden` should be listed, enabled, showing 47 tools. |
    | Claude Code | Run `/mcp` and approve the project-scoped server the first time it prompts. |
    | VS Code | Open Copilot Chat, switch the mode selector to **Agent**, then open the tools picker. MCP tools appear in Agent mode only. |
 
@@ -1814,10 +1814,11 @@ Restart the client after editing.
 
 | Category | Count | Examples |
 |---|---|---|
-| Knowledge | 15 | `list_rules`, `resolve_selector`, `get_taxonomy`, `mitre_coverage` |
-| Scan, audit, runtime, graph analysis | 15 | `run_scan`, `intelligent_scan`, `correlate_runtime`, `analyze_rbac_paths` |
+| Knowledge | 14 | `list_rules`, `get_rule`, `get_taxonomy`, `mitre_coverage` |
+| Scan, audit, runtime, graph analysis | 16 | `run_scan`, `intelligent_scan`, `correlate_runtime`, `analyze_rbac_paths` |
 | Reports and stored scan analysis | 7 | `list_reports`, `download_report`, `posture_history` |
-| Platform | 1 | `validate_platform` |
+| Runtime provider lifecycle | 6 | `get_falco_status`, `deploy_falco`, `get_helm_status`, `install_helm` |
+| Platform and application lifecycle | 4 | `run_doctor`, `start_web_server`, `get_web_server_status`, `stop_web_server` |
 
 Every tool parameter carries a schema description, so the agent can select and populate
 tools without additional prompting.

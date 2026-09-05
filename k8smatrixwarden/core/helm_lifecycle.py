@@ -62,9 +62,25 @@ HELM_VERSION = "v3.16.3"
 #: Where the artifacts come from. A constant, never an argument.
 _BASE_URL = "https://get.helm.sh"
 
-#: SHA-256 of each supported artifact, taken from the Helm project's published sums and
-#: pinned here so verification needs no network and trusts no server. The windows-amd64
-#: digest was additionally confirmed against an independently downloaded copy.
+#: SHA-256 of each supported artifact, pinned so verification needs no network and trusts
+#: no server at install time.
+#:
+#: HOW TO UPGRADE THE PINNED VERSION. Bump HELM_VERSION, then re-derive every digest below
+#: and replace all of them together; a table half on one version installs a binary whose
+#: digest belongs to another and simply fails. For each artifact:
+#:
+#:     curl -sSL https://get.helm.sh/helm-<version>-<os>-<arch>.<ext>.sha256sum
+#:
+#: and, because that sum is served by the same host as the binary and therefore proves only
+#: that the host agrees with itself, confirm at least one of them out of band before
+#: trusting the set: download the artifact through a different network or machine and hash
+#: it yourself (`sha256sum` / `Get-FileHash -Algorithm SHA256`), or check the digest against
+#: the release page and the project's release notes. The value that matters is the one you
+#: verified, not the one the download told you to expect.
+#:
+#: Provenance of the current table: the five digests were taken from the published
+#: `.sha256sum` files for v3.16.3, and the windows-amd64 entry was additionally confirmed
+#: byte-for-byte against an independently downloaded copy of the archive.
 CHECKSUMS = {
     "windows-amd64": ("helm-{v}-windows-amd64.zip",
                       "1a52aa56e55168c3d3d2e45fa833a32290e4e3790559851dce1e707eb7728b81"),

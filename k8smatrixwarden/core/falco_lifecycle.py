@@ -143,6 +143,11 @@ def _blocked() -> dict:
                  f"the process running K8sMatrixWarden to allow it",
         "write_gate": WRITE_GATE,
         "writes_allowed": False,
+        # The same machine-readable reason the Helm lifecycle returns. `status` stays
+        # `dry-run` here because this refusal also hands back the exact commands, which is
+        # genuinely useful; a caller should still be able to branch on one field across all
+        # four write operations without knowing which lifecycle it is talking to.
+        "reason": "writes_not_allowed",
         "note": ("K8sMatrixWarden is read-only by default. Deploying or removing Falco "
                  "changes the cluster, so it is refused rather than performed quietly."),
     }

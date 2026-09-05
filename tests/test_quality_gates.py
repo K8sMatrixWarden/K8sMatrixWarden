@@ -307,6 +307,47 @@ def test_html_doc_mcp_tool_count_matches_the_server():
     assert "36 tools" not in text, "HTML doc still claims a stale tool count"
 
 
+def _getting_started() -> str:
+    with open(os.path.join(ROOT, "GETTING-STARTED.md"), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def test_getting_started_never_names_a_tool_that_does_not_exist():
+    """The gap this closes. The onboarding guide had no drift gate at all, so when
+    `validate_platform` and `resolve_selector` were removed as duplicates it kept listing
+    them, and a reader following it would call tools the server does not have. A stale
+    count is a nuisance; a named tool that is gone is a broken instruction.
+
+    Identifiers are matched on the verb prefixes the real tools use, so a field name like
+    `response_status` is not mistaken for a tool that vanished."""
+    import re as _re
+    registered = set(build_tools())
+    prefixes = tuple(sorted({name.split("_", 1)[0] + "_" for name in registered}))
+    mentioned = {m for m in _re.findall(r"`([a-z][a-z0-9_]{4,})`", _getting_started())
+                 if m.startswith(prefixes)}
+    ghosts = sorted(mentioned - registered)
+    assert ghosts == [], f"GETTING-STARTED.md names tools that do not exist: {ghosts}"
+
+
+def test_getting_started_tool_count_matches_the_server():
+    count = len(build_tools())
+    text = _getting_started()
+    assert f"{count} tools" in text, \
+        f"GETTING-STARTED.md does not state the real tool count ({count})"
+    stale = re.findall(r"\b(\d{2}) tools\b", text)
+    assert set(stale) <= {str(count)}, \
+        f"GETTING-STARTED.md still claims stale tool counts: {sorted(set(stale))}"
+
+
+def test_getting_started_documents_every_cli_subcommand():
+    from k8smatrixwarden.cli.main import build_parser
+    text = _getting_started()
+    sub = next(a for a in build_parser()._actions if hasattr(a, "choices") and a.choices
+               and "scan" in a.choices)
+    missing = [n for n in sub.choices if not re.search(rf"\b{n}\b", text)]
+    assert missing == [], f"CLI commands missing from GETTING-STARTED.md: {missing}"
+
+
 def test_html_doc_names_every_mcp_tool():
     text = _html_doc()
     missing = [name for name in build_tools() if f"<code>{name}</code>" not in text]

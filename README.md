@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
   <img src="https://img.shields.io/badge/MCP%20tools-47-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-1034%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-1037%20passing-success"/>
   <img src="https://img.shields.io/badge/license-see%20LICENSE-lightgrey"/>
 </p>
 
@@ -225,7 +225,7 @@ Key modules:
 | Reachability tagging | [`core/reachability.py`](k8smatrixwarden/core/reachability.py) |
 | Scan by runtime correlation | [`core/correlation.py`](k8smatrixwarden/core/correlation.py) |
 | Confidence policy | [`core/explain.py`](k8smatrixwarden/core/explain.py) |
-| MCP server, 40 tools | [`mcp/server.py`](k8smatrixwarden/mcp/server.py) |
+| MCP server, 47 tools | [`mcp/server.py`](k8smatrixwarden/mcp/server.py) |
 | 11 domain shards | [`shards/`](k8smatrixwarden/shards/) |
 
 Full architecture map: [K8sMatrixWarden-doc.html](K8sMatrixWarden-doc.html).
@@ -264,7 +264,7 @@ Full model: [Getting Started, Section 24](GETTING-STARTED.md#24-the-confidence-m
 
 | Command | What it does |
 |---|---|
-| `mcp [--list-tools]` | Run the MCP server, or list its 40 tools |
+| `mcp [--list-tools]` | Run the MCP server, or list its 47 tools |
 | `scan ...` | Scan by scope and selector, or a natural-language query |
 | `web [--port 8080]` | Security dashboard. Binds `127.0.0.1` |
 | `chat` | Interactive assistant, confirm then run |
@@ -323,7 +323,7 @@ front of the port before exposing it.
 
 **Python 3.10 through 3.14, and nothing else.** The core engine imports only the standard
 library, so no dependency can lag a new Python release. The 3.10 floor comes from the
-optional extras, not the engine. Verified on 3.11 and 3.14 with 1034 of 1034 tests passing.
+optional extras, not the engine. Verified on 3.11 and 3.14 with 1037 of 1037 tests passing.
 **3.11 or 3.12 is the safest choice** for a real deployment.
 
 ```bash
@@ -384,7 +384,7 @@ live call. Full detail: [Getting Started, Section 21](GETTING-STARTED.md#21-conf
 | falcosidekick push feed | Tested live, 2.x. Push and pull produce identical security meaning. |
 | Kubernetes audit rules | Fixture-tested end to end against native `audit.k8s.io/v1` records |
 | All 8 report formats, MCP, dashboard | Tested |
-| Test suite | 1034 passing, 0 failures |
+| Test suite | 1037 passing, 0 failures |
 
 Two reported numbers are worth understanding before reading a report:
 

@@ -780,7 +780,7 @@ body.locked { overflow: hidden; }
 <section id="overview" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Start Here</span><h2>What this is</h2></div>
 <p class="lede">K8sMatrixWarden is an <strong>MCP-native</strong> Kubernetes security platform.
 Its whole surface, scanning, the CIS benchmark, the threat matrix, kill-chain attack paths,
-and scan×runtime correlation, is exposed as <strong>40 MCP tools</strong>, so an AI agent
+and scan×runtime correlation, is exposed as <strong>47 MCP tools</strong>, so an AI agent
 (Claude, Cursor, VS&nbsp;Code, Windsurf) drives it conversationally. The <a href="#cli">CLI</a>
 and <a href="#web">web dashboard</a> run the same engine for anyone not on an MCP client. It is
 <em>detect-and-report only</em>, read-only on every surface, no apply/remediate path.</p>
@@ -1152,7 +1152,7 @@ writes to arbitrary paths on the host.</p></div>
 <tr><td><code>get_helm_status</code></td><td>Is Helm usable, where, and who owns it: <code>installed</code> (<code>kmw-managed</code> or <code>system</code>), <code>not-installed</code>, or <code>unknown</code> with a reason. Read-only. Falco runs on Helm, so this is the answer to "why is Falco status unknown".</td></tr>
 <tr><td><code>install_helm</code></td><td>Install a <strong>pinned, checksum-verified</strong> Helm into the K8sMatrixWarden directory. Gated by <code>K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE</code>. No parameters by design — version, host and SHA-256 are source constants, and the digest is pinned rather than fetched, because a checksum served by the same host as the binary proves only that the host agrees with itself. The archive is verified before anything is unpacked; the system PATH is never modified.</td></tr>
 <tr><td><code>remove_helm</code></td><td>Remove only the Helm K8sMatrixWarden installed. A Homebrew, Chocolatey, Scoop or distro Helm is reported <code>not_removed · externally managed</code> and left alone. Ownership is decided by the file's location, and there is no path parameter to aim it elsewhere.</td></tr>
-<tr><td><code>run_doctor</code></td><td>The full platform health check <code>k8smatrixwarden doctor</code> runs — shards, configuration, rules, taxonomy, MCP registration, every report format, the runtime catalog, optional dependencies and the read-only safety invariants. Broader than <code>validate_platform</code>, which answers only whether the rule registry loaded. A missing optional capability reads <em>NOT CONFIGURED</em>, never <em>FAIL</em>.</td></tr>
+<tr><td><code>run_doctor</code></td><td>The full platform health check <code>k8smatrixwarden doctor</code> runs — shards, configuration, rules, taxonomy, MCP registration, every report format, the runtime catalog, optional dependencies and the read-only safety invariants. This is the platform-health tool; a narrower <code>validate_platform</code> was removed as a strict subset of these sections. A missing optional capability reads <em>NOT CONFIGURED</em>, never <em>FAIL</em>.</td></tr>
 <tr><td><code>start_web_server</code></td><td>Start the Security Dashboard in the background and return its URL, so a client never has to hand the user a shell command. Same <code>WebApp</code> as <code>k8smatrixwarden web</code>, on a daemon thread. One per process. A non-loopback bind is <strong>refused</strong> without an explicit opt-in — the dashboard has no authentication, and a program will not read a printed warning.</td></tr>
 <tr><td><code>get_web_server_status</code></td><td>Whether a dashboard is running in this process, and its host, port, URL, report directory and uptime. A serving thread that has died reads as not running rather than advertising a dead URL.</td></tr>
 <tr><td><code>stop_web_server</code></td><td>Stop the dashboard this process started. Safe when none is running. Never touches a <code>k8smatrixwarden web</code> running in its own terminal.</td></tr>
@@ -2210,7 +2210,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 
 <section id="quality" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Compliance and Safety</span><h2>Testing and quality</h2></div>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">1034</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">1037</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
