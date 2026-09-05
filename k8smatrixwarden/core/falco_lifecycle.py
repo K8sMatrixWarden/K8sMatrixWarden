@@ -216,7 +216,12 @@ def deploy(webhook_url: str, namespace: str = DEFAULT_NAMESPACE,
     surprise upgrade is not what "deploy" was asked for.
 
     Every step is verified. A helm install that returns zero but leaves no ready pod is
-    reported as `degraded`, not as success.
+    reported as `degraded`, not as success. That is the ordinary outcome of a first
+    install, not a fault: the chart's default driver pulls a `falco-driver-loader` init
+    image, and `helm --wait` returns before the DaemonSet finishes it. Observed on a live
+    cluster at ~24 s for helm and ~4 minutes to `running`. The caller polls `status`; this
+    function does not sit on the connection waiting, and it does not call a pod that is
+    still pulling an image a success.
     """
     problem = _validate(namespace, release)
     if problem:

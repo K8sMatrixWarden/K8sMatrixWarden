@@ -822,6 +822,12 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         An existing release is reported rather than installed over. A helm install that
         succeeds but leaves no ready pod comes back as `degraded`, never as success. Use
         `get_falco_status` after this, then `refresh_runtime_feed` to pull the first events.
+
+        Expect `degraded` on a FIRST install and treat it as normal: the chart's default
+        driver pulls a `falco-driver-loader` init image that can take several minutes, and
+        helm returns before the DaemonSet is ready. Measured here at ~24 s for helm and
+        ~4 minutes to `running`. Poll `get_falco_status` rather than reading the first
+        `degraded` as a failure.
         """
         from ..core.falco_lifecycle import deploy
         return deploy(webhook_url, namespace=namespace, release=release, timeout=timeout)
