@@ -51,7 +51,7 @@ _DASH_CSS = """
 _APP_CSS = """
 :root{--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
  --mono:ui-monospace,'SF Mono','Segoe UI Mono',Menlo,Consolas,monospace;
- --ease-spring:cubic-bezier(0.34,1.2,0.64,1);--ease-out:cubic-bezier(0.16,1,0.3,1)}
+ --ease-out:cubic-bezier(0.16,1,0.3,1)}
 body{font-family:var(--font);-webkit-font-smoothing:antialiased;letter-spacing:-.006em}
 code,.mono{font-family:var(--mono);font-size:.9em}
 /* tabs, flat underline nav, console register */
@@ -501,15 +501,15 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>"""
 
 _RUNTIME_CSS = """
-.ops-panel{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem;
-  margin:.7rem 0;background:var(--panel)}
+.ops-panel{border:1px solid var(--bd);border-radius:8px;padding:.7rem .9rem;
+  margin:.7rem 0;background:var(--card)}
 .ops-head{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .ops-detail{margin-top:.4rem;color:var(--muted);font-size:.85rem;word-break:break-all}
 .ops-msg{margin-top:.35rem;color:var(--muted);word-break:break-word}
 .ops-msg.bad{color:var(--crit)}
 
-.falco-panel{border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;
-  margin:.6rem 0;background:var(--panel)}
+.falco-panel{border:1px solid var(--bd);border-radius:8px;padding:.6rem .8rem;
+  margin:.6rem 0;background:var(--card)}
 .falco-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .falco-msg{margin-top:.4rem;color:var(--muted);word-break:break-word}
 .falco-msg.bad{color:var(--crit)}
@@ -517,9 +517,9 @@ _RUNTIME_CSS = """
 .btn:disabled{opacity:.45;cursor:not-allowed}
 
 table.rt{width:100%;border-collapse:collapse;font-size:.83rem}
-table.rt th{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);
+table.rt th{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--bd);
   color:var(--muted);font-weight:600;white-space:nowrap}
-table.rt td{padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+table.rt td{padding:.45rem .5rem;border-bottom:1px solid var(--bd);vertical-align:top}
 table.rt tr.ev{cursor:pointer}
 table.rt tr.ev:hover{background:var(--sunken)}
 .detbox{background:var(--sunken);padding:.7rem .9rem;border-radius:6px;margin:.2rem 0 .6rem}
@@ -527,9 +527,9 @@ table.kv{border-collapse:collapse;font-size:.8rem}
 table.kv td{padding:.15rem .6rem .15rem 0;vertical-align:top}
 table.kv td.k{color:var(--muted);white-space:nowrap}
 .rtbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.6rem 0 1rem}
-.rtbar input,.rtbar select{background:var(--sunken);color:var(--fg);border:1px solid var(--line);
+.rtbar input,.rtbar select{background:var(--sunken);color:var(--fg);border:1px solid var(--bd);
   border-radius:6px;padding:.35rem .5rem;font-size:.82rem;font-family:inherit}
-.warn{background:var(--sunken);border-left:3px solid var(--medium);padding:.5rem .7rem;
+.warn{background:var(--sunken);border-left:3px solid var(--med);padding:.5rem .7rem;
   border-radius:4px;margin-bottom:.7rem;font-size:.82rem}
 .tag.muted{background:var(--sunken);color:var(--muted)}
 """
