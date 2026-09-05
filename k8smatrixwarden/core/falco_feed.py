@@ -98,26 +98,58 @@ def window_text(seconds) -> str:
     return f"{seconds} second{'s' if seconds != 1 else ''}"
 
 
-def no_events_reason(text_alerts: int, since_seconds: int,
-                     namespace: str = "falco") -> str:
-    """Why the feed came back empty, in the words the operator needs.
+#: What the feed found, and how loudly to say it. `severity` is presentation only and
+#: never changes a security verdict; it exists because a healthy cluster with nothing to
+#: report was being shown in the same voice as a broken one.
+QUIET = "quiet"
+PLAIN_TEXT = "plain-text"
+ACTIVE = "active"
 
-    An empty event list has two very different causes that used to share one message:
-    Falco writing alerts as plain text (json_output off), and Falco having nothing to
-    alert about. The old message asserted the first and told everybody to enable
-    json_output -- including operators whose json_output was already true, sending them to
-    change a setting that was never the problem. `text_alerts` is the discriminator.
+_SEVERITY = {ACTIVE: "ok", QUIET: "info", PLAIN_TEXT: "warning"}
+
+
+def feed_diagnosis(text_alerts: int, since_seconds: int,
+                   namespace: str = "falco") -> dict:
+    """Why the feed came back empty, as structured state rather than a sentence.
+
+    An empty event list has two very different causes. Falco writing alerts as plain text
+    (json_output off) is a misconfiguration worth acting on. Falco having nothing to alert
+    about is a quiet cluster, which is the ordinary case and not a fault at all. The old
+    message asserted the first and told everybody to enable json_output -- including
+    operators whose json_output was already true, sending them to change a setting that was
+    never the problem. `text_alerts` is the discriminator.
+
+    Returning `state` and `severity` alongside the message lets the dashboard show a quiet
+    cluster in a neutral voice instead of the same grey blob it uses for a broken feed,
+    and lets tests assert on the state rather than on wording.
     """
     window = window_text(since_seconds)
     if text_alerts:
-        return (f"Falco feed: Falco raised {text_alerts} alert(s) in the last {window} but "
-                f"wrote them as PLAIN TEXT, so none could be read. Enable JSON output: "
-                f"helm upgrade falco falcosecurity/falco -n {namespace} --reuse-values "
-                f"--set falco.json_output=true")
-    return (f"Falco feed: Falco is running and raised no alerts in the last {window}, "
-            f"which is the normal state of a quiet cluster rather than a fault. Nothing is "
-            f"wrong with the feed; there was simply nothing to report. If you expected "
-            f"alerts, generate some activity and refresh, or widen the window.")
+        return {
+            "state": PLAIN_TEXT,
+            "severity": _SEVERITY[PLAIN_TEXT],
+            "message": (f"Falco raised {text_alerts} alert(s) in the last {window} but "
+                        f"emitted them as plain text, so none could be read as events."),
+            "remediation": (f"helm upgrade falco falcosecurity/falco -n {namespace} "
+                            f"--reuse-values --set falco.json_output=true"),
+            "window": window,
+        }
+    return {
+        "state": QUIET,
+        "severity": _SEVERITY[QUIET],
+        "message": (f"No Falco events in the last {window}. Falco is running normally; "
+                    f"no alerts were raised during this window."),
+        "remediation": None,
+        "window": window,
+    }
+
+
+def no_events_reason(text_alerts: int, since_seconds: int,
+                     namespace: str = "falco") -> str:
+    """The same diagnosis as one line, for the collector's flat `warnings` list."""
+    found = feed_diagnosis(text_alerts, since_seconds, namespace)
+    tail = f" Enable JSON output: {found['remediation']}" if found["remediation"] else ""
+    return f"Falco feed: {found['message']}{tail}"
 
 
 def parse_falco_log(text) -> list[dict]:

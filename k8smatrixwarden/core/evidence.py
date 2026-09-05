@@ -471,13 +471,19 @@ class LiveEvidenceCollector(EvidenceCollector):
     #: then the legacy `app=falco` some older installs still use.
     _FALCO_SELECTORS = ("app.kubernetes.io/name=falco", "app=falco")
 
+    #: The most recent runtime-feed diagnosis (state / severity / message). Set by
+    #: collect_runtime_events so a surface can render the feed's condition without
+    #: pattern-matching the warning text.
+    runtime_feed_state: dict = {}
+
     def collect_runtime_events(self, *, namespace: str = "falco",
                                since_seconds: int = 3600,
                                tail_lines: int = 2000) -> list[dict]:
         """Read recent Falco alerts from the DaemonSet's pod logs (json_output=true) using
         the same authenticated client the scan already loaded. Best-effort: any failure is
         recorded as a warning and returns whatever was read, never aborting the scan."""
-        from .falco_feed import (counts_text_alerts, no_events_reason,
+        from .falco_feed import (ACTIVE, counts_text_alerts,
+                                 feed_diagnosis, no_events_reason,
                                  parse_falco_log)
 
         core = self._client.CoreV1Api(self._api)
@@ -514,10 +520,19 @@ class LiveEvidenceCollector(EvidenceCollector):
             text_alerts += counts_text_alerts(log)
         if read_any and not events:
             # Two different situations produce an empty event list and need opposite
-            # advice; core/falco_feed.no_events_reason holds that decision, so the message
-            # is one implementation rather than one per caller.
+            # advice; core/falco_feed holds that decision, so the message is one
+            # implementation rather than one per caller. The structured form is kept too:
+            # a caller that only has the sentence cannot tell a quiet cluster from a
+            # misconfigured one without matching on words.
+            self.runtime_feed_state = feed_diagnosis(text_alerts, since_seconds,
+                                                     namespace)
             self.warnings.append(
                 no_events_reason(text_alerts, since_seconds, namespace))
+        elif events:
+            self.runtime_feed_state = {"state": ACTIVE, "severity": "ok",
+                                       "message": f"{len(events)} Falco event(s) read.",
+                                       "remediation": None,
+                                       "window": None}
         return events
 
     def _read_falco_pod_log(self, core, name: str, namespace: str,

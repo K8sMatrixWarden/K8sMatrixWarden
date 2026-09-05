@@ -505,9 +505,20 @@ class WebApp:
             feed = build_runtime_feed(collector, result.findings,
                                       Scope(ScopeLevel.CLUSTER), namespace=ns)
         except RuntimeError as exc:
-            return _json({"error": f"live Falco pull needs cluster access: {exc}"}, 400)
+            return _json({"state": "unavailable", "severity": "error",
+                          "error": f"live Falco pull needs cluster access: {exc}"}, 400)
         if feed is None:
-            return _json({"runtime": None, "message": "no Falco events found",
+            # The state, not just a sentence. "no Falco events found" followed by advice
+            # read as a failure on a perfectly healthy cluster; the caller now gets the
+            # condition and can present a quiet feed differently from a broken one.
+            found = getattr(collector, "runtime_feed_state", None) or {
+                "state": "unknown", "severity": "warning",
+                "message": "The Falco feed could not be read.", "remediation": None}
+            return _json({"runtime": None,
+                          "state": found.get("state"),
+                          "severity": found.get("severity"),
+                          "message": found.get("message"),
+                          "remediation": found.get("remediation"),
                           "warnings": getattr(collector, "warnings", [])})
         result.runtime = feed
         self.store.save(result)

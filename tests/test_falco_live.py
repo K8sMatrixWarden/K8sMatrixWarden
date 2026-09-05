@@ -359,8 +359,9 @@ def test_a_quiet_cluster_is_not_told_to_enable_json_output():
     from k8smatrixwarden.core.falco_feed import counts_text_alerts, no_events_reason
     reason = no_events_reason(counts_text_alerts(_QUIET_LOG), 3600)
     assert "json_output" not in reason, reason
-    assert "raised no alerts" in reason
-    assert "normal state of a quiet cluster" in reason
+    # The state, not the phrasing -- see test_runtime_window for the structured form.
+    assert "no alerts were raised" in reason
+    assert "running normally" in reason
     assert "1 hour" in reason, "the window is the actual reason and must be stated"
 
 
@@ -369,7 +370,7 @@ def test_text_only_alerts_do_advise_enabling_json_output():
     from k8smatrixwarden.core.falco_feed import counts_text_alerts, no_events_reason
     reason = no_events_reason(counts_text_alerts(_TEXT_ALERT_LOG), 3600)
     assert "falco.json_output=true" in reason
-    assert "PLAIN TEXT" in reason
+    assert "plain text" in reason
     assert "2 alert(s)" in reason
 
 

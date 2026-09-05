@@ -1419,7 +1419,25 @@ function renderRuntime(c, dr, rc){
     <h2 style='font-size:.95rem;margin:.6rem 0 .4rem'>Correlations</h2>${corr||"<div class='fm'>none</div>"}</div>`;
 }
 let _rtTimer=null;
-async function refreshRuntime(){
+async // A quiet Falco is not a broken Falco. Severity comes from the server's structured
+// feed state, so the presentation cannot drift from what the backend actually decided.
+// `ok`/`info` are neutral; only a real misconfiguration or failure raises the volume.
+function feedNotice(d){
+  const sev = d.severity || (d.error ? 'error' : 'info');
+  const tone = {ok:'var(--ok)', info:'var(--muted)', warning:'var(--high)',
+                error:'var(--crit)'}[sev] || 'var(--muted)';
+  const label = {ok:'', info:'', warning:'Check configuration', error:'Feed unavailable'
+                }[sev] || '';
+  const text = d.message || d.error || 'No runtime events found';
+  const fix = d.remediation
+    ? `<div class='fm' style='margin-top:.35rem'><code>${esc(d.remediation)}</code></div>`
+    : '';
+  const head = label
+    ? `<strong style="color:${tone}">${esc(label)}</strong> \u00b7 ` : '';
+  return `<div class='fm' style="color:${tone}">${head}${esc(text)}</div>${fix}`;
+}
+
+function refreshRuntime(){
   const out=$('#rtout');
   if(!out){ if(_rtTimer){clearInterval(_rtTimer);_rtTimer=null;} return; }  // tab gone
   out.innerHTML="<div class='fm'>Pulling runtime events…</div>";
@@ -1427,8 +1445,8 @@ async function refreshRuntime(){
     const r=await fetch('/api/runtime/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan_id:D.scan.scan_id})});
     d=await r.json();
   }catch(e){ out.innerHTML=`<div class='fm' style='color:var(--crit)'>Couldn't refresh: ${esc(e.message)}</div>`; return; }
-  if(d.error){ out.innerHTML=`<div class='fm' style='color:var(--crit)'>${esc(d.error)}</div>`; return; }
-  if(!d.runtime){ out.innerHTML=`<div class='fm'>${esc(d.message||'No runtime events found')}${d.warnings&&d.warnings.length?': '+esc(d.warnings.join('; ')):''}</div>`; return; }
+  if(d.error){ out.innerHTML=feedNotice(d); return; }
+  if(!d.runtime){ out.innerHTML=feedNotice(d); return; }
   D.runtime_correlation=d.runtime;
   out.innerHTML=renderRuntime(d.runtime.correlation,d.runtime.drift,d.runtime);
   const m=$('#rtmeta'); if(m)m.textContent=`last updated ${d.runtime.collected_at||''} · ${d.runtime.events_seen||0} event(s)`;
