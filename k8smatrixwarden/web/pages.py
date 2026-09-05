@@ -1419,12 +1419,12 @@ function renderRuntime(c, dr, rc){
     <h2 style='font-size:.95rem;margin:.6rem 0 .4rem'>Correlations</h2>${corr||"<div class='fm'>none</div>"}</div>`;
 }
 let _rtTimer=null;
-async // A quiet Falco is not a broken Falco. Severity comes from the server's structured
+// A quiet Falco is not a broken Falco. Severity comes from the server's structured
 // feed state, so the presentation cannot drift from what the backend actually decided.
 // `ok`/`info` are neutral; only a real misconfiguration or failure raises the volume.
 function feedNotice(d){
   const sev = d.severity || (d.error ? 'error' : 'info');
-  const tone = {ok:'var(--ok)', info:'var(--muted)', warning:'var(--high)',
+  const tone = {ok:'var(--low)', info:'var(--muted)', warning:'var(--high)',
                 error:'var(--crit)'}[sev] || 'var(--muted)';
   const label = {ok:'', info:'', warning:'Check configuration', error:'Feed unavailable'
                 }[sev] || '';
@@ -1437,7 +1437,7 @@ function feedNotice(d){
   return `<div class='fm' style="color:${tone}">${head}${esc(text)}</div>${fix}`;
 }
 
-function refreshRuntime(){
+async function refreshRuntime(){
   const out=$('#rtout');
   if(!out){ if(_rtTimer){clearInterval(_rtTimer);_rtTimer=null;} return; }  // tab gone
   out.innerHTML="<div class='fm'>Pulling runtime events…</div>";

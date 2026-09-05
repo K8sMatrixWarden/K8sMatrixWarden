@@ -18,6 +18,7 @@ layer exists to avoid.
 """
 import datetime as dt
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -244,6 +245,11 @@ def test_the_dashboard_renders_severity_from_the_server():
     assert "function feedNotice" in page
     # Neutral for ok/info, loud only for warning/error.
     assert "var(--crit)" in page and "var(--muted)" in page
+    # Every tone must name a variable the stylesheet actually defines, or the colour
+    # silently falls back to inherited text and the severity stops being visible.
+    for tone in re.findall(r"var\((--[a-z]+)\)", page[page.index("function feedNotice"):]
+                           [:600]):
+        assert f"{tone}:" in page, f"feedNotice uses {tone}, which no rule defines"
     assert "'No runtime events found')}" not in page, "the old concatenation is back"
 
 
