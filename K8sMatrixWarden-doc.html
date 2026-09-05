@@ -769,7 +769,7 @@ body.locked { overflow: hidden; }
   <div class="hero-stats">
     <div class="hstat"><b>62</b><span>Detection rules</span></div>
     <div class="hstat"><b>11</b><span>Domain shards</span></div>
-    <div class="hstat"><b>40</b><span>MCP tools</span></div>
+    <div class="hstat"><b>44</b><span>MCP tools</span></div>
     <div class="hstat"><b>0</b><span>Required deps</span></div>
   </div>
 </div>
@@ -921,7 +921,7 @@ Add <code>--name "…"</code> to title it <code>&lt;name&gt; + date + time</code
 <div class="chapter-head" id="ch-mcp"><span class="ch-kicker">Chapter 02</span><h1 class="ch-title">Run It With AI</h1><p class="ch-sub">The intended workflow. Describe what you want; the agent picks the tools.</p></div>
 
 <section id="mcp-connect" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Run It With AI</span><h2>Connect a client</h2></div>
-<p class="lede">This is the intended way to run K8sMatrixWarden. 40 tools across four layers
+<p class="lede">This is the intended way to run K8sMatrixWarden. 44 tools across four layers
 let any MCP-compatible AI agent, Claude, Cursor, VS&nbsp;Code, Windsurf, do everything the CLI
 can: scan, audit, project the threat matrix and kill-chain, correlate a live runtime feed against
 static findings, and export reports. Every tool's docstring and all 150 parameters carry their own
@@ -947,7 +947,7 @@ setup, there is nothing to write and no path to fill in.</p>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">02</div><div class="fs-t">Open the folder</div><div class="fs-d">Open the repo root in Cursor, Claude Code, or VS&nbsp;Code. The config is found automatically.</div></div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 40 tools load.</div></div>
+  <div class="flow-step"><div class="fs-n">03</div><div class="fs-t">Enable the server</div><div class="fs-d">Approve <code>k8smatrixwarden</code> when the client prompts, and confirm all 44 tools load.</div></div>
   <div class="flow-arrow">→</div>
   <div class="flow-step"><div class="fs-n">04</div><div class="fs-t">Ask in plain English</div><div class="fs-d">Open the agent chat and describe the scan you want, no flags.</div></div>
 </div>
@@ -955,7 +955,7 @@ setup, there is nothing to write and no path to fill in.</p>
 <p>Per-client where to check that step 3 worked:</p>
 <ul>
 <li><strong>Cursor</strong>, <em>Settings → Tools &amp; MCP</em>. <code>k8smatrixwarden</code> should
-be listed and toggled on, with 40 tools underneath it.</li>
+be listed and toggled on, with 44 tools underneath it.</li>
 <li><strong>Claude Code</strong>, run <code>/mcp</code>. A project-scoped
 <code>.mcp.json</code> asks for approval the first time you open the folder; approve it, then the
 server shows as <em>connected</em>.</li>
@@ -1022,13 +1022,13 @@ explicit <code>"type": "stdio"</code>, while everyone else uses <code>mcpServers
 clients converge on a shared path, three small files is the floor for zero-config support, and the
 two global-config clients need the one-time paste above. The upside: the <em>server</em> never
 forks, all five clients run the identical <code>k8smatrixwarden mcp</code> process and see the
-identical 40 tools.</p></div>
+identical 44 tools.</p></div>
 </div>
 
 <h3>Verify, then talk to it</h3>
 <div class="code-card">
   <div class="code-head"><span class="code-lang">bash</span><button class="copy-btn" data-copy>Copy</button></div>
-  <pre><code><span class="c-mut"># lists all 40 tools without starting the server, the fastest wiring check</span>
+  <pre><code><span class="c-mut"># lists all 44 tools without starting the server, the fastest wiring check</span>
 python -m k8smatrixwarden mcp --list-tools
 
 <span class="c-mut"># start it over stdio yourself (this is what the client runs for you)</span>
@@ -1149,6 +1149,10 @@ writes to arbitrary paths on the host.</p></div>
 <tbody>
 <tr><td><code>generate_rbac_manifest</code></td><td>The least-privilege RBAC (get/list/watch only) K8sMatrixWarden needs against a real cluster. Only generates, never applies.</td></tr>
 <tr><td><code>deploy_falco</code></td><td>One-click <strong>Falco + falcosidekick</strong> deploy via <code>helm install</code>, with the webhook pre-wired at your <code>/api/runtime</code> endpoint so live events flow into <code>correlate_runtime</code>/<code>detect_drift</code>. Requires <code>helm</code> on the system.</td></tr>
+<tr><td><code>run_doctor</code></td><td>The full platform health check <code>k8smatrixwarden doctor</code> runs — shards, configuration, rules, taxonomy, MCP registration, every report format, the runtime catalog, optional dependencies and the read-only safety invariants. Broader than <code>validate_platform</code>, which answers only whether the rule registry loaded. A missing optional capability reads <em>NOT CONFIGURED</em>, never <em>FAIL</em>.</td></tr>
+<tr><td><code>start_web_server</code></td><td>Start the Security Dashboard in the background and return its URL, so a client never has to hand the user a shell command. Same <code>WebApp</code> as <code>k8smatrixwarden web</code>, on a daemon thread. One per process. A non-loopback bind is <strong>refused</strong> without an explicit opt-in — the dashboard has no authentication, and a program will not read a printed warning.</td></tr>
+<tr><td><code>get_web_server_status</code></td><td>Whether a dashboard is running in this process, and its host, port, URL, report directory and uptime. A serving thread that has died reads as not running rather than advertising a dead URL.</td></tr>
+<tr><td><code>stop_web_server</code></td><td>Stop the dashboard this process started. Safe when none is running. Never touches a <code>k8smatrixwarden web</code> running in its own terminal.</td></tr>
 </tbody>
 </table></div>
 <nav class="pager">
@@ -2098,7 +2102,7 @@ the history it already had), and are never resolved by a scoped scan.</p>
 <tbody>
 <tr><td><code>native</code></td><td>25</td><td>Runs the mapped domain-shard rule, rule fired ⇒ FAIL</td></tr>
 <tr><td><code>builtin</code></td><td>2</td><td>Purpose-built evaluator (HostPorts, default namespace)</td></tr>
-<tr><td><code>component</code></td><td>40</td><td>Control-plane / kubelet process flags, read from static-pod specs, <strong>no node access</strong></td></tr>
+<tr><td><code>component</code></td><td>44</td><td>Control-plane / kubelet process flags, read from static-pod specs, <strong>no node access</strong></td></tr>
 <tr><td><code>kube-bench</code></td><td>31</td><td>True node file-permission reads, resolved from <code>kube-bench --json</code></td></tr>
 <tr><td><code>manual</code></td><td>34</td><td>CIS itself marks these subjective, surfaced, never auto-passed</td></tr>
 </tbody>
@@ -2203,7 +2207,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 
 <section id="quality" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Compliance and Safety</span><h2>Testing and quality</h2></div>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">966</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">983</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
@@ -2287,7 +2291,7 @@ same engine. Pick whichever fits the moment.</p>
 <tr><td><code>federation</code></td><td>Cross-cluster blast radius from the saved per-cluster scans</td></tr>
 <tr><td><code>posture</code></td><td>What changed since the previous scan of the same scope, new / resolved / persistent / regressed, with MTTD and MTTR</td></tr>
 <tr><td><code>doctor</code></td><td>Full health check: shards, config, rules, taxonomy, MCP, report formats, runtime, LLM, dependencies, read-only invariants (<code>--probe</code>, <code>-o json</code>)</td></tr>
-<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 40 tools</td></tr>
+<tr><td><code>mcp</code></td><td>Run the MCP server, or list its 44 tools</td></tr>
 </tbody>
 </table></div>
 

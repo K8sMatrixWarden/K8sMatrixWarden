@@ -9,8 +9,8 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-62-orange"/>
-  <img src="https://img.shields.io/badge/MCP%20tools-40-blueviolet"/>
-  <img src="https://img.shields.io/badge/tests-966%20passing-success"/>
+  <img src="https://img.shields.io/badge/MCP%20tools-44-blueviolet"/>
+  <img src="https://img.shields.io/badge/tests-983%20passing-success"/>
   <img src="https://img.shields.io/badge/license-see%20LICENSE-lightgrey"/>
 </p>
 
@@ -85,7 +85,7 @@ scratch for [EKS](GETTING-STARTED.md#9-amazon-eks),
 ## Use it from an AI agent (MCP)
 
 **This is the intended way to run the product.** Rather than composing flags, you describe
-what you want and the agent picks from **40 MCP tools**, all read-only.
+what you want and the agent picks from **44 MCP tools**, all read-only.
 
 The repository **ships the config file for every MCP client with project-local discovery**,
 so there is nothing to write and no path to fill in.
@@ -321,7 +321,7 @@ front of the port before exposing it.
 
 **Python 3.10 through 3.14, and nothing else.** The core engine imports only the standard
 library, so no dependency can lag a new Python release. The 3.10 floor comes from the
-optional extras, not the engine. Verified on 3.11 and 3.14 with 966 of 966 tests passing.
+optional extras, not the engine. Verified on 3.11 and 3.14 with 983 of 983 tests passing.
 **3.11 or 3.12 is the safest choice** for a real deployment.
 
 ```bash
@@ -382,7 +382,7 @@ live call. Full detail: [Getting Started, Section 21](GETTING-STARTED.md#21-conf
 | falcosidekick push feed | Tested live, 2.x. Push and pull produce identical security meaning. |
 | Kubernetes audit rules | Fixture-tested end to end against native `audit.k8s.io/v1` records |
 | All 8 report formats, MCP, dashboard | Tested |
-| Test suite | 966 passing, 0 failures |
+| Test suite | 983 passing, 0 failures |
 
 Two reported numbers are worth understanding before reading a report:
 

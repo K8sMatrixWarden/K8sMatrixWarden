@@ -1491,6 +1491,93 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     # ================================================================== #
     # LAYER 4, Platform: least-privilege RBAC generation
     # ================================================================== #
+    def run_doctor(
+            probe_llm: Annotated[bool, _F(description=(
+                "Also make one tiny live call to the configured LLM to verify credentials "
+                "and model name. Off by default: without it nothing leaves this machine."
+            ))] = False) -> dict:
+        """Full platform health and consistency check, the same one `k8smatrixwarden
+        doctor` runs: shards and rules loaded, configuration validity, MITRE taxonomy and
+        composite aliases resolving, MCP tool registration, every report format rendering,
+        the runtime catalog, optional dependencies, the optional LLM, and the read-only
+        safety invariants.
+
+        Broader than `validate_platform`, which answers only "did the rule registry load
+        cleanly". Use this to answer "is this installation healthy and is the read-only
+        guarantee still intact", which is what an operator means by "is it working".
+
+        A missing OPTIONAL capability is reported as NOT CONFIGURED, never as a failure:
+        an absent PDF library is a thing you have not installed, not a thing that is broken.
+        """
+        from .. import doctor as _doctor
+        sections = _doctor.run_checks(platform, probe_llm=probe_llm)
+        return _doctor.summarize(sections)
+
+    def start_web_server(
+            host: Annotated[str, _F(description=(
+                "Address to bind. Loopback (127.0.0.1, the default) is the only address "
+                "allowed unless allow_remote is set, because the dashboard has NO "
+                "authentication of its own."
+            ))] = "127.0.0.1",
+            port: Annotated[int, _F(description="TCP port, 1-65535 (default 8080).")] = 8080,
+            reports_dir: _ReportsDir = _DEFAULT_REPORTS_DIR,
+            allow_scan: Annotated[bool, _F(description=(
+                "Allow the dashboard's in-browser scan button. True by default; set False "
+                "to serve saved reports read-only."
+            ))] = True,
+            allow_remote: Annotated[bool, _F(description=(
+                "Required to bind a non-loopback address. The dashboard has no "
+                "authentication, so anyone who can reach the port can read every saved "
+                "report. Leave off unless you have put your own auth in front of it."
+            ))] = False) -> dict:
+        """Start the Security Dashboard in the background and return its URL immediately.
+
+        The same WebApp and HTTP server `k8smatrixwarden web` runs, started on a daemon
+        thread instead of blocking, so an MCP client can bring the dashboard up without
+        asking anyone to open a terminal. One dashboard per process: starting again returns
+        the running one rather than binding a second socket.
+
+        Two things are refused rather than warned about, because the caller here is a
+        program and a warning it does not read is not a safeguard:
+          * a non-loopback bind without `allow_remote`, which would publish an
+            unauthenticated dashboard onto the network;
+          * a client-supplied kubeconfig over a remote bind, which would execute that
+            kubeconfig's credential plugin as this user.
+
+        A port already in use comes back as a structured error, not an exception.
+        """
+        from ..web.server import is_loopback, start_background
+        if not isinstance(port, int) or not 1 <= port <= 65535:
+            return {"error": f"invalid port {port!r}, expected an integer 1-65535"}
+        if not is_loopback(host) and not allow_remote:
+            return {"error": (f"refusing to bind {host!r}: the dashboard has no "
+                              f"authentication, so a non-loopback bind publishes every "
+                              f"saved report to anyone who can reach the port. Pass "
+                              f"allow_remote=true if that is genuinely what you want.")}
+        return start_background(host=host, port=port, reports_dir=reports_dir,
+                                allow_scan=allow_scan,
+                                allow_remote_kubeconfig=False)
+
+    def get_web_server_status() -> dict:
+        """Is the Security Dashboard running in this process, and where?
+
+        Reports `running`, and when it is, the host, port, URL, report directory, whether
+        in-browser scanning is enabled, and uptime. A serving thread that has died is
+        reported as not running rather than advertising a URL nothing answers.
+        """
+        from ..web.server import background_status
+        return background_status()
+
+    def stop_web_server() -> dict:
+        """Stop the Security Dashboard started by `start_web_server`.
+
+        Safe to call when nothing is running (returns `not-running`). Only affects a
+        dashboard this process started; a `k8smatrixwarden web` running in its own terminal
+        is somebody else's process and is deliberately left alone.
+        """
+        from ..web.server import stop_background
+        return stop_background()
+
     def generate_rbac_manifest(
             service_account: Annotated[str, _F(description=(
                 "Name of the ServiceAccount the scanner runs as. Default "
@@ -1561,6 +1648,11 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "posture_history": posture_history,
         # 4. platform
         "generate_rbac_manifest": generate_rbac_manifest,
+        "run_doctor": run_doctor,
+        # 5. application lifecycle, so a client never has to ask for a terminal
+        "start_web_server": start_web_server,
+        "get_web_server_status": get_web_server_status,
+        "stop_web_server": stop_web_server,
     }
 
 

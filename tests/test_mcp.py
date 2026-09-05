@@ -23,7 +23,8 @@ ALL_TOOLS = {
     "list_reports", "download_report", "federation_blast_radius",
     "get_rule", "explain_finding", "get_cluster_coverage", "posture_history",
     "get_runtime_events", "refresh_runtime_feed",
-    "generate_rbac_manifest",
+    "generate_rbac_manifest", "run_doctor",
+    "start_web_server", "get_web_server_status", "stop_web_server",
 }
 
 
