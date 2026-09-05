@@ -134,6 +134,12 @@ class WebApp:
             # falcosidekick POST and an operator GET never meet.
             if method == "GET" and path == "/api/runtime":
                 return self._api_runtime_events(q)
+            if method == "GET" and path == "/api/falco/status":
+                return self._api_falco("status", b"", q)
+            if method == "POST" and path == "/api/falco/deploy":
+                return self._api_falco("deploy", body, q)
+            if method == "POST" and path == "/api/falco/remove":
+                return self._api_falco("remove", body, q)
             if method == "GET" and path == "/runtime":
                 return self._runtime_page()
             # /report/<id>  and  /report/<id>/matrix
@@ -403,6 +409,46 @@ class WebApp:
             severity=(q.get("severity") or ""),
             namespace=(q.get("namespace") or ""),
             since=(q.get("since") or "")))
+
+    def _api_falco(self, action: str, body: bytes, q: dict) -> Response:
+        """Falco lifecycle for the dashboard: status (GET), deploy / remove (POST).
+
+        A thin adapter over core/falco_lifecycle, the same service the CLI's `falco`
+        command and the MCP tools call. No deployment logic lives here and none lives in
+        the browser: a Deploy button that built its own helm invocation in JavaScript
+        would be a second security-relevant implementation to keep in step, which is
+        exactly how the three surfaces drift apart.
+
+        Deploy and remove mutate the cluster and are refused unless the server's
+        environment sets K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1. The refusal is a normal
+        200 response describing what would run, not an error: the operator asked a fair
+        question and the honest answer is "not without the gate".
+        """
+        from ..core import falco_lifecycle as falco
+        data: dict = {}
+        if body:
+            try:
+                parsed = json.loads(body)
+                data = parsed if isinstance(parsed, dict) else {}
+            except Exception as exc:
+                return _json({"error": f"invalid JSON body: {exc}"}, 400)
+        namespace = str(data.get("namespace") or q.get("namespace")
+                        or falco.DEFAULT_NAMESPACE)
+        release = str(data.get("release") or q.get("release") or falco.DEFAULT_RELEASE)
+        try:
+            if action == "status":
+                return _json(falco.status(namespace=namespace, release=release))
+            if action == "remove":
+                return _json(falco.remove(namespace=namespace, release=release))
+            webhook = str(data.get("webhook_url") or "").strip()
+            if not webhook:
+                # The page sends the address it is itself reachable on, because the browser
+                # knows the port and this object does not. 8080 is the documented default
+                # when something calls the endpoint directly without saying.
+                webhook = "http://host.docker.internal:8080/api/runtime"
+            return _json(falco.deploy(webhook, namespace=namespace, release=release))
+        except Exception as exc:                       # never leak a stack trace
+            return _json({"status": "error", "error": str(exc)}, 500)
 
     def _runtime_page(self) -> Response:
         return _html(pages.runtime_page())

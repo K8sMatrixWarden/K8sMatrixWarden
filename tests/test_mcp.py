@@ -9,15 +9,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from k8smatrixwarden.mcp.server import build_tools
 
 ALL_TOOLS = {
-    "list_rules", "resolve_selector", "get_kubectl_command", "list_kubectl_commands",
+    "list_rules", "get_kubectl_command", "list_kubectl_commands",
     "get_tool_commands", "list_tool_commands",
     "lookup_cve", "list_cves", "get_compliance_ruleset", "get_taxonomy",
     "mitre_coverage", "list_shards", "list_namespaces", "detect_cluster_provider",
-    "validate_platform",
     "preview_scan", "run_scan", "interpret_query", "intelligent_scan",
     "run_cis_benchmark", "run_compliance_audit", "evaluate_runtime_events",
     "correlate_runtime",
-    "detect_drift", "deploy_falco", "list_runtime_detections",
+    "detect_drift", "deploy_falco", "get_falco_status", "remove_falco",
+    "list_runtime_detections",
     "build_threat_matrix", "build_attack_path",
     "analyze_rbac_paths", "analyze_network_policy",
     "list_reports", "download_report", "federation_blast_radius",
@@ -113,7 +113,8 @@ def test_deploy_falco_is_read_only_by_default():
     out = tools["deploy_falco"](webhook_url="http://x/api/runtime")
     assert out["status"] == "dry-run"
     assert out["commands"] and "commands were" not in out  # returns commands, does not run
-    assert "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE" in out["note"]
+    # The gate's name must be discoverable from the refusal, wherever it is carried.
+    assert "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE" in json.dumps(out)
 
 
 def test_run_scan_mock_full_cluster_returns_findings():
@@ -249,15 +250,17 @@ def test_get_compliance_ruleset_single_and_all():
 
 
 # ======================================================================= #
-# validate_platform (doctor equivalent)
+# run_doctor (the platform-health tool; a narrower validate_platform was removed
+# as a strict subset of these sections)
 # ======================================================================= #
-def test_validate_platform_clean():
+def test_run_doctor_reports_a_clean_platform():
     tools = build_tools()
-    out = tools["validate_platform"]()
-    assert out["valid"] is True
-    assert out["problems"] == []
-    assert out["shards_loaded"] >= 11
-    assert out["rules_loaded"] >= 50
+    out = tools["run_doctor"]()
+    assert out["ok"] is True
+    assert out["counts"]["FAIL"] == 0
+    titles = [s.get("title") for s in out["sections"]]
+    # The data the removed tool used to carry still has a home here.
+    assert "Shard discovery" in titles and "Rules" in titles
 
 
 # ======================================================================= #

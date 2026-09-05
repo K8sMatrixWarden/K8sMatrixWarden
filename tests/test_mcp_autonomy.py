@@ -6,9 +6,8 @@ harder question, and it found two places where the honest answer was no:
 
   * the Security Dashboard could only be started by running `k8smatrixwarden web`, so an
     assistant asked to "open the dashboard" had to hand the user a shell command;
-  * `validate_platform` answers only "did the rule registry load", while the CLI's `doctor`
-    answers "is this installation healthy and is the read-only guarantee intact", which is
-    what an operator actually means.
+  * the CLI's `doctor` answers "is this installation healthy and is the read-only
+    guarantee intact", which is what an operator actually means, and no tool did.
 
 The fix for a missing operation is a narrow purpose-built tool over the existing core, never
 a general command-execution escape hatch. These tests hold that line: they check the new
@@ -55,14 +54,16 @@ def test_run_doctor_is_registered_and_runs_the_real_check():
     assert out["sections"], "doctor returned no sections"
 
 
-def test_run_doctor_is_broader_than_validate_platform():
-    """The gap this closed: validate_platform answers one question, doctor answers ten."""
+def test_run_doctor_is_the_single_platform_health_tool():
+    """A narrower `validate_platform` used to sit beside this answering only "did the rule
+    registry load". It was a strict subset of these sections, and two tools for one
+    question just made an assistant guess, so it was removed rather than kept as an alias.
+    Everything it reported still has a home here."""
+    assert "validate_platform" not in TOOLS, "the duplicate tool is back"
     doctor = TOOLS["run_doctor"]()
-    narrow = TOOLS["validate_platform"]()
-    assert len(doctor["sections"]) > len(narrow), \
-        "run_doctor must cover more than the rule-registry check"
-    titles = " ".join(str(s.get("title", "")) for s in doctor["sections"]).lower()
-    assert "read-only" in titles, "doctor must still assert the read-only invariant"
+    titles = [s.get("title") for s in doctor["sections"]]
+    assert "Shard discovery" in titles and "Rules" in titles
+    assert any("read-only" in str(t).lower() for t in titles),         "doctor must still assert the read-only invariant"
 
 
 def test_run_doctor_does_not_touch_the_network_by_default():
@@ -213,14 +214,19 @@ def test_no_tool_accepts_a_command_to_execute():
 def test_the_only_process_spawning_tool_is_gated_and_uses_argv():
     """`deploy_falco` runs helm, and is the single deliberate exception. It must stay
     opt-in and must never reach a shell."""
-    source = inspect.getsource(TOOLS["deploy_falco"])
-    assert "shell=True" not in source
-    assert "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE" in source
+    import json as _json
+
+    from k8smatrixwarden.core import falco_lifecycle
+    # The tool delegates; the gate and the argv discipline live in the shared service.
+    assert "falco_lifecycle" in inspect.getsource(TOOLS["deploy_falco"])
+    service = inspect.getsource(falco_lifecycle)
+    assert "shell=True" not in service.split('"""')[-1]
+    assert "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE" in service
     was = os.environ.pop("K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE", None)
     try:
         out = TOOLS["deploy_falco"](webhook_url="http://127.0.0.1:8080/api/runtime")
-        assert out.get("status") != "ok", "helm ran without the opt-in"
-        assert "NOT run" in out.get("note", "")
+        assert out["status"] == "dry-run", "helm ran without the opt-in"
+        assert "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE" in _json.dumps(out)
     finally:
         if was is not None:
             os.environ["K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE"] = was

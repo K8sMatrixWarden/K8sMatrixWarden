@@ -34,6 +34,8 @@ import os
 from typing import Annotated, Any, Optional
 
 from ..bootstrap import build_platform
+from ..core.falco_lifecycle import (DEFAULT_NAMESPACE as _FALCO_NS,
+                                    DEFAULT_RELEASE as _FALCO_RELEASE)
 from ..core.evidence import detect_provider
 from ..core.report_store import DEFAULT_DIR as _DEFAULT_REPORTS_DIR
 from ..core.models import ScanMode, ScanRequest, Scope, ScopeLevel, Selector, Severity
@@ -194,22 +196,6 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
                      if any(m.tactic.value.lower() == tactic.lower() for m in r.mitre)]
         return [r.metadata() for r in rules]
 
-    def resolve_selector(tactics: _Tactics = None,
-                         techniques: _Techniques = None,
-                         modules: _Modules = None,
-                         aliases: _Aliases = None,
-                         frameworks: _Frameworks = None,
-                         rule_ids: _RuleIds = None) -> list[str]:
-        """Resolve a selector (any combination of MITRE tactics, techniques/composite
-        aliases like 'Container Escape', domain modules, compliance frameworks, or exact
-        rule ids) to the concrete list of rule ids it expands to, WITHOUT scanning
-        anything. Lower-level than preview_scan (no scope, no shard breakdown); use this
-        when you only need the raw rule_id list, e.g. to feed into another tool."""
-        sel = Selector(tactics=tactics or [], techniques=techniques or [],
-                       modules=modules or [], aliases=aliases or [],
-                       frameworks=frameworks or [], rule_ids=rule_ids or [])
-        return platform.mapping.resolve(sel)
-
     def get_kubectl_command(
         name: Annotated[str, _F(description=(
             "The dataset key of the kubectl one-liner to fetch, e.g. "
@@ -341,24 +327,6 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     # NOTE: `intelligent_scan` is defined once, in Layer 2 below (it composes
     # detect_cluster_provider + interpret_query + run_scan + threat matrix + attack path).
 
-    def validate_platform() -> dict:
-        """Validate the k8smatrixwarden install itself, equivalent to the `k8smatrixwarden doctor` CLI
-        command. Checks: every shard/rule loaded correctly, every rule's MITRE technique
-        id exists in the vendored ATT&CK-for-Containers taxonomy, every composite alias
-        (e.g. 'Container Escape') resolves to real rule ids, and there are no duplicate
-        rule ids across shards. Call this first if any other tool is behaving
-        unexpectedly, or after editing a custom config (`--config`/`config_path`)."""
-        return {
-            "shards_loaded": len(platform.registry.shard_names()),
-            "shard_names": platform.registry.shard_names(),
-            "rules_loaded": platform.rule_count(),
-            "valid": not platform.validation_problems,
-            "problems": list(platform.validation_problems),
-        }
-
-    # ================================================================== #
-    # LAYER 2, Scan / audit / runtime: read-only, mirrors `scan` / `cis` / Runtime Agent
-    # ================================================================== #
     def _make_scope(scope_level: Optional[str], namespace: Optional[str],
                     name: Optional[str], kind: Optional[str],
                     image: Optional[str]) -> Scope:
@@ -828,66 +796,73 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
 
     def deploy_falco(
             webhook_url: Annotated[str, _F(description=(
-                "URL Falco/falcosidekick should POST runtime events to, your "
-                "K8sMatrixWarden runtime endpoint, e.g. "
-                "'http://host.minikube.internal:8080/api/runtime'."))],
+                "URL Falco/falcosidekick should POST runtime events to, i.e. this "
+                "project's runtime endpoint, e.g. "
+                "'http://host.docker.internal:8080/api/runtime'."))],
             namespace: Annotated[str, _F(description=(
-                "Namespace to install Falco into (created if missing). Default 'falco'."))]
-            = "falco") -> dict:
-        """Falco + falcosidekick install helper for wiring up the runtime feed. K8sMatrixWarden
-        is READ-ONLY by default, so this does NOT touch your cluster unless you opt in: it
-        returns the exact `helm` commands (with the webhook pre-filled) for you to run
-        yourself. Only when the env var K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 is set will it
-        execute them, that is the single write path in the tool and it is off by default, so
-        the read-only / offline guarantee holds for every normal invocation. Requires helm."""
-        # json_output=true makes Falco print one JSON alert per line to stdout, required
-        # for the pull feed (a `scan --live` reads these pod logs directly); falcosidekick
-        # covers the push feed (POST to /api/runtime). Setting both wires up either path.
-        vals = (f"falco.json_output=true,"
-                f"falcosidekick.enabled=true,"
-                f"falcosidekick.config.webhook.address={webhook_url}")
-        commands = [
-            "helm repo add falcosecurity https://falcosecurity.github.io/charts",
-            "helm repo update",
-            f"helm install falco falcosecurity/falco -n {namespace} --create-namespace "
-            f"--set {vals}",
-        ]
-        next_steps = [
-            f"Check pod status: kubectl get pods -n {namespace}",
-            f"Tail logs: kubectl logs -n {namespace} -l app=falco -f",
-            "Send runtime events to /api/runtime to see correlations"]
+                "Namespace to install into, created if missing. Default 'falco'."))]
+            = _FALCO_NS,
+            release: Annotated[str, _F(description=(
+                "Helm release name. Default 'falco'."))] = _FALCO_RELEASE,
+            timeout: Annotated[int, _F(description=(
+                "Seconds to wait for the pods to become ready. Default 300."))] = 300
+            ) -> dict:
+        """Install Falco + falcosidekick into the cluster, wired to send runtime events here.
 
-        if os.environ.get("K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE") != "1":
-            return {"status": "dry-run", "webhook": webhook_url, "commands": commands,
-                    "next_steps": next_steps,
-                    "note": ("K8sMatrixWarden is read-only by default, these commands were "
-                             "NOT run. Execute them yourself, or set "
-                             "K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 to let this tool run them.")}
+        THIS CHANGES THE CLUSTER, and is refused unless the server's environment sets
+        K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1. Refused, it returns the exact helm commands
+        to run by hand and touches nothing. The gate is read from the environment, never
+        from an argument, so no caller can turn it on.
 
-        import subprocess
-        out = {"status": "ok", "steps": [], "commands": commands}
-        try:
-            subprocess.run(["helm", "repo", "add", "falcosecurity",
-                           "https://falcosecurity.github.io/charts"],
-                          check=True, capture_output=True, timeout=30)
-            out["steps"].append("✓ Added falcosecurity Helm repo")
-            subprocess.run(["helm", "repo", "update"], check=True,
-                          capture_output=True, timeout=30)
-            out["steps"].append("✓ Updated Helm repos")
-            subprocess.run(
-                ["helm", "install", "falco", "falcosecurity/falco",
-                 "-n", namespace, "--create-namespace", "--set", vals],
-                check=True, capture_output=True, timeout=60)
-            out["steps"].append(f"✓ Installed Falco in ns/{namespace}")
-            out["webhook"] = webhook_url
-            out["next_steps"] = next_steps
-        except FileNotFoundError:
-            return {"error": "helm not found, install helm first (https://helm.sh)"}
-        except subprocess.CalledProcessError as e:
-            return {"error": f"helm install failed: {e.stderr.decode()[:200] if e.stderr else str(e)}"}
-        except Exception as e:
-            return {"error": str(e)}
-        return out
+        The chart and repository are fixed (`falcosecurity/falco`): choosing the chart would
+        be choosing what runs in the cluster. Only the namespace, release name, webhook and
+        timeout are yours, and each is validated before any command is built. No shell is
+        ever invoked.
+
+        An existing release is reported rather than installed over. A helm install that
+        succeeds but leaves no ready pod comes back as `degraded`, never as success. Use
+        `get_falco_status` after this, then `refresh_runtime_feed` to pull the first events.
+        """
+        from ..core.falco_lifecycle import deploy
+        return deploy(webhook_url, namespace=namespace, release=release, timeout=timeout)
+
+    def get_falco_status(
+            namespace: Annotated[str, _F(description=(
+                "Namespace Falco is installed in. Default 'falco'."))] = _FALCO_NS,
+            release: Annotated[str, _F(description=(
+                "Helm release name. Default 'falco'."))] = _FALCO_RELEASE) -> dict:
+        """Is Falco installed and healthy, and where? Read-only; needs no write gate.
+
+        Reports `state` as one of not-installed | running | degraded | failed | unknown,
+        plus the namespace, release, chart, app version, helm status and pod readiness.
+
+        `degraded` is a real answer: a helm release can exist while no pod is ready, and a
+        check that only asked "does the release exist" would call that healthy. `unknown`
+        means the cluster or the DaemonSet could not be read, which is deliberately not the
+        same as `not-installed`.
+        """
+        from ..core.falco_lifecycle import status
+        return status(namespace=namespace, release=release)
+
+    def remove_falco(
+            namespace: Annotated[str, _F(description=(
+                "Namespace the release is in. Default 'falco'."))] = _FALCO_NS,
+            release: Annotated[str, _F(description=(
+                "Helm release name to uninstall. Default 'falco'."))] = _FALCO_RELEASE,
+            timeout: Annotated[int, _F(description=(
+                "Seconds to wait for the uninstall. Default 180."))] = 180) -> dict:
+        """Uninstall the Falco helm release.
+
+        THIS CHANGES THE CLUSTER, and is gated exactly as `deploy_falco` is. Refused, it
+        returns the command to run by hand.
+
+        Narrow on purpose: `helm uninstall` removes what that release created and nothing
+        else. The NAMESPACE IS KEPT — operators put other workloads there, and deleting it
+        to be thorough is how a cleanup becomes an outage. A release that is not installed
+        is reported as such rather than treated as an error.
+        """
+        from ..core.falco_lifecycle import remove
+        return remove(namespace=namespace, release=release, timeout=timeout)
 
     def list_runtime_detections() -> list[dict]:
         """List the Runtime Agent's detection catalog (§8), every rule tagged
@@ -1502,9 +1477,10 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         the runtime catalog, optional dependencies, the optional LLM, and the read-only
         safety invariants.
 
-        Broader than `validate_platform`, which answers only "did the rule registry load
-        cleanly". Use this to answer "is this installation healthy and is the read-only
-        guarantee still intact", which is what an operator means by "is it working".
+        This is THE platform-health tool. A narrower `validate_platform` used to sit beside
+        it answering only "did the rule registry load"; it was a strict subset of these
+        sections and two tools for one question just made an assistant guess, so it was
+        removed rather than kept as an alias.
 
         A missing OPTIONAL capability is reported as NOT CONFIGURED, never as a failure:
         an absent PDF library is a thing you have not installed, not a thing that is broken.
@@ -1606,7 +1582,6 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     return {
         # 1. knowledge
         "list_rules": list_rules,
-        "resolve_selector": resolve_selector,
         "get_kubectl_command": get_kubectl_command,
         "list_kubectl_commands": list_kubectl_commands,
         "get_tool_commands": get_tool_commands,
@@ -1619,7 +1594,6 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "list_shards": list_shards,
         "list_namespaces": list_namespaces,
         "detect_cluster_provider": detect_cluster_provider,
-        "validate_platform": validate_platform,
         # 2. scan / audit / runtime
         "preview_scan": preview_scan,
         "run_scan": run_scan,
@@ -1631,6 +1605,8 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         "correlate_runtime": correlate_runtime,
         "detect_drift": detect_drift,
         "deploy_falco": deploy_falco,
+        "get_falco_status": get_falco_status,
+        "remove_falco": remove_falco,
         "list_runtime_detections": list_runtime_detections,
         "build_threat_matrix": build_threat_matrix,
         "build_attack_path": build_attack_path,

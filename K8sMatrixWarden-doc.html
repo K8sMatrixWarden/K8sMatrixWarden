@@ -1071,7 +1071,6 @@ fails the build if a write-capable tool name ever appears.</p></div>
 <thead><tr><th>Tool</th><th>Description</th></tr></thead>
 <tbody>
 <tr><td><code>list_rules</code></td><td>List rules, filterable by shard and/or MITRE tactic, discovers valid <code>rule_ids</code>.</td></tr>
-<tr><td><code>resolve_selector</code></td><td>Resolve a raw selector to its rule ids, no scope, no scan.</td></tr>
 <tr><td><code>get_kubectl_command</code> / <code>list_kubectl_commands</code></td><td>One named kubectl one-liner, or all 9.</td></tr>
 <tr><td><code>get_tool_commands</code> / <code>list_tool_commands</code></td><td>Example invocations for trivy, kube-bench, kubescape, cosign… or all of them.</td></tr>
 <tr><td><code>lookup_cve</code> / <code>list_cves</code></td><td>One CVE by id, or the full bundled K8s CVE knowledge base.</td></tr>
@@ -1080,7 +1079,6 @@ fails the build if a write-capable tool name ever appears.</p></div>
 <tr><td><code>mitre_coverage</code></td><td>Rule count per MITRE tactic.</td></tr>
 <tr><td><code>list_shards</code></td><td>The 11 domain shards with titles and rule counts.</td></tr>
 <tr><td><code>list_namespaces</code></td><td>Namespace names in the target cluster.</td></tr>
-<tr><td><code>validate_platform</code></td><td><code>doctor</code> equivalent, shard/rule counts, any validation problems.</td></tr>
 </tbody>
 </table></div>
 <nav class="pager">
@@ -1148,7 +1146,9 @@ writes to arbitrary paths on the host.</p></div>
 <thead><tr><th>Tool</th><th>Description</th></tr></thead>
 <tbody>
 <tr><td><code>generate_rbac_manifest</code></td><td>The least-privilege RBAC (get/list/watch only) K8sMatrixWarden needs against a real cluster. Only generates, never applies.</td></tr>
-<tr><td><code>deploy_falco</code></td><td>One-click <strong>Falco + falcosidekick</strong> deploy via <code>helm install</code>, with the webhook pre-wired at your <code>/api/runtime</code> endpoint so live events flow into <code>correlate_runtime</code>/<code>detect_drift</code>. Requires <code>helm</code> on the system.</td></tr>
+<tr><td><code>deploy_falco</code></td><td>Install <strong>Falco + falcosidekick</strong>, webhook pre-wired to this project's <code>/api/runtime</code> so live events flow into <code>correlate_runtime</code>/<code>detect_drift</code>. <strong>Mutates the cluster</strong>, so it is refused unless <code>K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1</code> — refused, it returns the exact helm commands and changes nothing. Chart and repository are fixed, not parameters. Requires <code>helm</code>.</td></tr>
+<tr><td><code>get_falco_status</code></td><td>Is Falco installed and healthy: <code>not-installed</code> / <code>running</code> / <code>degraded</code> / <code>failed</code> / <code>unknown</code>, with namespace, release, chart, version and pod readiness. Read-only, no write gate. <code>degraded</code> is a real answer — a helm release can exist with no ready pod — and <code>unknown</code> (could not look) is never collapsed into <code>not-installed</code> (looked, absent).</td></tr>
+<tr><td><code>remove_falco</code></td><td>Uninstall the Falco helm release. Gated exactly as deploy is. Narrow by construction: <code>helm uninstall</code> removes what that release created, and <strong>the namespace is kept</strong> — operators put other things there, and deleting it to be thorough is how a cleanup becomes an outage.</td></tr>
 <tr><td><code>run_doctor</code></td><td>The full platform health check <code>k8smatrixwarden doctor</code> runs — shards, configuration, rules, taxonomy, MCP registration, every report format, the runtime catalog, optional dependencies and the read-only safety invariants. Broader than <code>validate_platform</code>, which answers only whether the rule registry loaded. A missing optional capability reads <em>NOT CONFIGURED</em>, never <em>FAIL</em>.</td></tr>
 <tr><td><code>start_web_server</code></td><td>Start the Security Dashboard in the background and return its URL, so a client never has to hand the user a shell command. Same <code>WebApp</code> as <code>k8smatrixwarden web</code>, on a daemon thread. One per process. A non-loopback bind is <strong>refused</strong> without an explicit opt-in — the dashboard has no authentication, and a program will not read a printed warning.</td></tr>
 <tr><td><code>get_web_server_status</code></td><td>Whether a dashboard is running in this process, and its host, port, URL, report directory and uptime. A serving thread that has died reads as not running rather than advertising a dead URL.</td></tr>
@@ -2207,7 +2207,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 
 <section id="quality" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Compliance and Safety</span><h2>Testing and quality</h2></div>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">983</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">1004</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
@@ -2291,6 +2291,7 @@ same engine. Pick whichever fits the moment.</p>
 <tr><td><code>federation</code></td><td>Cross-cluster blast radius from the saved per-cluster scans</td></tr>
 <tr><td><code>posture</code></td><td>What changed since the previous scan of the same scope, new / resolved / persistent / regressed, with MTTD and MTTR</td></tr>
 <tr><td><code>doctor</code></td><td>Full health check: shards, config, rules, taxonomy, MCP, report formats, runtime, LLM, dependencies, read-only invariants (<code>--probe</code>, <code>-o json</code>)</td></tr>
+<tr><td><code>falco</code> (<code>status</code> / <code>deploy</code> / <code>remove</code>)</td><td>Manage the runtime event source. <code>status</code> is read-only; <code>deploy</code> and <code>remove</code> <strong>mutate the cluster</strong> and do nothing unless <code>K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1</code> — without it they print the commands they would run. Same <code>core/falco_lifecycle</code> service the MCP tools and the dashboard call.</td></tr>
 <tr><td><code>mcp</code></td><td>Run the MCP server, or list its 44 tools</td></tr>
 </tbody>
 </table></div>

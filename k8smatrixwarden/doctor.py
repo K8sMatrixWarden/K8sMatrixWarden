@@ -14,7 +14,7 @@ The last one matters most for the LLM section: the deterministic scanner has no 
 on a model being configured, so "no LLM" is a statement of fact, not a fault.
 
 Returns plain data (`run_checks`) so the CLI renders it, tests assert on it, and the MCP
-`validate_platform` tool can serve the same content without a second implementation.
+`run_doctor` MCP tool serves the same content without a second implementation.
 """
 from __future__ import annotations
 

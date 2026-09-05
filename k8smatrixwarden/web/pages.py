@@ -496,9 +496,95 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.f').forEach(el => el.onchange = load);
   load();
 });
+
+// ---- Falco lifecycle -------------------------------------------------------
+// The browser NEVER builds a helm command. Every button is one call to
+// /api/falco/*, which is a thin adapter over the same core service the CLI and the
+// MCP tools use. Deployment logic living in three places is how three places drift.
+const FA_TAG = {running:'low', degraded:'high', failed:'crit', 'not-installed':'muted',
+                unknown:'muted'};
+
+function faBusy(on, label){
+  ['fa-deploy','fa-remove','fa-refresh'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.disabled = on;
+  });
+  if (on && label) document.getElementById('fa-msg').textContent = label;
+}
+
+function faRender(s){
+  const state = s.state || 'unknown';
+  const tag = document.getElementById('fa-state');
+  tag.className = 'tag ' + (FA_TAG[state] || 'muted');
+  tag.textContent = state;
+  const bits = [];
+  if (s.namespace) bits.push('ns/' + s.namespace);
+  if (s.release) bits.push('release ' + s.release);
+  if (s.app_version) bits.push('v' + s.app_version);
+  if (s.pods_ready != null && s.pods_desired != null)
+    bits.push(s.pods_ready + '/' + s.pods_desired + ' pods ready');
+  document.getElementById('fa-detail').textContent = bits.join(' · ');
+  // Deploying when it is already there, or removing when it is not, are the two
+  // mistakes a button can invite. Disable rather than let the server refuse.
+  document.getElementById('fa-deploy').disabled = ['running','degraded'].includes(state);
+  document.getElementById('fa-remove').disabled = (state === 'not-installed');
+  const msg = document.getElementById('fa-msg');
+  msg.textContent = s.error || s.message || '';
+  msg.className = 'fm falco-msg' + (s.error ? ' bad' : '');
+}
+
+async function faStatus(){
+  try {
+    const r = await fetch('/api/falco/status');
+    faRender(await r.json());
+  } catch (e) {
+    faRender({state:'unknown', error:'could not reach the server'});
+  }
+}
+
+async function faAct(action, confirmText){
+  if (confirmText && !confirm(confirmText)) return;
+  faBusy(true, action === 'deploy' ? 'Installing Falco…' : 'Removing Falco…');
+  try {
+    const body = {webhook_url: location.protocol + '//host.docker.internal:'
+                  + (location.port || '8080') + '/api/runtime'};
+    const r = await fetch('/api/falco/' + action, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)});
+    const out = await r.json();
+    const msg = document.getElementById('fa-msg');
+    if (out.status === 'dry-run') {
+      msg.className = 'fm falco-msg bad';
+      msg.textContent = out.error + ' — commands that would run: '
+                        + (out.commands || []).join('  ;  ');
+    } else {
+      msg.className = 'fm falco-msg' + (out.error ? ' bad' : '');
+      msg.textContent = out.error || out.note || ('Falco ' + out.status);
+    }
+    if (out.falco) faRender(out.falco); else await faStatus();
+  } catch (e) {
+    document.getElementById('fa-msg').textContent = 'request failed';
+  } finally {
+    faBusy(false);
+    load();                      // runtime events may have changed
+  }
+}
+
+document.getElementById('fa-refresh').onclick = faStatus;
+document.getElementById('fa-deploy').onclick = () => faAct('deploy');
+document.getElementById('fa-remove').onclick = () => faAct('remove',
+  'Uninstall the Falco helm release? The namespace and anything else in it are kept.');
+faStatus();
 </script>"""
 
 _RUNTIME_CSS = """
+.falco-panel{border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem;
+  margin:.6rem 0;background:var(--panel)}
+.falco-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.falco-msg{margin-top:.4rem;color:var(--muted);word-break:break-word}
+.falco-msg.bad{color:var(--crit)}
+.btn.danger{border-color:var(--crit);color:var(--crit)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
 table.rt{width:100%;border-collapse:collapse;font-size:.83rem}
 table.rt th{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);
   color:var(--muted);font-weight:600;white-space:nowrap}
@@ -545,8 +631,22 @@ def runtime_page() -> str:
             "verdict &nbsp; <span class='tag info'>Falco</span> the provider's own rule, "
             "relayed under its name &nbsp; <span class='tag high'>DRIFT</span> declared "
             "securityContext contradicted by observed behaviour</div>")
+    # Falco is what produces most of the evidence on this page, so its lifecycle belongs
+    # here rather than on a settings screen an operator would have to go looking for.
+    falco = ("<div class='falco-panel'>"
+             "<div class='falco-row'>"
+             "<strong>Falco</strong>"
+             "<span id='fa-state' class='tag muted'>checking…</span>"
+             "<span id='fa-detail' class='fm'></span>"
+             "<span style='flex:1'></span>"
+             "<button class='btn' id='fa-refresh'>Refresh</button>"
+             "<button class='btn' id='fa-deploy'>Deploy Falco</button>"
+             "<button class='btn danger' id='fa-remove'>Remove Falco</button>"
+             "</div>"
+             "<div id='fa-msg' class='fm falco-msg'></div>"
+             "</div>")
     crumb = "<div class='crumbs'><a href='/'>Dashboard</a> › runtime events</div>"
-    body = (_topbar("runtime") + crumb + head + controls
+    body = (_topbar("runtime") + crumb + head + falco + controls
             + "<div id='rt-q'><div class='empty'>Loading…</div></div>" + _RUNTIME_JS)
     return layout("K8sMatrixWarden · Runtime Events", body,
                   extra_css=_APP_CSS + _RUNTIME_CSS)

@@ -18,6 +18,8 @@ import sys
 from ..bootstrap import build_platform
 from ..core.models import (ScanMode, ScanRequest, Scope, ScopeLevel, Selector, Severity)
 from ..core.report_store import DEFAULT_DIR as _DEFAULT_REPORTS_DIR
+from ..core.falco_lifecycle import (DEFAULT_NAMESPACE as _FALCO_NS,
+                                    DEFAULT_RELEASE as _FALCO_RELEASE)
 from ..agents.orchestrator import Orchestrator
 from ..agents.scanner import ScannerAgent
 
@@ -243,6 +245,44 @@ def cmd_roles(a) -> int:
             fh.write(out)
         print(f"\n[written] {a.output_file}", file=sys.stderr)
     return 0
+
+
+def cmd_falco(a) -> int:
+    """Falco lifecycle: deploy, status, remove.
+
+    Every subcommand calls core/falco_lifecycle, the same service the MCP tools and the
+    dashboard use. Deploy and remove change the cluster and do nothing unless
+    K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 is set; without it they print the commands they
+    WOULD run, so the operator can run them by hand and see exactly what was intended.
+    """
+    import json as _json
+    from ..core import falco_lifecycle as falco
+
+    if a.falco_cmd == "status":
+        out = falco.status(namespace=a.namespace, release=a.release)
+    elif a.falco_cmd == "deploy":
+        out = falco.deploy(a.webhook_url, namespace=a.namespace, release=a.release,
+                           timeout=a.timeout)
+    else:
+        out = falco.remove(namespace=a.namespace, release=a.release, timeout=a.timeout)
+
+    if getattr(a, "output", "text") == "json":
+        print(_json.dumps(out, indent=2))
+    else:
+        state = out.get("state") or out.get("status")
+        print(f"Falco  {a.release} in ns/{a.namespace}: {state}")
+        for key in ("message", "note", "error"):
+            if out.get(key):
+                print(f"  {key}: {out[key]}")
+        for step in out.get("steps", []):
+            print(f"  {step}")
+        for command in out.get("commands", []):
+            print(f"  $ {command}")
+        for step in out.get("next_steps", []):
+            print(f"  next: {step}")
+    # A refused write is not a failure of the command: the tool did exactly what it
+    # promised. A real failure is.
+    return 1 if out.get("status") in ("failed", "error") else 0
 
 
 def cmd_doctor(a) -> int:
@@ -727,6 +767,29 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--format", "-f", default="markdown", choices=fmts)
     rd.add_argument("--output", "-o", help="output filename (default: print to stdout)")
     rd.set_defaults(func=cmd_report)
+
+    fa = sub.add_parser("falco",
+                        help="deploy / inspect / remove Falco (runtime event source)")
+    fasub = fa.add_subparsers(dest="falco_cmd", required=True)
+    for name, helptext in (("status", "is Falco installed and healthy?"),
+                           ("deploy", "install Falco + falcosidekick (needs the write gate)"),
+                           ("remove", "uninstall the Falco helm release (needs the write gate)")):
+        # NOT `p`: this function's own top-level parser is named `p`, and shadowing it
+        # here made build_parser() return this subparser instead of the real CLI.
+        fp = fasub.add_parser(name, help=helptext)
+        fp.add_argument("--namespace", default=_FALCO_NS,
+                        help=f"namespace (default: {_FALCO_NS})")
+        fp.add_argument("--release", default=_FALCO_RELEASE,
+                        help=f"helm release name (default: {_FALCO_RELEASE})")
+        fp.add_argument("--output", "-o", default="text", choices=["text", "json"])
+        if name == "deploy":
+            fp.add_argument("--webhook-url", required=True,
+                            help="where Falco should POST events, e.g. "
+                                 "http://host.docker.internal:8080/api/runtime")
+            fp.add_argument("--timeout", type=int, default=300)
+        if name == "remove":
+            fp.add_argument("--timeout", type=int, default=180)
+        fp.set_defaults(func=cmd_falco)
 
     m = sub.add_parser("mcp", help="run the MCP server (or --list-tools)")
     m.add_argument("--list-tools", action="store_true")
