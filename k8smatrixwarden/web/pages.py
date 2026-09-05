@@ -335,7 +335,7 @@ def _topbar(active: str = "") -> str:
     return ("<div class='topbar'>"
             "<h1><span class='mark'>K8</span>K8sMatrixWarden</h1><span class='grow'></span>"
             + nav("/", "Dashboard", "home")
-            + nav("/runtime", "Runtime Management", "runtime")
+            + nav("/runtime-management", "Runtime Management", "runtime")
             + nav("/runtime-events", "Runtime Events", "runtime-events")
             + nav("/matrix", "Coverage", "matrix")
             + nav("/compliance", "Compliance", "compliance")
@@ -566,7 +566,7 @@ def runtime_page() -> str:
     # buttons that install and remove the thing producing the events belong on the Runtime
     # page, where an operator goes to manage the integration rather than to read it.
     crumb = ("<div class='crumbs'><a href='/'>Dashboard</a> › "
-             "<a href='/runtime'>Runtime Management</a> › runtime events</div>")
+             "<a href='/runtime-management'>Runtime Management</a> › runtime events</div>")
     body = (_topbar("runtime-events") + crumb + head + controls
             + "<div id='rt-q'><div class='empty'>Loading…</div></div>" + _RUNTIME_JS)
     return layout("K8sMatrixWarden · Runtime Events", body,

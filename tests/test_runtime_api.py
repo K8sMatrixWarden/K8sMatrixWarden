@@ -370,16 +370,22 @@ def test_the_runtime_page_renders_and_is_linked_from_the_navigation():
     # Lifecycle controls belong on the operations page, not on the feed.
     assert "fa-deploy" not in events.text and "he-install" not in events.text
 
-    ops = app.route("GET", "/runtime")
+    ops = app.route("GET", "/runtime-management")
     assert ops.status == 200
     assert "fa-deploy" in ops.text and "he-install" in ops.text
 
     for page in (events.text, ops.text):
-        assert "href='/runtime'" in page and "href='/runtime-events'" in page
-        assert "Runtime Events" in page
+        assert "href='/runtime-management'" in page
+        assert "href='/runtime-events'" in page
+        assert "Runtime Management" in page and "Runtime Events" in page
 
-    # The old address still resolves, so an open tab or a bookmark does not 404.
-    assert app.route("GET", "/runtime/events").status == 200
+    # Both pages were reachable at other addresses before the split and the rename. Those
+    # still resolve to the same content, so an open tab or a bookmark does not 404 over a
+    # naming change, and the navigation only ever advertises the canonical pair.
+    legacy_ops = app.route("GET", "/runtime")
+    assert legacy_ops.status == 200 and "he-install" in legacy_ops.text
+    legacy_feed = app.route("GET", "/runtime/events")
+    assert legacy_feed.status == 200 and "f-source" in legacy_feed.text
 
 def test_the_dashboard_navigation_offers_the_runtime_page():
     app, _ = _app_with(_runtime_block([_correlation()]))

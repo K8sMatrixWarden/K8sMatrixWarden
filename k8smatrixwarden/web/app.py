@@ -146,10 +146,12 @@ class WebApp:
                 return self._api_helm("install")
             if method == "POST" and path == "/api/helm/remove":
                 return self._api_helm("remove")
-            if method == "GET" and path == "/runtime":
+            # /runtime-management is the canonical address for the operations page.
+            # /runtime is kept because it served this page before the rename, and a
+            # bookmark or an open tab should not 404 over a label change.
+            if method == "GET" and path in ("/runtime-management", "/runtime"):
                 return _html(pages.runtime_ops_page())
-            # The event feed moved here when /runtime became the operations page. The old
-            # address still works so a bookmark or an open tab does not 404.
+            # The event feed, likewise addressable by the name it had before the split.
             if method == "GET" and path in ("/runtime-events", "/runtime/events"):
                 return self._runtime_page()
             # /report/<id>  and  /report/<id>/matrix
