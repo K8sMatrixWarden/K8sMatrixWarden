@@ -61,7 +61,7 @@ def test_runtime_refresh_needs_scan_then_degrades_without_cluster():
     app = _app()
     # No scan yet -> clear 400, not a crash.
     r = app.route("POST", "/api/runtime/refresh", body=b"{}")
-    assert r.status == 400 and "no saved scan" in json.loads(r.text)["error"]
+    assert r.status == 400 and "no saved scan" in json.loads(r.text)["error"].lower()
     # With a (mock) scan, the live pull behaves correctly whatever the machine offers.
     # Which outcome you get is a property of the machine, not of the code, and all three
     # are right:
@@ -202,7 +202,7 @@ def test_bad_format_is_rejected():
     app = _app()
     _, d = _scan(app)
     r = app.route("GET", f"/api/report/{d['scan_id']}", query="format=exe")
-    assert r.status == 400 and "unknown format" in r.text
+    assert r.status == 400 and "unknown format" in r.text.lower()
 
 
 def test_scan_can_be_disabled():

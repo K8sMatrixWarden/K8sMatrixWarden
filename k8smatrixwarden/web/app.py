@@ -173,7 +173,7 @@ class WebApp:
                 return _json({"error": str(exc)}, 500)
             return _html(pages.error_page(500, f"Internal error: {exc}"), 500)
 
-        return self._not_found(f"no route for {method} {path}", q)
+        return self._not_found(f"No route for {method} {path}", q)
 
     # ------------------------------------------------------------------ #
     # HTML pages
@@ -188,7 +188,7 @@ class WebApp:
         # Third-party browser JS the dashboard needs (e.g. the Attack Path graph),
         # vendored and served locally, no CDN, so the dashboard stays self-contained.
         if name not in _VENDOR_ASSETS or "/" in name or "\\" in name:
-            raise _NotFound(f"no such asset: {name}")
+            raise _NotFound(f"No such asset: {name}")
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor", name)
         with open(path, "rb") as fh:
             return Response(200, "application/javascript; charset=utf-8", fh.read())
@@ -289,7 +289,7 @@ class WebApp:
         try:
             data = json.loads(body or b"{}")
         except Exception as exc:
-            return _json({"error": f"invalid JSON body: {exc}"}, 400)
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
         from ..agents.runtime import RuntimeAgent, normalize_batch
         from ..core.correlation import correlate, detect_drift
 
@@ -301,7 +301,7 @@ class WebApp:
         events, rejected = normalize_batch(raw)
         result = self.store.resolve(scan_id)
         if result is None:
-            return _json({"error": "no saved scan to correlate against, scan first"}, 400)
+            return _json({"error": "No saved scan to correlate against. Run a scan first."}, 400)
         # drift needs live pod specs; reuse the scan's mode (mock/live) via a fresh fetch
         mock = result.mode != "live"
         try:
@@ -380,13 +380,13 @@ class WebApp:
         from ..core.threat_matrix import attack_paths
         result = self.store.resolve(q.get("scan_id"))
         if result is None:
-            return _json({"error": "no such scan"}, 404)
+            return _json({"error": "No such scan."}, 404)
         anchor = q.get("anchor") or ""
         f = next((x for x in result.findings
                   if finding_anchor(x.rule_id, x.resource.kind, x.resource.name,
                                     x.resource.namespace) == anchor), None)
         if f is None:
-            return _json({"error": "finding not found"}, 404)
+            return _json({"error": "Finding not found in this scan."}, 404)
         path = attack_paths(build_threat_matrix(result, self.p.registry.rules),
                             result.runtime, cluster=result.cluster_name)
         explanation = explain_finding(f, rule=self.p.registry.rules.get(f.rule_id),
@@ -413,7 +413,7 @@ class WebApp:
         from ..core.runtime_events import query_runtime
         result = self.store.resolve(q.get("scan_id"))
         if result is None:
-            return _json({"error": "no saved scan yet, scan first"}, 400)
+            return _json({"error": "No saved scan yet. Run a scan first."}, 400)
         return _json(query_runtime(
             result,
             limit=(q.get("limit") or "").strip(),
@@ -443,7 +443,7 @@ class WebApp:
                 parsed = json.loads(body)
                 data = parsed if isinstance(parsed, dict) else {}
             except Exception as exc:
-                return _json({"error": f"invalid JSON body: {exc}"}, 400)
+                return _json({"error": f"Invalid JSON body: {exc}"}, 400)
         namespace = str(data.get("namespace") or q.get("namespace")
                         or falco.DEFAULT_NAMESPACE)
         release = str(data.get("release") or q.get("release") or falco.DEFAULT_RELEASE)
@@ -479,7 +479,7 @@ class WebApp:
             return _json({"status": helm.status, "install": helm.install,
                           "remove": helm.remove}[action]())
         except KeyError:
-            raise _NotFound(f"no such helm action: {action}")
+            raise _NotFound(f"No such Helm action: {action}")
         except Exception as exc:                       # never leak a stack trace
             return _json({"status": "error", "error": str(exc)}, 500)
 
@@ -495,10 +495,10 @@ class WebApp:
         try:
             data = json.loads(body or b"{}")
         except Exception as exc:
-            return _json({"error": f"invalid JSON body: {exc}"}, 400)
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
         result = self.store.resolve(data.get("scan_id") if isinstance(data, dict) else None)
         if result is None:
-            return _json({"error": "no saved scan to correlate against, scan first"}, 400)
+            return _json({"error": "No saved scan to correlate against. Run a scan first."}, 400)
         ns = (result.runtime or {}).get("falco_namespace") or "falco"
         try:
             collector = self.p.make_collector(mock=False)
@@ -506,7 +506,7 @@ class WebApp:
                                       Scope(ScopeLevel.CLUSTER), namespace=ns)
         except RuntimeError as exc:
             return _json({"state": "unavailable", "severity": "error",
-                          "error": f"live Falco pull needs cluster access: {exc}"}, 400)
+                          "error": f"Live Falco pull requires cluster access: {exc}"}, 400)
         if feed is None:
             # The state, not just a sentence. "no Falco events found" followed by advice
             # read as a failure on a perfectly healthy cluster; the caller now gets the
@@ -574,7 +574,7 @@ class WebApp:
             return Response(200, self._BINARY_FORMATS[fmt], data)
         if fmt not in _VALID_FORMATS:
             valid = sorted(_VALID_FORMATS | set(self._BINARY_FORMATS))
-            return _json({"error": f"unknown format {fmt!r}, valid: {', '.join(valid)}"}, 400)
+            return _json({"error": f"Unknown format {fmt!r}. Valid formats: {', '.join(valid)}"}, 400)
         content = self.p.reporting.render(result, fmt)
         if fmt == "json":
             return Response(200, "application/json; charset=utf-8",
@@ -606,7 +606,7 @@ class WebApp:
         if frameworks:
             bad = [f for f in frameworks if f not in set(framework_keys())]
             if bad:
-                raise _NotFound(f"unknown framework(s): {bad}")
+                raise _NotFound(f"Unknown framework(s): {bad}")
 
         store = self.store
         if not store.list():
@@ -663,12 +663,12 @@ class WebApp:
 
     def _api_scan(self, body: bytes) -> Response:
         if not self.allow_scan:
-            return _json({"error": "scanning is disabled on this server "
-                          "(started with --no-scan)"}, 403)
+            return _json({"error": "Scanning is disabled on this server "
+                          "(started with --no-scan)."}, 403)
         try:
             data = json.loads(body or b"{}")
         except Exception as exc:
-            return _json({"error": f"invalid JSON body: {exc}"}, 400)
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
 
         scope = self._scope_from(data)
         selector = self._selector_from(data)
@@ -698,7 +698,7 @@ class WebApp:
                     request, collector, mode_label="mock" if mock else "live",
                     name=scan_name)
             except Exception as exc:
-                return _json({"error": f"scan failed: {exc}"}, 400)
+                return _json({"error": f"Scan failed: {exc}"}, 400)
         finally:
             if tmp_kubeconfig:
                 try:
@@ -800,9 +800,9 @@ class WebApp:
         try:
             result = self.store.resolve(scan_id)
         except FileNotFoundError:
-            raise _NotFound(f"no stored report with scan-id {scan_id!r}")
+            raise _NotFound(f"No stored report with scan id {scan_id!r}.")
         if result is None:
-            raise _NotFound("no stored reports yet, run a scan first")
+            raise _NotFound("No stored reports yet. Run a scan first.")
         return result
 
     def _not_found(self, message: str, q: dict) -> Response:

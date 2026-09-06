@@ -73,10 +73,8 @@ class ScannerAgent:
         # must never fail the scan, the bar just won't render.
         inv: dict = {}
         try:
-            from ..core.reachability import inventory as _inventory
-            ev = collector.collect(
-                {"Pod", "Node", "Namespace", "Service", "NetworkPolicy",
-                 "ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding"}, request.scope)
+            from ..core.reachability import inventory as _inventory, INVENTORY_KINDS
+            ev = collector.collect(set(INVENTORY_KINDS), request.scope)
             inv = _inventory(ev)
         except Exception:
             pass

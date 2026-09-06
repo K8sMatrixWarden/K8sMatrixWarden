@@ -1201,8 +1201,17 @@ python -m k8smatrixwarden cis --live --profile aks
 ## 12. Least-privilege access for the scanner
 
 Do not scan a production cluster using personal cluster-admin credentials. The product
-generates its own scoped, read-only RBAC: one ClusterRole per domain shard, with every
-verb restricted to `get`, `list`, and `watch`.
+generates its own scoped, read-only RBAC: one ClusterRole per domain shard, plus one
+`k8smatrixwarden-platform-inventory` role, with every verb restricted to `get`, `list`,
+and `watch`.
+
+The per-shard roles are derived from what each shard's rules declare they read. The
+inventory role covers what the platform itself reads for the dashboard's cluster
+telemetry, which is not tied to any single rule: `nodes` (readiness and kubelet version),
+plus the Pod, Namespace, Service, Ingress, NetworkPolicy and RBAC objects behind the
+workload-privilege and exposure panels. `nodes` appears in no rule's evidence needs, so
+without this role a correctly locked-down deployment would scan fine while node readiness
+and cluster version stayed empty.
 
 ### 12.1 Review what would be created
 
@@ -1241,6 +1250,12 @@ The read-only property is asserted on every `doctor` run:
 ```
 PASS   generated RBAC is read-only, every generated verb is get/list/watch
 ```
+
+Nothing in the generated RBAC grants a write verb, `exec`, or access to Secret contents.
+Every cluster-telemetry metric the dashboard shows (privileged pods, hostPath and host
+namespace usage, root execution, NetworkPolicy coverage, internet-reachable and
+cluster-admin pods) is derived from object specifications returned by these same
+`get`/`list`/`watch` reads.
 
 ---
 
@@ -1328,21 +1343,74 @@ python -m k8smatrixwarden web --port 8080 --open
 
 ### 14.1 Tabs
 
+The dashboard has six tabs:
+
 | Tab | Contents |
 |---|---|
-| **Overview** | Risk score, evidence coverage, assessment confidence, and the pod exposure inventory |
-| **Findings** | Searchable and sortable finding list. Expanding a finding shows its NetworkPolicy posture and RBAC escalation path. |
+| **Overview** | Cluster overview telemetry, risk score, severity distribution, pod exposure, remediation priority, evidence coverage, and posture change |
+| **Findings** | Searchable and sortable finding list, with the count in the tab label. Expanding a finding shows its NetworkPolicy posture and RBAC escalation path. |
 | **Threat Matrix** | MITRE ATT&CK heatmap for this scan |
-| **Attack Path** | Tactic-level kill chain plus evidence-backed resource routes |
-| **Attack Map** | The attack chain rendered against the affected resources |
-| **Runtime** | Live Falco, audit, and drift events, filterable, with a per-event detail view |
-| **Scan history** | Every saved scan, re-openable |
+| **Attack Path** | Tactic-level kill chain, the force-directed attack graph, and evidence-backed resource routes |
+| **Runtime** | Runtime correlation and configuration drift for this scan, with a live refresh |
+| **Scans** | Every saved scan, re-openable, plus the scan form |
 
-The pod exposure inventory buckets every pod on a worst-case-wins basis: internet-reachable
-with cluster-admin, internet-reachable, cluster-admin ServiceAccount, or post-breach only.
-The denominator is the true pod count, so the proportions are honest.
+Every tab is keyboard operable: the tab strip is a single stop in the tab order, and the
+left and right arrow keys move between tabs. Filter chips, sortable column headers, matrix
+cells, findings rows and kill-chain steps are all reachable by keyboard and activate with
+Enter or Space.
 
-### 14.2 Security considerations
+### 14.2 Cluster overview telemetry
+
+The Overview tab opens with a four-column telemetry card. Every value is computed
+server-side from the evidence the scan already collected, so nothing here is a second
+source of truth and no extra cluster calls are made.
+
+**Column 1, Infrastructure.** Nodes Ready over total and Pods Running over total, each
+with its own distribution bar, plus the cluster's kubelet version and the namespace count
+in scope. A cluster whose nodes disagree on version is flagged as `version skew`.
+
+**Column 2, Workload Privilege.** Four attack-surface counts over every pod in scope:
+
+| Metric | Definition |
+|---|---|
+| **Privileged** | Pods with at least one container running `securityContext.privileged: true`, a direct host-escape primitive |
+| **Host Mounts** | Pods mounting a `hostPath` volume from the node filesystem |
+| **Host Namespaces** | Pods sharing the node's network, PID, or IPC namespace |
+| **Root Execution** | Pods where nothing establishes a non-root user. Root is the Kubernetes default, so a pod that is silent on the matter is counted as root, not as hardened. |
+| **Hardened** | Pods carrying none of the four flags above |
+
+A pod is counted once per category however many of its containers qualify, so every count
+shares the same pod denominator.
+
+**Column 3, Ingress and Exposure.** Internet-reachable pods and cluster-admin pods are
+worst-case-wins buckets over every pod, so the proportions have an honest denominator.
+NetworkPolicy coverage is the share of namespaces holding at least one NetworkPolicy.
+Coverage is not isolation: a namespace with a policy is not thereby protected, and the
+real per-pod verdict is on each finding. External Services counts `LoadBalancer` and
+`NodePort` Services; Ingresses counts Ingress objects.
+
+**Column 4, Runtime Sensor.** The runtime feed's heartbeat: `Receiving` when events are
+arriving, `Connected, quiet` when a feed is attached but silent, `No feed` when none is
+attached. With no feed attached, an empty runtime view is not evidence that nothing
+happened, which is why the loaded detection count is shown alongside.
+
+**Cluster health states.** The badge beside the card title reports the cluster, not the
+scanner:
+
+| State | Meaning |
+|---|---|
+| **Operational** | All nodes Ready, no pod in a failed phase |
+| **Converging** | Pods still Pending, nothing failed |
+| **Degraded** | A node is not Ready, or a pod is in a Failed phase |
+| **Partially reported** | Either node or pod status was collected, but not both |
+| **Not reported** | Neither was collected, so no verdict is offered |
+
+Node readiness and kubelet version require `get`/`list`/`watch` on `nodes`, which the
+generated `k8smatrixwarden-platform-inventory` ClusterRole grants (§12). Without it the
+card reports those fields as not collected rather than assuming a healthy zero.
+
+### 14.3 Security considerations
+
 
 **The dashboard binds `127.0.0.1` by default and has no authentication.** Two rules follow
 from this:
@@ -1883,7 +1951,7 @@ Work through these in order.
 | `federation` | Cross-cluster blast radius from saved per-cluster scans |
 | `report list` | List stored reports |
 | `report download` | Re-render a stored report in any format |
-| `roles` | Generate scoped read-only RBAC, one ClusterRole per shard |
+| `roles` | Generate scoped read-only RBAC, one ClusterRole per shard plus a platform-inventory role |
 | `web` | Launch the dashboard, bound to `127.0.0.1` |
 | `chat` | Interactive conversational assistant, confirm before running |
 | `mcp` | Run the MCP server, or list its tools with `--list-tools` |

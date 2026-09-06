@@ -80,8 +80,32 @@ class PluginLoader:
             self.registry.register_shard(shard)
             self.manifests[shard.name] = shard.manifest()
 
+    #: The cluster-inventory probe is a PLATFORM read, not a shard rule, so it is not
+    #: covered by the per-shard roles derived from rule evidence needs. It gets its own
+    #: ClusterRole for exactly that reason: the dashboard's node readiness, kubelet
+    #: version and exposure telemetry read `nodes` (and Ingress), which no detection rule
+    #: declares. Same read-only tier as everything else, get/list/watch only.
+    INVENTORY_ROLE = "k8smatrixwarden-platform-inventory"
+
+    def inventory_role(self) -> dict:
+        from .reachability import INVENTORY_KINDS
+        from ..shards.base import _API_GROUPS
+        from .evidence import KIND_ALIASES
+        by_group: dict[str, set[str]] = {}
+        for kind in INVENTORY_KINDS:
+            group = _API_GROUPS.get(kind, "")
+            by_group.setdefault(group, set()).add(KIND_ALIASES.get(kind, kind.lower()))
+        return {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "ClusterRole",
+            "metadata": {"name": self.INVENTORY_ROLE},
+            "rules": [{"apiGroups": [g], "resources": sorted(r),
+                       "verbs": ["get", "list", "watch"]}
+                      for g, r in sorted(by_group.items())],
+        }
+
     def scoped_roles(self) -> list[dict]:
-        return [m.scoped_role() for m in self.manifests.values()]
+        return [m.scoped_role() for m in self.manifests.values()] + [self.inventory_role()]
 
     def deployment_manifest(self, *, service_account: str = "k8smatrixwarden-scanner",
                             namespace: str = "k8smatrixwarden-system",
@@ -104,8 +128,8 @@ class PluginLoader:
             "apiVersion": "v1", "kind": "ServiceAccount",
             "metadata": {"name": service_account, "namespace": namespace},
         })
-        for manifest in self.manifests.values():
-            role = manifest.scoped_role()
+        for role in ([m.scoped_role() for m in self.manifests.values()]
+                     + [self.inventory_role()]):
             if not role["rules"]:
                 continue     # nothing to bind for a shard with no K8s API needs
             items.append(role)

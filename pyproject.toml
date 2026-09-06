@@ -21,7 +21,10 @@ live = ["kubernetes>=28.0"]
 # Prettier terminal output
 pretty = ["rich>=13.0"]
 # MCP protocol server
-mcp = ["mcp>=1.0"]
+# Pinned below 2.0: mcp 2.x renamed FastMCP to MCPServer and moved the module, so
+# `mcp.server.fastmcp` (what mcp/server.py imports) does not exist there. An
+# unpinned ">=1.0" resolves to 2.x today and installs a broken MCP server.
+mcp = ["mcp>=1.0,<2"]
 # PDF report export
 pdf = ["fpdf2>=2.7"]
 # Excel workbook export
@@ -33,7 +36,7 @@ excel = ["openpyxl>=3.1"]
 # Install `openai` yourself if you would rather use that SDK than the built-in client.
 agent = ["anthropic>=0.40"]
 # Everything
-all = ["kubernetes>=28.0", "rich>=13.0", "mcp>=1.0", "fpdf2>=2.7", "openpyxl>=3.1", "anthropic>=0.40"]
+all = ["kubernetes>=28.0", "rich>=13.0", "mcp>=1.0,<2", "fpdf2>=2.7", "openpyxl>=3.1", "anthropic>=0.40"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]

@@ -104,6 +104,9 @@
             ]
           }
         ]
+      },
+      "status": {
+        "phase": "Running"
       }
     },
     {
@@ -143,6 +146,9 @@
             }
           }
         ]
+      },
+      "status": {
+        "phase": "Running"
       }
     },
     {
@@ -165,6 +171,9 @@
             ]
           }
         ]
+      },
+      "status": {
+        "phase": "Running"
       }
     },
     {
@@ -199,6 +208,9 @@
             }
           }
         ]
+      },
+      "status": {
+        "phase": "Pending"
       }
     },
     {
@@ -236,6 +248,9 @@
             }
           }
         ]
+      },
+      "status": {
+        "phase": "Running"
       }
     }
   ],
@@ -635,6 +650,99 @@
       "actions": [
         "AdministratorAccess"
       ]
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "Node",
+      "metadata": {
+        "name": "ip-10-0-1-11",
+        "labels": {
+          "kubernetes.io/hostname": "ip-10-0-1-11",
+          "node-role.kubernetes.io/control-plane": ""
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "MemoryPressure",
+            "status": "False"
+          },
+          {
+            "type": "DiskPressure",
+            "status": "False"
+          },
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.29.4",
+          "osImage": "Ubuntu 22.04.4 LTS",
+          "containerRuntimeVersion": "containerd://1.7.13"
+        }
+      }
+    },
+    {
+      "kind": "Node",
+      "metadata": {
+        "name": "ip-10-0-2-22",
+        "labels": {
+          "kubernetes.io/hostname": "ip-10-0-2-22"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "MemoryPressure",
+            "status": "False"
+          },
+          {
+            "type": "DiskPressure",
+            "status": "False"
+          },
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.29.4",
+          "osImage": "Ubuntu 22.04.4 LTS",
+          "containerRuntimeVersion": "containerd://1.7.13"
+        }
+      }
+    },
+    {
+      "kind": "Node",
+      "metadata": {
+        "name": "ip-10-0-3-33",
+        "labels": {
+          "kubernetes.io/hostname": "ip-10-0-3-33"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "MemoryPressure",
+            "status": "False"
+          },
+          {
+            "type": "DiskPressure",
+            "status": "False"
+          },
+          {
+            "type": "Ready",
+            "status": "False"
+          }
+        ],
+        "nodeInfo": {
+          "kubeletVersion": "v1.29.4",
+          "osImage": "Ubuntu 22.04.4 LTS",
+          "containerRuntimeVersion": "containerd://1.7.13"
+        }
+      }
     }
   ]
 }

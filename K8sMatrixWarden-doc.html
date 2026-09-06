@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <title>K8sMatrixWarden Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap">
 <style>
 /* ==========================================================================
    K8sMatrixWarden docs, design system
@@ -57,13 +60,21 @@
   --shadow-lg: 0 12px 34px rgba(28,27,34,.14);
   --r:         10px;
 
-  --side-w:   252px;
-  --toc-w:    228px;
-  --read:     800px;
+  /* Fluid geometry. Every track is a clamp on rem + vw, so the layout tracks
+     both a window resize and a browser zoom (zoom shrinks the viewport in CSS
+     px, which moves the vw term, while rem holds the floor and ceiling). */
+  --side-w:   clamp(13rem, 17vw, 17rem);
+  --toc-w:    clamp(13rem, 15vw, 16rem);
+  /* Not a cap. The reading column fills the track the layout gives it; this is only
+     the width it prefers when the viewport is narrow enough for it to matter. */
+  --read:     min(100%, 60rem);
+  /* Breathing room scales with the viewport, so an ultra-wide display gains margin
+     instead of a dead gutter, and the text is never edge-to-edge. */
+  --gutter:   clamp(1.25rem, 3.6vw, 7rem);
   --bar-h:    56px;
 
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sans: Inter, "Inter var", Geist, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -143,7 +154,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 15.5px;
+  font-size: clamp(0.95rem, 0.9rem + 0.22vw, 1.15rem);
   line-height: 1.62;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -253,15 +264,14 @@ a:hover { color: var(--brand-2); }
 .hits-0 { padding: 20px 12px; text-align: center; color: var(--ink-2); font-size: 13.5px; }
 
 /* ============================ layout ============================ */
-/* Width comes from the columns themselves. A fixed larger cap left 368px of
-   leftover that `.doc { margin: 0 auto }` split into two dead gutters. */
+/* The page fills the viewport. Summing the three column widths into a max-width made
+   the layout as narrow as its narrowest assumption: at 1920px it produced a 1104px band
+   and 816px of dead gutter. The sidebar and rail keep their own fixed tracks, and the
+   reading column takes whatever is left, so widening the window widens the prose. */
 .page {
   display: flex; align-items: flex-start; margin: 0 auto;
-  max-width: calc(var(--side-w) + var(--read) + var(--toc-w));
+  width: 100%; max-width: 100%;
 }
-/* When the rail is hidden the page must shrink too, or the space it would have
-   occupied comes back as a gutter on each side of the reading column. */
-.page.no-toc { max-width: calc(var(--side-w) + var(--read)); }
 
 .side {
   position: sticky; top: var(--bar-h); flex: 0 0 var(--side-w); width: var(--side-w);
@@ -310,7 +320,9 @@ a:hover { color: var(--brand-2); }
 .nav-ch.gone { display: none; }
 
 /* ============================ reading column ============================ */
-.doc { flex: 1 1 auto; min-width: 0; max-width: var(--read); margin: 0 auto; padding: 0 42px 120px; }
+/* `flex:1 1 auto` + no cap = the column absorbs the remaining width. `min-width:0` is
+   what lets it shrink below its content's intrinsic width instead of overflowing. */
+.doc { flex: 1 1 auto; min-width: 0; max-width: none; margin: 0; padding: 0 var(--gutter) 120px; }
 .doc:focus { outline: none; }
 
 /* ---- hero ---- */
@@ -323,11 +335,11 @@ a:hover { color: var(--brand-2); }
 }
 .hero-tag b { background: var(--hot); color: var(--paper); border-radius: 20px; padding: 1px 7px; font-weight: 700; }
 .hero h1 {
-  margin: 0 0 14px; font-size: clamp(27px, 4vw, 36px); line-height: 1.14;
+  margin: 0 0 14px; font-size: clamp(1.75rem, 1.35rem + 1.9vw, 2.6rem); line-height: 1.14;
   font-weight: 720; letter-spacing: -.028em;
 }
 .hero h1 em { font-style: normal; color: var(--brand); }
-.hero p { margin: 0 0 24px; font-size: 16.5px; line-height: 1.58; color: var(--ink-2); max-width: 62ch; }
+.hero p { margin: 0 0 24px; font-size: clamp(1rem, 0.95rem + 0.3vw, 1.2rem); line-height: 1.58; color: var(--ink-2); }
 .hero-cta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 34px; }
 .cta {
   display: inline-flex; align-items: center; gap: 7px; padding: 10px 17px;
@@ -350,8 +362,8 @@ a:hover { color: var(--brand-2); }
   display: inline-block; font-family: var(--mono); font-size: 11px; font-weight: 700;
   letter-spacing: .12em; text-transform: uppercase; color: var(--hot); margin-bottom: 9px;
 }
-.ch-title { margin: 0 0 7px; font-size: 26px; font-weight: 700; letter-spacing: -.024em; line-height: 1.2; }
-.ch-sub { margin: 0 0 4px; font-size: 15.5px; color: var(--ink-2); max-width: 60ch; }
+.ch-title { margin: 0 0 7px; font-size: clamp(1.5rem, 1.25rem + 1.1vw, 2rem); font-weight: 700; letter-spacing: -.024em; line-height: 1.2; }
+.ch-sub { margin: 0 0 4px; font-size: 15.5px; color: var(--ink-2); }
 
 /* ---- section ---- */
 .doc-sec { padding-top: 34px; scroll-margin-top: calc(var(--bar-h) + 12px); }
@@ -361,14 +373,14 @@ a:hover { color: var(--brand-2); }
   letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px;
 }
 .doc-sec > .sec-head h2 {
-  margin: 0; font-size: 21px; font-weight: 690; letter-spacing: -.021em; line-height: 1.28;
+  margin: 0; font-size: clamp(1.25rem, 1.1rem + 0.7vw, 1.6rem); font-weight: 690; letter-spacing: -.021em; line-height: 1.28;
   position: relative;
 }
 
-.doc h3 { margin: 1.9em 0 .55em; font-size: 16.5px; font-weight: 660; letter-spacing: -.012em; position: relative; }
-.doc h4 { margin: 1.5em 0 .45em; font-size: 14.5px; font-weight: 660; color: var(--ink); }
+.doc h3 { margin: 1.9em 0 .55em; font-size: clamp(1.05rem, 1rem + 0.35vw, 1.28rem); font-weight: 660; letter-spacing: -.012em; position: relative; }
+.doc h4 { margin: 1.5em 0 .45em; font-size: clamp(0.95rem, 0.92rem + 0.2vw, 1.1rem); font-weight: 660; color: var(--ink); }
 .doc p { margin: 0 0 .95em; }
-.doc .lede { font-size: 16.5px; line-height: 1.58; color: var(--ink-2); }
+.doc .lede { font-size: clamp(1rem, 0.95rem + 0.3vw, 1.2rem); line-height: 1.58; color: var(--ink-2); }
 .doc ul, .doc ol { margin: 0 0 1.15em; padding-left: 1.35em; }
 .doc li { margin: .38em 0; }
 .doc li::marker { color: var(--ink-3); }
@@ -383,21 +395,12 @@ a:hover { color: var(--brand-2); }
 h2:hover > .anchor, h3:hover > .anchor { opacity: 1; }
 .anchor:hover { color: var(--brand); }
 
-/* Measure control.
-   The column is wide so tables, code and diagrams get room, but running prose
-   across the full width pushed lines to ~107 characters, well past the point
-   where the eye reliably finds the next line. Text blocks are capped in `ch`,
-   which tracks the font, so the limit holds at any size. Note `ch` is the width
-   of "0", wider than average lowercase, so 68ch lands near 75 real characters.
-   Wide content opts out. */
-.doc p, .doc ul, .doc ol, .doc dl, .doc blockquote { max-width: 73ch; }
-.doc .lede { max-width: 70ch; }
-.doc li > p, .doc li > ul, .doc li > ol,
-.doc td p, .doc td ul, .doc td ol,
-.doc .callout p, .doc .note p, .doc .warn p, .doc .tip p,
-.doc .panel p, .doc .panel ul, .doc .panel ol,
-.doc .info-card p, .doc .info-card ul, .doc .card p, .doc .flow-step p,
-.doc details p, .doc details ul, .doc details ol { max-width: none; }
+/* Measure control now lives on the column, not on every block.
+   The old per-block `max-width: 73ch` capped prose inside an already-capped
+   column, so at wide viewports each paragraph stopped short and left a dead
+   strip down the right of the content area. The reading column itself is the
+   measure (--read is a clamp, so the line length stays in a sane band at any
+   viewport or zoom) and text fills it. */
 
 /* ---- code ---- */
 .doc :not(pre) > code {
@@ -580,18 +583,12 @@ body.locked { overflow: hidden; }
 .doc details > *:last-child { padding-bottom: 14px; }
 
 /* ============================ responsive ============================ */
-/* On a large display the fixed reading column stranded ~400px of empty margin.
-   Widen the measure in steps, capped so a line never runs past ~85 characters. */
-@media (min-width: 1600px) {
-  :root { --read: 800px; --toc-w: 236px; }
-}
-@media (min-width: 1850px) {
-  :root { --read: 830px; --side-w: 264px; }
-}
-
+/* The width and type scales are clamps, so there is nothing here to widen or
+   shrink by hand. What is left are the genuinely structural changes: the rail
+   goes away, the sidebar becomes a drawer, grids collapse. */
 @media (max-width: 1240px) {
   .onpage { display: none; }
-  .doc { max-width: 820px; }
+  /* The rail is gone; the reading column simply takes the width it freed. */
 }
 @media (max-width: 980px) {
   .side {
@@ -601,20 +598,13 @@ body.locked { overflow: hidden; }
   }
   .side.on { transform: none; }
   .burger { display: flex; }
-  .doc { padding: 0 22px 100px; }
+  /* Sidebar is a fixed drawer here, out of flow, so the column owns the full width. */
   .hero { padding-top: 42px; }
   .hero-stats { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 720px) {
   :root { --bar-h: 54px; }
-  body { font-size: 15.5px; }
   .logo-tx, .logo-v { display: none; }
-  .doc { padding: 0 16px 90px; }
-  .hero h1 { font-size: 29px; }
-  .hero p { font-size: 16.5px; }
-  .ch-title { font-size: 25px; }
-  .doc-sec > .sec-head h2 { font-size: 21px; }
-  .doc h3 { font-size: 17px; }
   .pager { grid-template-columns: 1fr; }
   .pg-next { text-align: left; }
   .doc table { font-size: 13px; }
@@ -769,7 +759,7 @@ body.locked { overflow: hidden; }
   <div class="hero-stats">
     <div class="hstat"><b>62</b><span>Detection rules</span></div>
     <div class="hstat"><b>11</b><span>Domain shards</span></div>
-    <div class="hstat"><b>44</b><span>MCP tools</span></div>
+    <div class="hstat"><b>47</b><span>MCP tools</span></div>
     <div class="hstat"><b>0</b><span>Required deps</span></div>
   </div>
 </div>
@@ -795,7 +785,7 @@ changes which rules get selected, never the code path that runs them.</p>
   <div class="panel-head"><span class="dot"></span>DETECT → ANALYZE → CORRELATE → REPORT</div>
   <div class="panel-body">
     <div class="flow">
-      <div class="flow-step"><div class="fs-n">01</div><div class="fs-t">Detect</div><div class="fs-d">60 rules run by shard, resolved by tactic, technique, or resource scope.</div></div>
+      <div class="flow-step"><div class="fs-n">01</div><div class="fs-t">Detect</div><div class="fs-d">62 rules run by shard, resolved by tactic, technique, or resource scope.</div></div>
       <div class="flow-arrow">→</div>
       <div class="flow-step"><div class="fs-n">02</div><div class="fs-t">Analyze</div><div class="fs-d">Map to ATT&amp;CK, OWASP, CIS. Score by severity × exploitability × blast radius.</div></div>
       <div class="flow-arrow">→</div>
@@ -815,14 +805,14 @@ changes which rules get selected, never the code path that runs them.</p>
 <div class="card-grid">
   <div class="info-card"><span class="ic-icon">🎯</span><h4>ATT&amp;CK-Aligned Scanning</h4><p>Every finding is a rule tagged with MITRE tactic + technique, scan by adversary behavior, not just by resource.</p></div>
   <div class="info-card"><span class="ic-icon">🧩</span><h4>Domain-Sharded Execution</h4><p>11 shards own the evidence fetch and RBAC for their domain; tactics and frameworks are cross-cutting tags on top, never the execution boundary.</p></div>
-  <div class="info-card"><span class="ic-icon">🔗</span><h4>Deep-Linked Reports</h4><p>Every finding in the dashboard, in the Findings table, the Threat Matrix drill-downs, and the Attack Path / Attack Map stages, links straight to its card in the full report.</p></div>
+  <div class="info-card"><span class="ic-icon">🔗</span><h4>Deep-Linked Reports</h4><p>Every finding in the dashboard, in the Findings table, the Threat Matrix drill-downs, and the Attack Path stages, links straight to its card in the full report.</p></div>
   <div class="info-card"><span class="ic-icon">📋</span><h4>Full CIS Benchmark</h4><p>All 130 CIS Kubernetes Benchmark v1.8 controls evaluated, 65 straight from the API, 31 via kube-bench, 34 flagged manual, 0 silently skipped.</p></div>
   <div class="info-card"><span class="ic-icon">⚖️</span><h4>Compliance Audit</h4><p>Maps posture onto <strong>PCI DSS v4.0, SOC 2, ISO 27001:2022 &amp; NIST 800-53 rev5</strong>, per-requirement pass/fail/partial/manual, the evidence behind each verdict, and the exact findings blocking attestation. Auditor-facing HTML/PDF. Never marks an unverified requirement as passing.</p></div>
   <div class="info-card"><span class="ic-icon">🌐</span><h4>Multi-Cluster Blast Radius</h4><p>Correlates saved scans across clusters and flags <strong>shared non-default identities</strong>, the same custom ClusterRole, ServiceAccount or cloud IAM role in more than one cluster (built-in defaults excluded), as <strong>candidate</strong> cross-cluster lateral-movement paths to verify. A same-name collision is a lead to confirm, never assumed to be the same principal.</p></div>
   <div class="info-card"><span class="ic-icon">🔌</span><h4>32-Tool MCP Server</h4><p>Scan, audit, build the threat matrix and kill-chain, correlate a live runtime feed against static findings, and export reports, all reachable from Claude, Cursor, or any MCP client. Read-only: no apply/remediate tool.</p></div>
   <div class="info-card"><span class="ic-icon">🗺️</span><h4>Kubernetes Threat Matrix</h4><p>Every scan projects its findings onto the 9-tactic Kubernetes Threat Matrix, a heatmap of covered, hit, and gap techniques, in reports, the web dashboard, and MCP.</p></div>
   <div class="info-card"><span class="ic-icon">🔴</span><h4>Scan × Runtime Correlation</h4><p>Joins static findings to live Falco/audit events by MITRE tactic, <em>confirmed / corroborated / runtime-only</em>, plus drift detection and a derived kill-chain: not "here's a weakness" but "this one is being exploited right now."</p></div>
-  <div class="info-card"><span class="ic-icon">🖥️</span><h4>Interactive Dashboard</h4><p>A zero-dependency single-page app, seven tabs (Overview, Findings, Threat Matrix, Attack Path, Attack Map, Runtime, Scan) with search/filter/sort, a report selector to switch between saved scans, finding deep-links, and live Falco ingestion. Timestamps in IST.</p></div>
+  <div class="info-card"><span class="ic-icon">🖥️</span><h4>Interactive Dashboard</h4><p>A zero-dependency single-page app, six tabs (Overview, Findings, Threat Matrix, Attack Path, Runtime, Scans) with search/filter/sort, a report selector to switch between saved scans, finding deep-links, and live Falco ingestion. Timestamps in IST.</p></div>
   <div class="info-card"><span class="ic-icon">🛡️</span><h4>Detect-and-Report Only</h4><p>Read-only by design across every surface, CLI, MCP, and web. Scanning uses get/list/watch only; there is no write/apply path anywhere, enforced by a standing test.</p></div>
 </div>
 <nav class="pager">
@@ -897,7 +887,7 @@ k8smatrixwarden scan --mock --name "Prod nightly"   <span class="c-mut"># name i
 k8smatrixwarden chat</code></pre>
 </div>
 <div class="callout">Every scan is <strong>saved automatically</strong> to the shared report
-store, so it appears in the <a href="#web">web dashboard</a>'s Scan history, no flag needed.
+store, so it appears in the <a href="#web">web dashboard</a>'s Scans tab, no flag needed.
 Add <code>--name "…"</code> to title it <code>&lt;name&gt; + date + time</code>, or
 <code>--no-save</code> for a throwaway run.</div>
 
@@ -1050,7 +1040,7 @@ attack matrix. kubeconfig "C:\Users\me\.kube\config", name it "Prod live
 Scan", and give me a markdown report. Also start the web interface.</code></pre>
 </div>
 <p>Scans run over MCP save to the shared report store by default, so anything the agent scans
-shows up in the <a href="#web">web dashboard</a>'s Scan history without extra wiring.</p>
+shows up in the <a href="#web">web dashboard</a>'s Scans tab without extra wiring.</p>
 
 <div class="callout danger">
 <span class="co-icon">⛔</span>
@@ -1441,12 +1431,14 @@ catalog.</p>
 </details>
 
 <details class="acc">
-<summary>③ RBAC &amp; Identity <span class="acc-count">7 rules</span></summary>
+<summary>③ RBAC &amp; Identity <span class="acc-count">9 rules</span></summary>
 <div class="acc-body">
 <div class="table-scroll"><table><thead><tr><th>Rule</th><th>Severity</th><th>MITRE Tactic</th></tr></thead><tbody>
 <tr><td><code>rbac-wildcard-verbs</code></td><td><span class="sev sev-critical">Critical</span></td><td>Privilege Escalation</td></tr>
 <tr><td><code>rbac-wildcard-resources</code></td><td><span class="sev sev-critical">Critical</span></td><td>Privilege Escalation</td></tr>
 <tr><td><code>rbac-cluster-admin-default-sa</code></td><td><span class="sev sev-critical">Critical</span></td><td>Privilege Escalation</td></tr>
+<tr><td><code>rbac-broad-subject-admin</code></td><td><span class="sev sev-critical">Critical</span></td><td>Privilege Escalation</td></tr>
+<tr><td><code>rbac-cluster-admin-user-binding</code></td><td><span class="sev sev-high">High</span></td><td>Privilege Escalation</td></tr>
 <tr><td><code>rbac-bind-escalate-verbs</code></td><td><span class="sev sev-critical">Critical</span></td><td>Privilege Escalation</td></tr>
 <tr><td><code>rbac-secret-read-broad</code></td><td><span class="sev sev-high">High</span></td><td>Credential Access</td></tr>
 <tr><td><code>rbac-can-delete-events</code></td><td><span class="sev sev-high">High</span></td><td>Defense Evasion</td></tr>
@@ -1530,6 +1522,18 @@ catalog.</p>
 <tr><td><code>iam-overpermissive</code></td><td><span class="sev sev-high">High</span></td><td>K08</td><td>Lateral Movement, Privilege Escalation</td></tr>
 <tr><td><code>iam-node-role-broad</code></td><td><span class="sev sev-high">High</span></td><td>K08</td><td>Initial Access, Lateral Movement</td></tr>
 <tr><td><code>iam-managed-identity-reachable</code></td><td><span class="sev sev-medium">Medium</span></td><td>K08</td><td>Credential Access</td></tr>
+</tbody></table></div>
+</div>
+</details>
+
+<details class="acc">
+<summary>⑪ Log Analysis <span class="acc-count">4 rules</span></summary>
+<div class="acc-body">
+<div class="table-scroll"><table><thead><tr><th>Rule</th><th>Severity</th><th>MITRE Tactic</th></tr></thead><tbody>
+<tr><td><code>log-audit-policy-missing</code></td><td><span class="sev sev-high">High</span></td><td>Defense Evasion</td></tr>
+<tr><td><code>log-audit-retention-short</code></td><td><span class="sev sev-medium">Medium</span></td><td>Defense Evasion</td></tr>
+<tr><td><code>log-audit-rotation-weak</code></td><td><span class="sev sev-medium">Medium</span></td><td>Defense Evasion</td></tr>
+<tr><td><code>log-no-collector</code></td><td><span class="sev sev-medium">Medium</span></td><td>Defense Evasion, Impact</td></tr>
 </tbody></table></div>
 </div>
 </details>
@@ -2105,7 +2109,7 @@ the history it already had), and are never resolved by a scoped scan.</p>
 <tbody>
 <tr><td><code>native</code></td><td>25</td><td>Runs the mapped domain-shard rule, rule fired ⇒ FAIL</td></tr>
 <tr><td><code>builtin</code></td><td>2</td><td>Purpose-built evaluator (HostPorts, default namespace)</td></tr>
-<tr><td><code>component</code></td><td>44</td><td>Control-plane / kubelet process flags, read from static-pod specs, <strong>no node access</strong></td></tr>
+<tr><td><code>component</code></td><td>38</td><td>Control-plane / kubelet process flags, read from static-pod specs, <strong>no node access</strong></td></tr>
 <tr><td><code>kube-bench</code></td><td>31</td><td>True node file-permission reads, resolved from <code>kube-bench --json</code></td></tr>
 <tr><td><code>manual</code></td><td>34</td><td>CIS itself marks these subjective, surfaced, never auto-passed</td></tr>
 </tbody>
@@ -2210,7 +2214,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 
 <section id="quality" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Compliance and Safety</span><h2>Testing and quality</h2></div>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">1069</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">1070</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>
@@ -2238,7 +2242,7 @@ being true. This is that list.</p>
 <div class="table-scroll"><table>
 <thead><tr><th>Claim</th><th>How it is verified</th></tr></thead>
 <tbody>
-<tr><td>Registry builds and validates</td><td><code>doctor</code> → 11 shards / 60 rules / clean: no duplicate rule ids, every technique id present in the vendored taxonomy, every alias resolving to a real rule</td></tr>
+<tr><td>Registry builds and validates</td><td><code>doctor</code> → 11 shards / 62 rules / clean: no duplicate rule ids, every technique id present in the vendored taxonomy, every alias resolving to a real rule</td></tr>
 <tr><td>Every tactic is covered</td><td><code>coverage</code> → all 9 tactics have ≥ 1 rule</td></tr>
 <tr><td>The selector is the single choke point</td><td><code>--tactic Persistence</code> resolves across multiple shards through one index; unit-tested union + de-duplication with order preserved</td></tr>
 <tr><td>Composite aliases work</td><td><code>--technique "Container Escape"</code> → a curated cross-shard rule set</td></tr>
@@ -2505,17 +2509,16 @@ k8smatrixwarden web --reports-dir ./reports   <span class="c-mut"># override the
   <strong>One shared store: CLI, MCP, web.</strong> Default: <code>~/.k8smatrixwarden/reports</code>. Override: <code>$K8SMATRIXWARDEN_REPORTS_DIR</code>. Every scan auto-saved.
 </div>
 
-<h3>The seven tabs</h3>
+<h3>The six tabs</h3>
 <div class="table-scroll"><table>
 <thead><tr><th>Tab</th><th>What you see</th></tr></thead>
 <tbody>
-<tr><td><strong>Overview</strong></td><td>A <strong>scan-health banner</strong> first when the scan could not fully read the cluster, then KPIs (risk · rating · high+ count · MITRE coverage), priority findings (each links to the report), risk-by-domain bars, an attack-surface heatmap whose exposed tactics are clickable (jump to that Attack Path stage), a risk-trend sparkline, and runtime readiness, which tactics have detections armed.</td></tr>
+<tr><td><strong>Overview</strong></td><td>A <strong>scan-health banner</strong> first when the scan could not fully read the cluster, then the scan context bar, five KPI tiles (risk · posture · workload issues · critical+high · detection coverage), severity distribution and pod exposure cards, the four-column <strong>cluster overview telemetry</strong> card (infrastructure health, workload privilege, ingress and exposure, runtime sensor), priority findings (each links to the report), risk-by-domain bars, an attack-surface heatmap whose exposed tactics are clickable (jump to that Attack Path stage), a risk-trend sparkline, and runtime readiness, which tactics have detections armed.</td></tr>
 <tr><td><strong>Findings</strong></td><td>Live search + severity chips + tactic filter + sortable columns across every finding. Each row is clickable and opens that finding in the report.</td></tr>
 <tr><td><strong>Threat Matrix</strong></td><td>The 9×N interactive heatmap; select a coloured cell to expand its findings inline, with enriched detail (resource, score, domain, technique, OWASP/CIS) and a link per finding to its report card.</td></tr>
-<tr><td><strong>Attack Path</strong></td><td>The kill-chain flow (tactics → techniques), entry points, and a reaches-Impact flag. Select any stage to list every finding under that tactic, each linking to the report.</td></tr>
-<tr><td><strong>Attack Map</strong></td><td>The kill-chain <em>with the vulnerable resources</em> (Pods/Deployments/…) grouped per tactic, an accordion; expand a stage to see its exposed resources and the findings there (each linking to the report).</td></tr>
+<tr><td><strong>Attack Path</strong></td><td>The kill-chain flow (tactics, then techniques), entry points, and a reaches-Impact flag. Select any stage to list every finding under that tactic. Below it, a force-directed attack graph rows every finding at its own kill-chain stage, and the evidence-backed resource routes read each hop off a real Service, NetworkPolicy or RoleBinding.</td></tr>
 <tr><td><strong>Runtime</strong></td><td>Paste Falco events (or load a sample) → correlate against the scan's findings + detect drift, rendered as confirmed / corroborated / runtime-only cards and drift findings.</td></tr>
-<tr><td><strong>Scan</strong></td><td>A run-a-scan form and the saved-scan history table. The form takes an optional <em>Scan name</em>, a scope picker (with a namespace box that enables for <em>namespace</em> scope), a <em>Selector</em> dropdown populated from the live registry vocabulary (tactics/modules/frameworks/aliases, never an invalid term), mock/live, and, for live scans, either a typed <em>kubeconfig path</em> <em>or</em> a <em>file picker</em> to select the kubeconfig from your system. Every scan run here is saved and titled <code>&lt;name&gt; + date + time</code>.</td></tr>
+<tr><td><strong>Scans</strong></td><td>A run-a-scan form and the saved-scan history table. The form takes an optional <em>Scan name</em>, a scope picker (with a namespace box that enables for <em>namespace</em> scope), a <em>Selector</em> dropdown populated from the live registry vocabulary (tactics/modules/frameworks/aliases, never an invalid term), mock/live, and, for live scans, either a typed <em>kubeconfig path</em> <em>or</em> a <em>file picker</em> to select the kubeconfig from your system. Every scan run here is saved and titled <code>&lt;name&gt; + date + time</code>.</td></tr>
 </tbody>
 </table></div>
 
@@ -2694,7 +2697,7 @@ report.</p>
 <h3>MCP tools do not appear in the client</h3>
 <ul>
 <li>Confirm the server itself is fine: <code>python -m k8smatrixwarden mcp --list-tools</code> should
-print 30 tool names. If it errors, run <code>pip install -e ".[mcp]"</code>.</li>
+print 47 tool names. If it errors, run <code>pip install -e ".[mcp]"</code>.</li>
 <li>Confirm the client opened the <em>repository root</em>, the shipped configs launch
 <code>python -m k8smatrixwarden mcp</code> relative to the workspace folder.</li>
 <li>In VS&nbsp;Code, switch Copilot Chat to <strong>Agent</strong> mode. Ask and Edit modes cannot

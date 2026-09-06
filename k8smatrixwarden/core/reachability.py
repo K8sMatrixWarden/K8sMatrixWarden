@@ -300,6 +300,16 @@ def _classify(workload: dict, namespace: Optional[str], policies: list[dict],
             network, [p.as_dict() for p in rbac_paths[:10]])
 
 
+#: Everything the cluster-inventory probe reads. Declared here, next to the code that
+#: consumes it, and imported by both the scanner (which fetches it) and the RBAC generator
+#: (which must grant it). Node is in this set and in NO rule's evidence needs: the shard
+#: roles are derived from rule needs alone, so without this declaration the generated
+#: least-privilege role omitted `nodes` and node readiness/version silently never
+#: populated on a correctly-locked-down deployment.
+INVENTORY_KINDS = ("Pod", "Node", "Namespace", "Service", "Ingress", "NetworkPolicy",
+                   "ClusterRole", "Role", "ClusterRoleBinding", "RoleBinding")
+
+
 def inventory(evidence: Evidence) -> dict:
     """Cluster inventory + per-pod exposure buckets for the dashboard's scope bar.
 
@@ -327,9 +337,180 @@ def inventory(evidence: Evidence) -> dict:
         key = ("internet_admin" if ingress and admin else "internet" if ingress
                else "admin" if admin else "internal")
         buckets[key] += 1
-    return {"nodes": len(evidence.get("Node", all_scopes=True)),
-            "namespaces": len(evidence.get("Namespace", all_scopes=True)),
-            "pods": len(pods), "exposure": buckets}
+    nodes = evidence.get("Node", all_scopes=True)
+    return {"nodes": len(nodes),
+            "namespaces": len(namespaces),
+            "pods": len(pods), "exposure": buckets,
+            **cluster_telemetry(nodes, pods),
+            "cluster_version": cluster_version(nodes),
+            "workload_posture": workload_posture(pods),
+            "exposure_posture": exposure_posture(evidence, namespaces)}
+
+
+def cluster_version(nodes: list[dict]) -> dict:
+    """The cluster's server version, read off node `status.nodeInfo.kubeletVersion`.
+
+    Nodes in a cluster mid-upgrade disagree, and that disagreement is itself worth seeing,
+    so a split is reported as such rather than silently picking the first value. Absent
+    nodeInfo reports as unreported, never as a guess.
+    """
+    versions = sorted({str(Evidence.dig(n, "status.nodeInfo.kubeletVersion") or "").strip()
+                       for n in nodes} - {""})
+    if not versions:
+        return {"version": None, "skew": False, "reported": False}
+    return {"version": versions[0], "skew": len(versions) > 1,
+            "versions": versions, "reported": True}
+
+
+def workload_posture(pods: list[dict]) -> dict:
+    """Attack-surface counts over EVERY pod in scope, one pass over the specs the rules
+    already read. Counts PODS, not findings: "3 privileged pods" is an asset statement an
+    operator can go and look at, while a finding count is a statement about this scan.
+
+    A pod is counted once per category however many of its containers qualify, so each
+    number is a share of the same pod denominator and the card can show them as percentages
+    of one total without the fractions lying.
+    """
+    privileged = host_mount = host_network = root_exec = clean = 0
+    for pod in pods:
+        spec = Evidence.pod_spec(pod)
+        containers = Evidence.containers(pod)
+        privileged_here = any(Evidence.dig(c, "securityContext.privileged") is True
+                              for c in containers)
+        host_mount_here = any((v.get("hostPath") or {}).get("path")
+                              for v in (spec.get("volumes") or []) if isinstance(v, dict))
+        host_ns_here = (spec.get("hostNetwork") is True or spec.get("hostPID") is True
+                        or spec.get("hostIPC") is True)
+        privileged += 1 if privileged_here else 0
+        host_mount += 1 if host_mount_here else 0
+        host_network += 1 if host_ns_here else 0
+        # Root is the DEFAULT: a pod that says nothing runs as root. Counting only
+        # runAsUser==0 would report a permissive cluster as hardened, so the test is
+        # "nothing establishes a non-root user", pod-level or container-level.
+        pod_sc = spec.get("securityContext") or {}
+        def _nonroot(sc: dict) -> bool:
+            if not isinstance(sc, dict):
+                return False
+            uid = sc.get("runAsUser")
+            return sc.get("runAsNonRoot") is True or (isinstance(uid, int) and uid != 0)
+        roots = not _nonroot(pod_sc) and not all(
+            _nonroot(c.get("securityContext") or {}) for c in containers)
+        if roots:
+            root_exec += 1
+        # A pod carrying none of the four. Reported so the card can close its column on
+        # what is actually fine, rather than leaving the reader to subtract.
+        if not any((privileged_here, host_mount_here, host_ns_here, roots)):
+            clean += 1
+    return {"privileged": privileged, "host_mount": host_mount,
+            "host_network": host_network, "root_exec": root_exec,
+            "hardened": clean, "total": len(pods), "reported": True}
+
+
+def exposure_posture(evidence: Evidence, namespaces: list[dict]) -> dict:
+    """Cluster-edge exposure: how many ways in exist, and how much of the cluster has a
+    NetworkPolicy governing it at all.
+
+    Policy coverage is per NAMESPACE, deliberately: "12 of 14 namespaces have no
+    NetworkPolicy" is the lever an operator pulls. A namespace with a policy is not
+    thereby isolated (see netpol.evaluate for the real per-pod verdict) so this is
+    labelled coverage, never protection.
+    """
+    external = {"LoadBalancer", "NodePort"}
+    services = evidence.get("Service", all_scopes=True)
+    lb = sum(1 for s in services
+             if Evidence.dig(s, "spec.type", "ClusterIP") in external)
+    ingresses = evidence.get("Ingress", all_scopes=True)
+    policy_ns = {(p.get("metadata", {}) or {}).get("namespace")
+                 for p in evidence.get("NetworkPolicy", all_scopes=True)}
+    policy_ns.discard(None)
+    ns_names = {(n.get("metadata", {}) or {}).get("name") for n in namespaces}
+    ns_names.discard(None)
+    total_ns = len(ns_names) or len(namespaces)
+    covered = len(policy_ns & ns_names) if ns_names else len(policy_ns)
+    pct = round(covered / total_ns * 100, 1) if total_ns else 0.0
+    return {"external_services": lb, "ingresses": len(ingresses),
+            "netpol_namespaces": covered, "namespaces": total_ns,
+            "netpol_pct": pct, "reported": True}
+
+
+#: `status.phase` values the Kubernetes API defines for a Pod. Anything else a cluster
+#: reports is counted under "Unknown" rather than dropped, so the buckets always sum to
+#: the pod total and the widget can never show a denominator it cannot account for.
+POD_PHASES = ("Running", "Pending", "Succeeded", "Failed", "Unknown")
+
+
+def cluster_telemetry(nodes: list[dict], pods: list[dict]) -> dict:
+    """Node readiness, Pod phase distribution and an overall health verdict.
+
+    Read off the SAME evidence snapshot the rules saw -- no extra API calls, no second
+    source of truth about the cluster.
+
+    Both halves report whether the cluster actually told us. `status` is absent from
+    fixtures and can be absent from a partial live read, and a missing status must not be
+    counted as a healthy one: a widget that renders "0 not ready" for a cluster whose node
+    status was never collected is the dashboard asserting something it does not know. When
+    nothing was reported the counts are zero AND `reported` is False, and the health verdict
+    is `unknown` rather than `healthy`.
+    """
+    ready = not_ready = unready_unknown = 0
+    nodes_reported = False
+    for node in nodes:
+        conditions = Evidence.dig(node, "status.conditions") or []
+        state = next((str(c.get("status", "")) for c in conditions
+                      if isinstance(c, dict) and c.get("type") == "Ready"), None)
+        if state is None:
+            unready_unknown += 1
+            continue
+        nodes_reported = True
+        if state == "True":
+            ready += 1
+        elif state == "False":
+            not_ready += 1
+        else:                                    # "Unknown", the kubelet stopped reporting
+            unready_unknown += 1
+
+    phases = {p: 0 for p in POD_PHASES}
+    pods_reported = False
+    for pod in pods:
+        phase = Evidence.dig(pod, "status.phase")
+        if phase is None:
+            phases["Unknown"] += 1
+            continue
+        pods_reported = True
+        phases[str(phase) if str(phase) in phases else "Unknown"] += 1
+
+    return {
+        "node_health": {"ready": ready, "not_ready": not_ready,
+                        "unknown": unready_unknown, "total": len(nodes),
+                        "reported": nodes_reported},
+        "pod_phases": {**phases, "total": len(pods), "reported": pods_reported},
+        "health": _health_verdict(nodes_reported, not_ready, unready_unknown,
+                                  pods_reported, phases),
+    }
+
+
+def _health_verdict(nodes_reported: bool, not_ready: int, node_unknown: int,
+                    pods_reported: bool, phases: dict) -> dict:
+    """Overall cluster health, stated with its reason so the widget never shows a bare
+    colour. Worst-wins, and an unreported cluster is `unknown`, never `healthy`."""
+    if not nodes_reported and not pods_reported:
+        return {"state": "unknown",
+                "reason": "Node and Pod status were not collected for this scan"}
+    if not_ready or node_unknown:
+        offline = not_ready + node_unknown
+        return {"state": "degraded",
+                "reason": f"{offline} node{'s' if offline != 1 else ''} not Ready"}
+    if phases.get("Failed"):
+        return {"state": "degraded",
+                "reason": f"{phases['Failed']} pod(s) in Failed phase"}
+    if phases.get("Pending"):
+        return {"state": "converging",
+                "reason": f"{phases['Pending']} pod(s) still Pending"}
+    if not nodes_reported:
+        return {"state": "partial", "reason": "Node status was not collected"}
+    if not pods_reported:
+        return {"state": "partial", "reason": "Pod status was not collected"}
+    return {"state": "healthy", "reason": "All nodes Ready, no Pod in a failed phase"}
 
 
 def annotate_reachability(findings: list[Finding], evidence: Evidence) -> list[Finding]:

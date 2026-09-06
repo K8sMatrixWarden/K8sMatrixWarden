@@ -40,9 +40,32 @@ def test_every_tactic_has_coverage():
 def test_scoped_roles_generated_per_plugin():
     p = build_platform()
     roles = p.loader.scoped_roles()
-    # the invariant is one scoped role per shard, derived, so a new shard can't drift
-    assert len(roles) == len(p.registry.shard_names())
+    # One scoped role per shard, derived, so a new shard can't drift, PLUS the single
+    # platform-inventory role. The inventory probe is not a shard rule, so nothing in the
+    # per-shard derivation covers it.
+    assert len(roles) == len(p.registry.shard_names()) + 1
     assert all(r["kind"] == "ClusterRole" for r in roles)
+    assert p.loader.INVENTORY_ROLE in {r["metadata"]["name"] for r in roles}
+
+
+def test_inventory_role_grants_every_kind_the_probe_reads():
+    """The gap this closes. Shard roles are derived from rule evidence needs, and `nodes`
+    is in no rule's needs -- it is read by the cluster-inventory probe. So the generated
+    least-privilege RBAC omitted it, and on a correctly locked-down deployment the
+    dashboard's node readiness and kubelet version silently never populated while every
+    other surface looked fine. Deriving the role from the same INVENTORY_KINDS the scanner
+    fetches is what keeps the two from drifting apart again."""
+    from k8smatrixwarden.core.evidence import KIND_ALIASES
+    from k8smatrixwarden.core.reachability import INVENTORY_KINDS
+
+    p = build_platform()
+    role = p.loader.inventory_role()
+    granted = {res for rule in role["rules"] for res in rule["resources"]}
+    for kind in INVENTORY_KINDS:
+        assert KIND_ALIASES.get(kind, kind.lower()) in granted, kind
+    assert "nodes" in granted
+    for rule in role["rules"]:
+        assert sorted(rule["verbs"]) == ["get", "list", "watch"], rule
 
 
 def test_every_shard_has_nonempty_rbac_needs():
@@ -60,7 +83,8 @@ def test_deployment_manifest_binds_every_shard():
                                             namespace="k8smatrixwarden-system")
     assert manifest["kind"] == "List"
     kinds = [item["kind"] for item in manifest["items"]]
-    shard_count = len(p.registry.shard_names())
+    # shards + the platform-inventory role, each with its own binding
+    shard_count = len(p.registry.shard_names()) + 1
     assert kinds.count("ClusterRole") == shard_count
     assert kinds.count("ClusterRoleBinding") == shard_count
     assert kinds.count("ServiceAccount") == 1
