@@ -192,10 +192,23 @@ class EvidenceCollector:
     def _fetch(self, kind: str, bucket: str) -> list[dict]:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    #: The label a collector falls back to when it cannot name the cluster it read. It is
+    #: NOT a cluster name: it is the absence of one. Two scans carrying it may be the same
+    #: cluster or two unrelated ones, and nothing downstream can tell -- so posture history
+    #: and the federation view treat it as unverified rather than as an identity. Kept as
+    #: this exact string because stored reports already carry it.
+    UNVERIFIED_LABEL = "target-cluster"
+
     def cluster_label(self) -> str:
         """Stable identifier for the cluster this collector reads, the key the federation
-        view groups saved scans by. Overridden per backend."""
-        return "target-cluster"
+        view groups saved scans by. Overridden per backend.
+
+        The base answer is UNVERIFIED_LABEL, which downstream code must not read as a
+        cluster name. A live audit found four saved scans of the SAME bundled fixture split
+        across `mock-cluster` and `target-cluster`, and the federation view then drew four
+        cross-cluster blast-radius edges between a cluster and itself. The label was doing
+        two jobs -- "this cluster" and "we do not know" -- and only one of them is a name."""
+        return self.UNVERIFIED_LABEL
 
     def collect_runtime_events(self, *, namespace: str = "falco",
                                since_seconds: int = 3600,

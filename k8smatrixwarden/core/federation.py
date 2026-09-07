@@ -37,11 +37,76 @@ _BUILTIN_NAMES = {
     "cluster-admin", "admin", "edit", "view",             # default user-facing ClusterRoles
     "default",                                             # default ServiceAccount per ns
     "kube-root-ca.crt", "kube-dns", "coredns", "extension-apiserver-authentication",
+    # Objects the control plane, kubeadm, or a managed provider ships in every cluster.
+    # A live audit found `ConfigMap/kube-proxy` drawn as a cross-cluster path between an
+    # operator's laptop cluster and an unrelated EKS cluster. Nothing was wrong with the
+    # join; kube-proxy simply exists in both, as it does in every cluster on earth. The
+    # exclusion list is what was wrong, so it now covers the rest of that family.
+    "kube-proxy", "kubelet-config", "kube-apiserver", "kube-controller-manager",
+    "kube-scheduler", "cluster-info", "kubeadm-config", "kubelet-serving-ca",
+    "aws-auth", "amazon-vpc-cni", "gke-common-webhook-config", "azure-ip-masq-agent",
+    "cilium-config", "calico-config", "kube-flannel-cfg", "weave-net",
+    "coredns-autoscaler", "metrics-server", "local-path-config", "ingress-nginx",
+    "istio", "linkerd-config", "cert-manager", "tigera-operator",
 }
-def _is_builtin_identity(kind: str, name: str) -> bool:
+
+#: Namespaces whose contents are shipped by Kubernetes or a provider, never by the
+#: operator. A kind+name collision inside one of these says both clusters run Kubernetes.
+_BUILTIN_NAMESPACES = {"kube-system", "kube-public", "kube-node-lease"}
+
+#: Names a rule emits when it could NOT determine what it was looking at. Joining two of
+#: these together says "both clusters contain something we could not identify, therefore
+#: it is the same thing", which is an UNKNOWN promoted to a claim -- the one conversion
+#: this project refuses everywhere else. A live audit found `CloudIAM/?` linking two
+#: clusters on exactly that basis; `?` is cloud_iam.py's fallback for a missing
+#: serviceAccount field.
+_UNKNOWN_NAMES = {"?", "-", "unknown", "unnamed", "n/a", "none", "null", "<unknown>"}
+
+
+def _is_builtin_identity(kind: str, name: str, namespace: str = "") -> bool:
+    """Would this kind+name collide in two clusters that share nothing at all?"""
+    if (namespace or "") in _BUILTIN_NAMESPACES:
+        return True
     return (name in _BUILTIN_NAMES
             or name.startswith("system:")
-            or name.startswith("kubeadm:"))
+            or name.startswith("kubeadm:")
+            or name.startswith("kube-")            # kube-* is control-plane convention
+            or name.startswith("eks-")             # provider-managed
+            or name.startswith("gke-")
+            or name.startswith("aks-"))
+
+
+def _is_unidentified(name: str) -> bool:
+    """True when the name carries no identity, so two of them are not one principal."""
+    return not (name or "").strip() or (name or "").strip().lower() in _UNKNOWN_NAMES
+
+
+#: Kinds that live inside a namespace. Their identity is namespace-scoped: a Role called
+#: `secret-reader` in `team-a` and one in `team-b` are different grants that happen to
+#: share a word, and joining them across clusters on the bare name would be a guess
+#: dressed as evidence. Cluster-scoped kinds have no namespace and join on name alone.
+_NAMESPACED_KINDS = {"Role", "RoleBinding", "ServiceAccount", "Secret", "ConfigMap"}
+
+
+#: Cluster labels that are placeholders rather than identities. A scan carrying one of
+#: these was read from somewhere that could not name its cluster, so two such scans may be
+#: one cluster or two unrelated ones. An edge resting on one is reported, because
+#: suppressing a cluster would hide real findings, but it is reported as unverified so it
+#: is never mistaken for a cross-cluster path between two known clusters.
+_UNVERIFIED_CLUSTERS = {"", "target-cluster", "live-cluster", "unidentified-cluster",
+                        "unknown", "unknown-cluster"}
+
+
+def cluster_identity_verified(name: str) -> bool:
+    """Did the collector actually establish which cluster this was?"""
+    return (name or "").strip().lower() not in _UNVERIFIED_CLUSTERS
+
+
+def identity_key(kind: str, name: str, namespace: str = "") -> str:
+    """The join key. Namespaced kinds carry their namespace; cluster-scoped ones do not."""
+    if kind in _NAMESPACED_KINDS and (namespace or ""):
+        return f"{kind}/{namespace}/{name}"
+    return f"{kind}/{name}"
 
 _SEV_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
@@ -71,6 +136,12 @@ class SharedIdentity:
     tactics: list                  # union of MITRE tactics it is implicated in
     worst_severity: str
     findings: list                 # [{cluster, rule_id, title, severity, tactic}]
+    #: For namespaced kinds, part of the identity rather than decoration: a Role named
+    #: `secret-reader` in two different namespaces is two different grants.
+    namespace: str = ""
+    #: True only when EVERY cluster on this edge was actually identified. False means at
+    #: least one side carries a placeholder label, so "two clusters" is itself unproven.
+    cluster_identity_verified: bool = True
     #: What sort of link this is: shared-identity (a trust principal) or shared-resource
     #: (a named object). See RELATIONSHIPS.
     relationship: str = "shared-identity"
@@ -84,7 +155,9 @@ class SharedIdentity:
 
     def as_dict(self) -> dict:
         return {"key": self.key, "kind": self.kind, "name": self.name,
-                "clusters": self.clusters, "tactics": self.tactics,
+                "clusters": self.clusters, "namespace": self.namespace,
+                "cluster_identity_verified": self.cluster_identity_verified,
+                "tactics": self.tactics,
                 "worst_severity": self.worst_severity, "findings": self.findings,
                 "relationship": self.relationship, "status": self.status,
                 "verification": self.verification}
@@ -167,9 +240,13 @@ def build_federation(results: list) -> FederationReport:
                 fed_tactics[m.tactic.value] = fed_tactics.get(m.tactic.value, 0) + 1
             if f.resource.kind not in _IDENTITY_KINDS:
                 continue
-            if _is_builtin_identity(f.resource.kind, f.resource.name or ""):
+            if _is_builtin_identity(f.resource.kind, f.resource.name or "",
+                                    f.resource.namespace or ""):
                 continue        # default identity present in every cluster, not a shared path
-            key = f"{f.resource.kind}/{f.resource.name}"
+            if _is_unidentified(f.resource.name or ""):
+                continue        # an unnamed thing is not evidence of a shared principal
+            key = identity_key(f.resource.kind, f.resource.name or "",
+                               f.resource.namespace or "")
             tactic = f.mitre[0].tactic.value if f.mitre else ""
             idx.setdefault(key, {}).setdefault(cname, []).append(
                 {"cluster": cname, "rule_id": f.rule_id, "title": f.title,
@@ -179,20 +256,32 @@ def build_federation(results: list) -> FederationReport:
     for key, per_cluster in idx.items():
         if len(per_cluster) < 2:
             continue                # present in only one cluster, not a cross-cluster path
-        kind, _, name = key.partition("/")
+        kind, _, rest = key.partition("/")
+        # A namespaced key is kind/namespace/name; a cluster-scoped one is kind/name.
+        namespace, _, tail = rest.partition("/")
+        name, namespace = (tail, namespace) if tail else (rest, "")
         flat = [fd for fds in per_cluster.values() for fd in fds]
         tactics = sorted({fd["tactic"] for fd in flat if fd["tactic"]})
         observed = _observed_in(by_cluster, name)
-        confirmed = len(observed) >= 2
+        verified_sides = all(cluster_identity_verified(c) for c in per_cluster)
+        # An edge whose endpoints are not both identified cannot be confirmed either: the
+        # runtime evidence would be proving activity in a cluster we cannot name.
+        confirmed = len(observed) >= 2 and verified_sides
         shared.append(SharedIdentity(
-            key=key, kind=kind, name=name,
+            key=key, kind=kind, name=name, namespace=namespace,
             clusters=sorted(per_cluster.keys()),
             tactics=tactics,
             worst_severity=_worst([fd["severity"] for fd in flat]),
             findings=flat,
             relationship=_KIND_RELATIONSHIP.get(kind, "shared-resource"),
+            cluster_identity_verified=verified_sides,
             status="confirmed" if confirmed else "candidate",
             verification=(
+                "at least one side of this edge has no established cluster identity "
+                "(a placeholder label), so it is not evidence of a path BETWEEN two "
+                "clusters; scan each cluster through its own kubeconfig context to give "
+                "it a real identity"
+                if not verified_sides else
                 f"runtime evidence names this resource in {', '.join(sorted(observed))}"
                 if confirmed else
                 "same kind+name in both clusters; confirm they are the same trust "

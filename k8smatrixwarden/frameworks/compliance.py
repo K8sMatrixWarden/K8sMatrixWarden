@@ -167,12 +167,24 @@ class ComplianceEngine:
         indicators = [f for f in live
                       if f.owasp and f.owasp in owasp and not (set(f.cis) & set(cis_ids))]
 
+        # Controls this run never evaluated. NA is deliberately NOT one of them: NA means
+        # the control genuinely does not apply here (a managed control plane the provider
+        # owns), which is an answer. NOT_ASSESSED means no answer at all.
+        unassessed = [m["id"] for m in mapped if m["status"] == NOT_ASSESSED]
+
         if blocking or FAIL in statuses:
             status = FAIL
         elif "NEEDS_NODE" in statuses:
             status = PARTIAL
         elif PASS in statuses:
-            status = PASS
+            # A requirement mapping to several CIS controls is only satisfied when all of
+            # them were actually looked at. 34 of the 54 requirements in the crosswalk map
+            # to more than one control, and this branch used to return PASS as soon as ONE
+            # of them passed -- so PCI DSS 1.2.5 read `PASS` on the strength of 5.3.1 while
+            # 5.3.2 had never been evaluated. An auditor reading the status field, or the
+            # pass-percentage computed from it, was told a partly-unexamined requirement
+            # was met. Partly verified is PARTIAL, which is what that status is for.
+            status = PARTIAL if unassessed else PASS
         elif statuses and statuses <= {"MANUAL", "NA"}:
             status = MANUAL
         elif indicators:
@@ -203,7 +215,13 @@ class ComplianceEngine:
             return f"CIS control(s) failing: {', '.join(fails)}."
         if status == PARTIAL:
             nn = [m["id"] for m in mapped if m["status"] == "NEEDS_NODE"]
-            return f"Needs on-node evidence (kube-bench) for CIS {', '.join(nn)}."
+            if nn:
+                return f"Needs on-node evidence (kube-bench) for CIS {', '.join(nn)}."
+            ok = [m["id"] for m in mapped if m["status"] == PASS]
+            gap = [m["id"] for m in mapped if m["status"] == NOT_ASSESSED]
+            return (f"CIS control(s) passing: {', '.join(ok)}; but "
+                    f"{', '.join(gap)} could not be assessed this run, so the requirement "
+                    f"is not verified as met.")
         if status == PASS:
             ok = [m["id"] for m in mapped if m["status"] == PASS]
             return f"CIS control(s) passing: {', '.join(ok)}; no violating findings."

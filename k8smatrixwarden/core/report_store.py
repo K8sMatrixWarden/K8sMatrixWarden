@@ -210,8 +210,14 @@ class ReportStore:
     def scope_key_of(cluster: str, scope: str) -> str:
         """The scope identity string, from its two parts. One place builds it, so a
         `StoredReport` (which carries cluster+scope as plain strings) and a live
-        `ScanResult` can never disagree about which history they belong to."""
-        return f"{cluster or 'target-cluster'}@{scope or 'cluster-wide'}"
+        `ScanResult` can never disagree about which history they belong to.
+
+        A missing cluster gets its OWN key rather than being folded into the base
+        `target-cluster` bucket. Coercing it there meant a scan whose cluster identity was
+        never established silently inherited another bucket's history and could report that
+        cluster's findings as resolved -- a false green produced by a default value.
+        """
+        return f"{cluster or 'unidentified-cluster'}@{scope or 'cluster-wide'}"
 
     @classmethod
     def scope_key(cls, result: ScanResult) -> str:
