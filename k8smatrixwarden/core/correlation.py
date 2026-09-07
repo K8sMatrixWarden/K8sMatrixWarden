@@ -215,17 +215,28 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
                 "unexpected runtime behaviour, no matching static weakness", [])
         elif resource_hit and stale:
             # The resource link is established, so this stays `confirmed`. What is NOT
-            # established is that it is happening now: an event from months ago says the
-            # weakness WAS exploited, and a present-tense verdict on it would read to an
-            # operator as a live intrusion. Reporting the age in the verdict keeps the
-            # finding at full strength without borrowing urgency the evidence lacks.
+            # established is that it is happening now: an event from months ago would read
+            # to an operator as a live intrusion. Reporting the age keeps the finding at
+            # full strength without borrowing urgency the evidence lacks.
             conf, verdict, matched = ("confirmed",
-                f"static weakness on this resource WAS exploited; the runtime evidence is "
-                f"{round(age)} days old, so this is history, not a live intrusion",
+                f"{a.tactic} activity occurred on the exact resource this finding is on, "
+                f"{round(age)} days ago; history, not a live intrusion",
                 resource_hit)
         elif resource_hit:
+            # What the evidence establishes is a tactic match on the same resource. What it
+            # does NOT establish is that THIS weakness was the vector, and the verdict used
+            # to say "is being actively exploited", which asserts exactly that. A live
+            # validation caught it: a Falco `Read sensitive file untrusted` event was
+            # reported as actively exploiting `workload-sa-token-automount` on the same pod.
+            # Both are Credential Access, so the correlation is real and worth `confirmed`;
+            # but reading /etc/shadow does not exploit an auto-mounted SA token, and an
+            # operator told otherwise triages the wrong weakness. Same strength, accurate
+            # claim: the full matched set is already in `static_findings` for the reader to
+            # judge which weakness, if any, was the route.
             conf, verdict, matched = ("confirmed",
-                "static weakness on this resource is being actively exploited", resource_hit)
+                f"live {a.tactic} activity on the exact resource this finding is on; the "
+                f"weakness is exposed to it, though the event does not prove this "
+                f"weakness was the vector", resource_hit)
         elif foreign:
             conf, verdict, matched = ("corroborated",
                 f"event is labelled cluster {_event_cluster(a.event)!r}, not "

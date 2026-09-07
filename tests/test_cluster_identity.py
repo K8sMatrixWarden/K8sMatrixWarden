@@ -55,7 +55,7 @@ def _result(cluster, findings, scope=None):
         resolved_rule_ids=sorted({f.rule_id for f in findings}), failed_rule_ids=[],
         counts={f.severity.label: 1 for f in findings},
         workload_issues=[], aggregation={}, by_tactic={}, by_shard={},
-        name="", cluster_name=cluster, mode="mock", inventory={}, coverage={})
+        name="", cluster_name=cluster, mode="live", inventory={}, coverage={})
 
 
 def _edges(*results):
@@ -212,6 +212,39 @@ def test_the_base_collector_label_is_not_a_cluster_identity():
         assert cluster_identity_verified(real), real
 
 
+def test_a_fixture_scan_is_not_a_cross_cluster_peer():
+    """REGRESSION. The bundled fixture saves under `mock-cluster`, which looks like a
+    perfectly good cluster name and is not one -- it is sample data. It deliberately
+    contains `super-role`, `default-admin` and friends, so a real cluster using any of
+    those names was handed a cross-cluster blast-radius edge to a file on disk."""
+    shared = _finding("ClusterRole", "shared-deployer")
+    fixture = _result("mock-cluster", [shared])
+    fixture.mode = "mock"
+    live = _result("docker-desktop", [shared])
+    live.mode = "live"
+    found = build_federation([fixture, live]).shared_identities
+    assert len(found) == 1, "the edge was suppressed rather than qualified"
+    assert found[0].cluster_identity_verified is False, (
+        "a fixture scan was treated as an observed cluster")
+    assert "fixture/mock scan" in found[0].verification
+
+
+def test_two_live_clusters_sharing_an_identity_stay_verified():
+    """The fix must not disqualify the case federation exists for."""
+    shared = _finding("ClusterRole", "shared-deployer")
+    a, b = _result("cluster-a", [shared]), _result("cluster-b", [shared])
+    a.mode = b.mode = "live"
+    found = build_federation([a, b]).shared_identities
+    assert found and found[0].cluster_identity_verified is True
+
+
+def test_the_verification_predicate_reads_both_the_label_and_the_mode():
+    assert cluster_identity_verified("docker-desktop", "live") is True
+    assert cluster_identity_verified("docker-desktop", "mock") is False
+    assert cluster_identity_verified("mock-cluster", "mock") is False
+    assert cluster_identity_verified("target-cluster", "live") is False
+
+
 def test_an_edge_resting_on_a_placeholder_is_marked_unverified():
     """Not suppressed -- suppressing a cluster would hide real findings -- but never
     presentable as a path between two known clusters."""
@@ -219,7 +252,7 @@ def test_an_edge_resting_on_a_placeholder_is_marked_unverified():
     found = _edges(_result("mock-cluster", [shared]), _result("target-cluster", [shared]))
     assert len(found) == 1, "the edge was suppressed rather than qualified"
     assert found[0].cluster_identity_verified is False
-    assert "no established cluster identity" in found[0].verification
+    assert "not an observed cluster" in found[0].verification
     assert found[0].status == "candidate"
 
 

@@ -107,12 +107,15 @@ def _correlate_at(age_days):
 def test_a_year_old_event_is_not_described_as_active_exploitation():
     """REGRESSION. Freshness was computed and reported, and then ignored by the verdict:
     a 400-day-old event read "is being actively exploited", which an operator acts on as
-    a live intrusion."""
+    a live intrusion. Asserted on the tense distinction rather than one phrasing, so the
+    guard survives a reword of the sentence."""
     entry = _correlate_at(400)
     assert entry["freshness"] == "historical"
     assert "actively exploited" not in entry["verdict"]
-    assert "WAS exploited" in entry["verdict"]
-    assert "400 days old" in entry["verdict"]
+    assert not entry["verdict"].startswith("live "), "a 400-day-old event is not live"
+    assert "occurred" in entry["verdict"], "the tense must be past"
+    assert "400 days" in entry["verdict"], "the age must be stated, not just computed"
+    assert "history, not a live intrusion" in entry["verdict"]
 
 
 def test_a_stale_event_still_confirms_the_resource_link():
@@ -124,7 +127,26 @@ def test_a_stale_event_still_confirms_the_resource_link():
 def test_a_recent_event_keeps_the_present_tense_verdict():
     entry = _correlate_at(1)
     assert entry["freshness"] == "recent"
-    assert "actively exploited" in entry["verdict"]
+    assert "live " in entry["verdict"], entry["verdict"]
+    assert "days ago" not in entry["verdict"], "a fresh event must not read as history"
+
+
+def test_a_confirmed_verdict_does_not_claim_the_weakness_was_the_vector():
+    """REGRESSION, found by live validation. A Falco `Read sensitive file untrusted` event
+    was reported as actively exploiting `workload-sa-token-automount` on the same pod.
+    Both are Credential Access on the same resource, so `confirmed` is right -- but reading
+    /etc/shadow does not exploit an auto-mounted SA token, and an operator told it was
+    triages the wrong weakness. The verdict may state the tactic match and the resource
+    link; it may not assert which weakness was the route."""
+    for days in (1, 400):
+        verdict = _correlate_at(days)["verdict"]
+        assert "exploited" not in verdict or "WAS exploited" not in verdict
+        assert "is being actively exploited" not in verdict, verdict
+    fresh = _correlate_at(1)
+    assert fresh["confidence"] == "confirmed", "the tier must not have been weakened"
+    assert "does not prove" in fresh["verdict"], fresh["verdict"]
+    # The evidence itself stays available for the reader to judge the route.
+    assert fresh.get("static_findings"), "matched findings must still be reported"
 
 
 def test_an_attack_path_step_is_not_observed_on_stale_proof():

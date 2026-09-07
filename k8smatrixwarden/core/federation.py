@@ -97,8 +97,23 @@ _UNVERIFIED_CLUSTERS = {"", "target-cluster", "live-cluster", "unidentified-clus
                         "unknown", "unknown-cluster"}
 
 
-def cluster_identity_verified(name: str) -> bool:
-    """Did the collector actually establish which cluster this was?"""
+#: Scan modes that did not observe a cluster. A fixture run is sample data with a label on
+#: it, not a place an attacker could be, so it cannot be one END of a cross-cluster path.
+_NON_CLUSTER_MODES = {"mock", "fixture"}
+
+
+def cluster_identity_verified(name: str, mode: str = "") -> bool:
+    """Did this scan actually establish which cluster it was reading?
+
+    Two ways to fail. The label may be a placeholder rather than a name -- see
+    _UNVERIFIED_CLUSTERS. Or the scan may never have touched a cluster at all: the bundled
+    fixture is saved under `mock-cluster`, which looks like a perfectly good identity and
+    is not one. That matters because the fixture deliberately contains names like
+    `super-role` and `default-admin`, so any real cluster that happens to use one would be
+    handed a cross-cluster blast-radius edge to a sample data file.
+    """
+    if (mode or "").strip().lower() in _NON_CLUSTER_MODES:
+        return False
     return (name or "").strip().lower() not in _UNVERIFIED_CLUSTERS
 
 
@@ -263,7 +278,9 @@ def build_federation(results: list) -> FederationReport:
         flat = [fd for fds in per_cluster.values() for fd in fds]
         tactics = sorted({fd["tactic"] for fd in flat if fd["tactic"]})
         observed = _observed_in(by_cluster, name)
-        verified_sides = all(cluster_identity_verified(c) for c in per_cluster)
+        verified_sides = all(
+            cluster_identity_verified(c, getattr(by_cluster.get(c), "mode", ""))
+            for c in per_cluster)
         # An edge whose endpoints are not both identified cannot be confirmed either: the
         # runtime evidence would be proving activity in a cluster we cannot name.
         confirmed = len(observed) >= 2 and verified_sides
@@ -277,10 +294,10 @@ def build_federation(results: list) -> FederationReport:
             cluster_identity_verified=verified_sides,
             status="confirmed" if confirmed else "candidate",
             verification=(
-                "at least one side of this edge has no established cluster identity "
-                "(a placeholder label), so it is not evidence of a path BETWEEN two "
-                "clusters; scan each cluster through its own kubeconfig context to give "
-                "it a real identity"
+                "at least one side of this edge is not an observed cluster -- a "
+                "placeholder label, or a fixture/mock scan -- so it is not evidence of a "
+                "path BETWEEN two clusters; scan each cluster live through its own "
+                "kubeconfig context to give it a real identity"
                 if not verified_sides else
                 f"runtime evidence names this resource in {', '.join(sorted(observed))}"
                 if confirmed else

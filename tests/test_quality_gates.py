@@ -147,6 +147,10 @@ def _cluster_result(cluster, findings, runtime=None):
                                           selector=Selector()),
                       findings=findings, risk=risk, resolved_rule_ids=[],
                       counts={}, cluster_name=cluster, scan_id=f"s-{cluster}",
+                      # These model real clusters. ScanResult.mode defaults to "mock", and
+                      # a fixture scan is not a cross-cluster peer -- see
+                      # tests/test_cluster_identity.py.
+                      mode="live",
                       runtime=runtime)
 
 
