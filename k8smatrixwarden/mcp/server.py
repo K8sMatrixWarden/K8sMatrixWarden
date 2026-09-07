@@ -1708,6 +1708,93 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- #
+# MCP SDK compatibility.
+#
+# This server is written against the v1 SDK: `mcp.server.fastmcp.FastMCP`. In mcp 2.x
+# that class was renamed to `mcp.server.mcpserver.MCPServer` and the old module became a
+# tombstone that raises on import. So `pip install mcp` — unbounded — installs an SDK this
+# server cannot start on, and the upstream migration note itself says to pin `mcp<2` to
+# keep v1 code running. That is the choice this release makes.
+#
+# The range lives here, in one constant, and `pyproject.toml` is asserted to agree with it
+# by tests/test_mcp_sdk_compat.py. Deriving it the other way round — reading the installed
+# distribution's metadata at runtime — was tried and rejected: metadata records what was
+# INSTALLED, so an editable checkout whose pin has since changed reports the OLD range and
+# hands the operator the very constraint that broke them.
+# --------------------------------------------------------------------------- #
+
+#: The mcp range this build works against. The single source of truth; pyproject follows.
+REQUIRED_MCP_SPEC = "mcp>=1.0,<2"
+
+#: Quoted so it survives both a POSIX shell and cmd.exe, where a bare `<` redirects.
+MCP_INSTALL_HINT = f'pip install "{REQUIRED_MCP_SPEC}"'
+
+#: The import that decides whether `k8smatrixwarden mcp` can serve at all.
+REQUIRED_MCP_IMPORT = "mcp.server.fastmcp"
+
+SDK_OK = "ok"
+SDK_MISSING = "missing"
+SDK_INCOMPATIBLE = "incompatible"
+SDK_BROKEN = "broken"
+
+
+def installed_mcp_version() -> Optional[str]:
+    """The installed mcp distribution version, or None when it is absent/unreadable."""
+    try:
+        import importlib.metadata as _md
+        return _md.version("mcp")
+    except Exception:
+        return None
+
+
+def sdk_status() -> dict:
+    """Can this build actually serve MCP, and if not, why not?
+
+    Checks the import `serve()` depends on, not merely whether a package named `mcp`
+    exists. Those are different questions on mcp 2.x, where the top-level package imports
+    perfectly well and only the module this server needs is gone — which is exactly how a
+    health check ends up reporting a green tick for an install that cannot start.
+
+    Returns `state` (ok | missing | incompatible | broken), the installed `version` when
+    one is readable, a `detail` an operator can act on, and `remediation` for the states
+    where an action exists.
+    """
+    version = installed_mcp_version()
+    try:
+        __import__(REQUIRED_MCP_IMPORT, fromlist=["FastMCP"])
+    except Exception as exc:
+        try:                                    # is anything named `mcp` importable?
+            __import__("mcp")
+            present = True
+        except Exception:
+            present = False
+        if not present:
+            return {"state": SDK_MISSING, "version": version,
+                    "detail": f"the MCP SDK is not installed ({REQUIRED_MCP_SPEC})",
+                    "remediation": MCP_INSTALL_HINT}
+        major = (version or "").split(".")[0]
+        if major.isdigit() and int(major) >= 2:
+            return {
+                "state": SDK_INCOMPATIBLE, "version": version,
+                "detail": (f"mcp {version} is installed, but this build requires "
+                           f"{REQUIRED_MCP_SPEC}: {REQUIRED_MCP_IMPORT} was removed in "
+                           f"mcp 2.x (FastMCP became MCPServer), so "
+                           f"`k8smatrixwarden mcp` cannot start"),
+                "remediation": MCP_INSTALL_HINT}
+        # Present, not 2.x, and still unusable. Report what actually happened rather than
+        # guessing at a version problem that the evidence does not support.
+        return {"state": SDK_BROKEN, "version": version,
+                "detail": (f"the MCP SDK is installed but {REQUIRED_MCP_IMPORT} could not "
+                           f"be imported: {type(exc).__name__}: {exc}"),
+                "remediation": MCP_INSTALL_HINT}
+    return {"state": SDK_OK, "version": version,
+            "detail": (f"mcp {version} provides {REQUIRED_MCP_IMPORT}; "
+                       f"`k8smatrixwarden mcp` can serve" if version else
+                       f"{REQUIRED_MCP_IMPORT} is importable"),
+            "remediation": None}
+
+
 #: MCP stdio uses STDOUT for the protocol itself, so every log line goes to stderr. A
 #: single stray print to stdout corrupts the JSON-RPC stream and the client disconnects.
 def _log(event: str, **fields) -> None:
@@ -1794,10 +1881,13 @@ def serve(config_path: Optional[str] = None) -> None:
             usersite = "unavailable"
         raise SystemExit(
             f"The MCP Python SDK could not be imported: {type(exc).__name__}: {exc}\n"
+            f"  required    : {REQUIRED_MCP_SPEC} "
+            f"(this server uses the v1 FastMCP API; mcp 2.x renamed it)\n"
+            f"  installed   : {installed_mcp_version() or 'not found'}\n"
             f"  interpreter : {_sys.executable}\n"
             f"  user-site   : {usersite}\n"
             "Install it for THIS interpreter:\n"
-            f'  "{_sys.executable}" -m pip install mcp\n'
+            f'  "{_sys.executable}" -m pip install "{REQUIRED_MCP_SPEC}"\n'
             "If it IS installed but lives in a per-user site-packages directory, an "
             "MCP client's stripped environment cannot see it, install it into the "
             "interpreter's own site-packages, use a virtualenv, or point the client "

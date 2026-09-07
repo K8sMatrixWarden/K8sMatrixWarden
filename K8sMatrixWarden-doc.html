@@ -897,7 +897,7 @@ Add <code>--name "…"</code> to title it <code>&lt;name&gt; + date + time</code
 <tbody>
 <tr><td><code>live</code></td><td>Scanning a real cluster (<code>--live</code>)</td><td><code>pip install -e ".[live]"</code></td></tr>
 <tr><td><code>pretty</code></td><td>Rich, colored terminal tables</td><td><code>pip install -e ".[pretty]"</code></td></tr>
-<tr><td><code>mcp</code></td><td>Running the MCP server for AI-agent integration</td><td><code>pip install -e ".[mcp]"</code></td></tr>
+<tr><td><code>mcp</code></td><td>Running the MCP server for AI-agent integration. Requires <code>mcp&gt;=1.0,&lt;2</code>: the server uses the v1 FastMCP API, and mcp 2.x renamed <code>FastMCP</code> to <code>MCPServer</code>, so <strong>2.x is not supported in this release</strong>. With 2.x installed, <code>k8smatrixwarden mcp</code> refuses to start and <code>doctor</code> reports the SDK as FAIL rather than passing; fix it with <code>pip install "mcp&gt;=1.0,&lt;2"</code>.</td><td><code>pip install -e ".[mcp]"</code></td></tr>
 <tr><td><code>pdf</code></td><td>PDF report export (<code>-o pdf</code>)</td><td><code>pip install -e ".[pdf]"</code></td></tr>
 <tr><td><code>dev</code></td><td>Running the suite with real <code>pytest</code></td><td><code>pip install -e ".[dev]"</code></td></tr>
 </tbody>
@@ -2214,7 +2214,7 @@ by a standing test that fails the build if any shard's role ever gains a write v
 
 <section id="quality" class="doc-sec"><div class="sec-head"><span class="sec-kicker">Compliance and Safety</span><h2>Testing and quality</h2></div>
 <div class="stat-row">
-<div class="stat"><div class="stat-n">1070</div><div class="stat-l">tests passing</div></div>
+<div class="stat"><div class="stat-n">1085</div><div class="stat-l">tests passing</div></div>
 <div class="stat"><div class="stat-n">0</div><div class="stat-l">required dependencies</div></div>
 <div class="stat"><div class="stat-n">11/11</div><div class="stat-l">shards loaded clean</div></div>
 </div>

@@ -192,13 +192,40 @@ def _mcp(platform) -> Section:
     except Exception as exc:                            # pragma: no cover - defensive
         checks.append(Check("MCP capability set", WARN,
                             f"could not fingerprint the tool set: {exc}"))
+    # Ask the question that decides whether `k8smatrixwarden mcp` starts, which is
+    # whether `mcp.server.fastmcp` imports -- NOT whether a package named `mcp` exists.
+    # On mcp 2.x those answers differ: the top-level package imports fine and only the
+    # module this server needs is gone, so a bare `import mcp` reported a green tick for
+    # an install that could not serve. A health check that cannot tell those apart is
+    # worse than no check, because it is believed.
     try:
-        import mcp  # noqa: F401
-        checks.append(Check("MCP SDK", PASS, "installed, `k8smatrixwarden mcp` can serve"))
-    except ImportError:
-        checks.append(Check("MCP SDK", NOT_CONFIGURED,
-                            'not installed; tools remain callable in-process '
-                            '(pip install -e ".[mcp]" to serve them)'))
+        from .mcp.server import (MCP_INSTALL_HINT, REQUIRED_MCP_SPEC, SDK_BROKEN,
+                                 SDK_INCOMPATIBLE, SDK_MISSING, SDK_OK, sdk_status)
+        found = sdk_status()
+        state = found["state"]
+        if state == SDK_OK:
+            checks.append(Check("MCP SDK", PASS, found["detail"]))
+        elif state == SDK_MISSING:
+            # Absent is not a fault: every tool stays callable in-process.
+            checks.append(Check("MCP SDK", NOT_CONFIGURED,
+                                f'not installed; tools remain callable in-process '
+                                f'(pip install -e ".[mcp]" to serve them, which pins '
+                                f'{REQUIRED_MCP_SPEC})'))
+        elif state == SDK_INCOMPATIBLE:
+            # Installed, unusable, and the operator would never guess why.
+            checks.append(Check("MCP SDK", FAIL,
+                                f'{found["detail"]}. Fix: {MCP_INSTALL_HINT}'))
+        else:                                                   # SDK_BROKEN
+            checks.append(Check("MCP SDK", FAIL,
+                                f'{found["detail"]}. Fix: {MCP_INSTALL_HINT}'))
+        if state != SDK_MISSING:
+            checks.append(Check("MCP SDK version", PASS if state == SDK_OK else FAIL,
+                                f'installed {found.get("version") or "unknown"}, '
+                                f'this build requires {REQUIRED_MCP_SPEC} '
+                                f'(v1 FastMCP API; mcp 2.x is not supported)'))
+    except Exception as exc:                            # pragma: no cover - defensive
+        checks.append(Check("MCP SDK", WARN,
+                            f"could not determine the SDK state: {exc}"))
     return Section("MCP", checks)
 
 
@@ -347,9 +374,20 @@ def _dependencies() -> Section:
         module = _IMPORT_NAME.get(dist, dist)
         try:
             importlib.import_module(module)
-            checks.append(Check(dist, PASS, purpose))
         except Exception:
             checks.append(Check(dist, NOT_CONFIGURED, f"not installed, {purpose}"))
+            continue
+        # `mcp` is the one extra whose presence does not imply it works: see _mcp().
+        # Importing the package is not the same question as being able to serve, so this
+        # row defers to the same decision rather than answering an easier one.
+        if dist == "mcp":
+            from .mcp.server import SDK_OK, sdk_status
+            found = sdk_status()
+            checks.append(Check(dist, PASS if found["state"] == SDK_OK else FAIL,
+                                purpose if found["state"] == SDK_OK
+                                else found["detail"]))
+            continue
+        checks.append(Check(dist, PASS, purpose))
     return Section("Optional dependencies", checks)
 
 

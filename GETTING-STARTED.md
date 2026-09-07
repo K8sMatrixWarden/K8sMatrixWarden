@@ -317,6 +317,19 @@ capability.
 | Local chat assistant with an LLM | `anthropic`, or any OpenAI-compatible endpoint | `pip install -e ".[agent]"` |
 | All of the above | | `pip install -e ".[all]"` |
 
+> **MCP SDK version.** K8sMatrixWarden requires **`mcp>=1.0,<2`**, and the `[mcp]` and
+> `[all]` extras pin it. The server is written against the v1 FastMCP API
+> (`mcp.server.fastmcp.FastMCP`); mcp 2.x renamed that class to `MCPServer` and removed the
+> module, so **mcp 2.x is not supported in this release** and is not a silent degradation —
+> `k8smatrixwarden mcp` refuses to start and `k8smatrixwarden doctor` reports the SDK as
+> FAIL. If you already have mcp 2.x from another project, install the supported range:
+>
+> ```
+> pip install "mcp>=1.0,<2"
+> ```
+>
+> Every tool stays callable in-process through `build_tools()` regardless of the SDK.
+
 ### 4.3 Cluster access requirements
 
 Needed only when scanning a real cluster.
