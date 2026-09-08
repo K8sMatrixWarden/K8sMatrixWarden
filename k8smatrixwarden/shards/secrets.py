@@ -57,8 +57,28 @@ def _all_volume_mounts(ev, res):
 
 
 def _etcd_encryption(rule, ev, scope):
-    cfg = ev.get("ComponentConfig", all_scopes=True)
-    cfg = cfg[0] if cfg else {}
+    """Fires only when the API server's config was actually read and the flag is absent.
+
+    This is an ABSENCE check, which makes it the one shape that turns unread evidence into
+    a Critical finding if it is not guarded. On a managed cluster the control plane is
+    provider-owned and its static Pods are invisible, so ComponentConfig arrives with no
+    `apiServer` section at all and `dig` returns None for every flag -- indistinguishable,
+    to a bare `if not ...`, from a cluster that really has encryption switched off.
+
+    A live EKS scan caught exactly that: the collector warned "the control plane is
+    provider-managed ... so API server / etcd / kubelet flag checks were not applicable"
+    and this rule asserted CRITICAL "Secrets stored in plaintext" in the same report.
+    Every other ComponentConfig rule already no-ops here -- see
+    cluster_control_plane._flag_check and log_analysis._apiserver_flags, which both
+    document this and were silent on that scan. This one was hand-written and skipped the
+    guard.
+    """
+    items = ev.get("ComponentConfig", all_scopes=True)
+    if not items:
+        return                      # control plane not readable at all
+    cfg = items[0]
+    if not Evidence.dig(cfg, "spec.apiServer"):
+        return                      # the API server's config was never read
     if not Evidence.dig(cfg, "spec.apiServer.encryptionProvider"):
         yield rule.finding(ResourceRef("ControlPlane", "etcd"),
                            "etcd encryption at rest is not enabled, Secrets stored in "

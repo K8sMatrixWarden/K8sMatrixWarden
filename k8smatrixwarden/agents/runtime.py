@@ -201,12 +201,23 @@ def _proc(name):        # process-name matcher for Falco-style events
 
 
 def _audit(verb=None, resource=None, ns=None):
+    """Match an audit record. `verb` and `resource` accept a string or a collection.
+
+    Alternatives are needed because one Kubernetes action can arrive under more than one
+    name. Exec is the case that forced it: SPDY exec is a POST and audits as `create`,
+    WebSocket exec is a GET and audits as `get`, and WebSocket is kubectl's default from
+    1.30 on -- so a rule pinned to `create` sees none of it.
+    """
+    verbs = {verb} if isinstance(verb, str) else (set(verb) if verb else None)
+    resources = ({resource} if isinstance(resource, str)
+                 else (set(resource) if resource else None))
+
     def _m(e):
         if e.get("source") != "audit":
             return False
-        if verb and e.get("verb") != verb:
+        if verbs and e.get("verb") not in verbs:
             return False
-        if resource and e.get("resource") != resource:
+        if resources and e.get("resource") not in resources:
             return False
         if ns and e.get("namespace") != ns:
             return False
@@ -456,11 +467,23 @@ class RuntimeAgent:
                         "/var/log" in str(e.get("file", "")), source="falco"),
             RuntimeRule("rt-new-rolebinding", "New (Cluster)RoleBinding created", S.CRITICAL,
                         M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts"),
-                        _audit(verb="create", resource="clusterrolebindings"),
+                        # The title says "(Cluster)RoleBinding" and the matcher covered
+                        # only the cluster-scoped half. A namespaced RoleBinding pointing
+                        # at a powerful ClusterRole -- cluster-admin scoped to one
+                        # namespace, say -- is the same escalation with a smaller blast
+                        # radius, and creating one on a live cluster produced an audit
+                        # record this rule ignored.
+                        _audit(verb="create",
+                               resource=("clusterrolebindings", "rolebindings")),
                         source="audit"),
             RuntimeRule("rt-exec-kube-system", "kubectl exec into kube-system", S.CRITICAL,
                         M(T.EXECUTION, "T1609", "Container Administration Command"),
-                        _audit(verb="create", resource="pods/exec", ns="kube-system"),
+                        # Both exec transports. A live EKS cluster produced 32 audit
+                        # records reading `verb: get, resource: pods/exec` and this rule,
+                        # pinned to `create`, detected none of them: kubectl 1.30+ execs
+                        # over WebSocket, which is a GET. `attach` is the same shape.
+                        _audit(verb=("create", "get"),
+                               resource=("pods/exec", "pods/attach"), ns="kube-system"),
                         source="audit"),
             RuntimeRule("rt-secret-enum", "Secret enumeration via API", S.HIGH,
                         M(T.CREDENTIAL_ACCESS, "T1552.007", "Container API Credentials"),

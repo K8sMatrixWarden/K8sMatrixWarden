@@ -56,6 +56,17 @@ ESCALATION_PRIMITIVES = [
                                      "jobs", "cronjobs", "replicasets"},
      {"", "apps", "batch"},
      "can create a workload, and a workload can run as any ServiceAccount in its namespace"),
+    # BOTH verbs, and this was checked the hard way on a live EKS cluster. `create` is
+    # exec over SPDY (a POST). `get` is exec over WebSocket (a GET), which has been
+    # kubectl's default transport since 1.30 -- so a role holding only `get` on pods/exec
+    # can still exec, and dropping `get` here would be a false negative on a real
+    # token-theft path. Proven, not reasoned: system:controller:generic-garbage-collector
+    # holds get/list/watch/patch/update/delete on * and no create, and
+    #     kubectl auth can-i create pods/exec --as=...:generic-garbage-collector  -> no
+    #     kubectl exec --as=...:generic-garbage-collector -- echo               -> succeeded
+    #     KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false kubectl exec --as=... -> forbidden
+    # `auth can-i create pods/exec` answering "no" is therefore not evidence the principal
+    # cannot exec, and must not be used as one.
     ("exec-pods", {"create", "get"}, {"pods/exec", "pods/attach"}, {""},
      "can exec into running pods and use their mounted ServiceAccount tokens"),
     ("read-secrets", {"get", "list"}, {"secrets"}, {""},

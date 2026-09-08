@@ -15,12 +15,45 @@ _SUSPICIOUS_CRON_IMG = ("curl", "wget", "nc", "netcat", "miner", "xmrig", "busyb
 _SUSPICIOUS_SCHEDULES = ("* * * * *", "*/1 * * * *", "*/2 * * * *")
 
 
+#: Hosts that are the API server itself. A `clientConfig.url` pointing at one of these is
+#: the control plane calling its own loopback interface, which is how EKS ships
+#: pod-identity-webhook and the VPC resource controller, and how several self-managed
+#: setups run in-process admission plugins. It is unreachable from the cluster network and
+#: from the internet, so it is not the third-party endpoint this rule is about.
+_LOOPBACK_HOSTS = ("127.", "localhost", "[::1]", "::1")
+
+
+def _is_control_plane_local(url: str) -> bool:
+    """Does this webhook URL stay on the API server's own host?"""
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "localhost" or host == "::1" or host.startswith("127.")
+
+
 def _malicious_webhook(rule, ev, scope):
+    """A mutating webhook that sends every object to somebody else's endpoint.
+
+    The danger is a THIRD PARTY in the admission path: whoever answers that URL can
+    rewrite any pod in the cluster. `clientConfig.service` is the reviewable in-cluster
+    case; an arbitrary external `url` is the one worth a Critical.
+
+    A loopback URL is neither. A live EKS scan reported `pod-identity-webhook` and
+    `vpc-resource-mutating-webhook` as "targets an external URL (https://127.0.0.1:23443/
+    mutate)", which is not merely noisy but untrue -- 127.0.0.1 is the API server itself,
+    reachable from nowhere else -- and it fired on stock AWS infrastructure, so it would
+    have fired on every EKS cluster there is. Reaching that endpoint already requires the
+    control-plane access an attacker would be using instead.
+    """
     for wh in ev.get("MutatingWebhookConfiguration", all_scopes=True):
         for w in wh.get("webhooks", []) or []:
             url = Evidence.dig(w, "clientConfig.url")
             selector = w.get("namespaceSelector")
-            external = bool(url) and not url.startswith("https://kubernetes.default")
+            external = (bool(url)
+                        and not url.startswith("https://kubernetes.default")
+                        and not _is_control_plane_local(url))
             broad = selector in (None, {}, {"matchLabels": {}})
             if external and broad:
                 yield rule.finding(
