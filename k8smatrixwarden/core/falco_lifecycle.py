@@ -125,6 +125,55 @@ def _helm_unavailable_reason() -> Optional[str]:
     return f"Helm executable unavailable: {state.get('reason', 'state undetermined')}"
 
 
+def current_target() -> dict:
+    """Which cluster the lifecycle commands will talk to, as safe metadata.
+
+    The Falco and Helm lifecycles run bare `helm` and `kubectl` with no `--kubeconfig` and
+    no `--context`, so they act on whatever the RUNNING PROCESS's environment points at:
+    $KUBECONFIG if set, otherwise ~/.kube/config, and that file's current-context. That is
+    deliberate -- these operations install software on a cluster an operator has already
+    selected, and taking a cluster argument would let a caller aim an install somewhere
+    they were not looking.
+
+    What was NOT deliberate is that the answer was invisible. A dashboard started in a
+    shell pointing at Docker Desktop reported `Falco: Unknown -- cluster unreachable
+    127.0.0.1:51103` while the operator was validating an EKS cluster whose Falco was
+    running perfectly, and nothing on the page said which cluster had been asked. A status
+    that does not name its subject is not a status.
+
+    Never returns credentials: the context name and the API server HOST, nothing else.
+    """
+    out: dict = {"source": "process environment (KUBECONFIG / default kubeconfig)"}
+    override = os.environ.get("KUBECONFIG")
+    if override:
+        out["kubeconfig"] = "KUBECONFIG environment variable"
+    try:
+        done = subprocess.run(["kubectl", "config", "current-context"],
+                              capture_output=True, text=True, timeout=20)
+        if done.returncode == 0 and done.stdout.strip():
+            out["context"] = done.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    try:
+        done = subprocess.run(
+            ["kubectl", "config", "view", "--minify", "-o",
+             "jsonpath={.clusters[0].cluster.server}"],
+            capture_output=True, text=True, timeout=20)
+        server = (done.stdout or "").strip()
+        if done.returncode == 0 and server:
+            from urllib.parse import urlparse
+            host = urlparse(server).hostname or ""
+            # Host only. The full URL of a managed control plane embeds the cluster id.
+            out["api_server_host"] = host
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
+    if "context" not in out:
+        out["context"] = None
+        out["reason"] = ("no current kubeconfig context could be read, so these commands "
+                         "have no cluster to act on")
+    return out
+
+
 def _tooling(need_kubectl: bool = True) -> Optional[dict]:
     """A structured error when the binaries this needs are absent, or None."""
     reason = _helm_unavailable_reason()
@@ -182,13 +231,15 @@ def status(namespace: str = DEFAULT_NAMESPACE,
     """
     problem = _validate(namespace, release)
     if problem:
-        return {"state": UNKNOWN, "error": problem}
+        return {"state": UNKNOWN, "error": problem, "target": current_target()}
     missing = _tooling()
     if missing:
-        return {"state": UNKNOWN, **missing}
+        return {"state": UNKNOWN, "target": current_target(), **missing}
 
     out: dict = {"namespace": namespace, "release": release,
-                 "install_method": "helm", "writes_allowed": writes_allowed()}
+                 "install_method": "helm", "writes_allowed": writes_allowed(),
+                 # Which cluster this answer is ABOUT. See current_target().
+                 "target": current_target()}
     try:
         listed = _helm("list", "-n", namespace, "-o", "json", timeout=30)
     except (subprocess.TimeoutExpired, OSError) as exc:

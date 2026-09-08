@@ -182,7 +182,12 @@ def status() -> dict:
                 "lifecycle_supported": platform_key() is not None,
                 "writes_allowed": writes_allowed(),
                 "reason": f"helm was found at {path} but did not report a version: {error}"}
+    from .falco_lifecycle import current_target
     return {"status": INSTALLED, "source": source, "version": version, "path": path,
+            # The helm BINARY is machine-local; the cluster it would act on is whatever
+            # this process's environment selects, and that is worth saying out loud next
+            # to a Falco status that depends on it.
+            "target": current_target(),
             "path_available": shutil.which("helm") is not None,
             "managed_path": managed_path(),
             "lifecycle_supported": platform_key() is not None,

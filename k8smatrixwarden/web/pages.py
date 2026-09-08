@@ -688,7 +688,15 @@ function render(d){
     ? `<div class='warn'>${d.warnings.map(w => esc(w)).join('<br/>')}</div>` : '';
   const s = d.summary || {};
   const kv = o => Object.entries(o || {}).map(([k, v]) => `${esc(k)} ${v}`).join(' · ') || 'None';
-  const head = `<div class='kpis'>
+  // Which cluster these events are FROM, and which scan they were stored on. The feed
+  // shows the latest saved scan unless one is named, and with more than one cluster in
+  // the store that is not self-evident -- an operator validating EKS should not have to
+  // infer that they are looking at yesterday's laptop events.
+  const head = `<div class='fm rt-target'><strong>Cluster: ${esc(d.cluster || 'unknown')}</strong>`
+    + ` · scan ${esc(d.scan_id || '-')}`
+    + (d.feed_source ? ` · feed ${esc(d.feed_source)}` : '')
+    + `</div>`
+    + `<div class='kpis'>
       <div class='kpi'><div class='n'>${d.matched}</div><div class='l'>Matching events</div></div>
       <div class='kpi'><div class='n'>${d.total}</div><div class='l'>Stored on this scan</div></div>
       <div class='kpi'><div class='n'>${(s.by_detector||{}).kmw || 0}</div><div class='l'>Curated (K8sMatrixWarden)</div></div>
@@ -773,6 +781,7 @@ table.kv td.k{color:var(--muted);white-space:nowrap}
 .rtbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.6rem 0 1rem}
 .rtbar input,.rtbar select{background:var(--sunken);color:var(--fg);border:1px solid var(--bd);
   border-radius:6px;padding:.35rem .5rem;font-size:.82rem;font-family:inherit}
+.rt-target{margin:.35rem 0;color:var(--muted)}.rt-target.bad{color:var(--high)}
 .warn{background:var(--sunken);border-left:3px solid var(--med);padding:.5rem .7rem;
   border-radius:4px;margin-bottom:.7rem;font-size:.82rem}
 .tag.muted{background:var(--sunken);color:var(--muted)}
@@ -2119,6 +2128,7 @@ def runtime_ops_page() -> str:
              "<button class='btn' id='fa-deploy'>Deploy Falco</button>"
              "<button class='btn danger' id='fa-remove'>Remove Falco</button></div>"
              "<div id='fa-detail' class='ops-detail'></div>"
+             "<div id='fa-target' class='fm rt-target'></div>"
              "<div id='fa-msg' class='fm ops-msg'></div></div>")
     helm = ("<div class='ops-panel'>"
             "<div class='ops-head'><strong>Helm</strong>"
@@ -2152,7 +2162,33 @@ function faBusy(on, label){
   if (on && label) document.getElementById('fa-msg').textContent = label;
 }
 
+// Which cluster this panel is ABOUT. The Falco and Helm lifecycles run bare helm/kubectl,
+// so they act on whatever this SERVER PROCESS's environment selects -- not on the cluster
+// a scan was pointed at. A dashboard started against Docker Desktop reported
+// "Falco: Unknown, cluster unreachable 127.0.0.1" while the operator was validating an EKS
+// cluster whose Falco was running, and the page never said which cluster it had asked.
+function faTarget(t){
+  const el = document.getElementById('fa-target');
+  if (!el) return;
+  // textContent, not innerHTML: this page escapes nothing because it never interpolates,
+  // and a context name comes from a kubeconfig, which is not ours to trust. An earlier
+  // draft of this used an `esc()` helper the ops page does not define, which threw and
+  // left the whole Falco panel stuck on "Checking...".
+  if (!t || !t.context){
+    el.textContent = 'Target: unknown · ' + ((t && t.reason)
+      || 'no current kubeconfig context; these commands have no cluster to act on');
+    el.className = 'fm rt-target bad';
+    return;
+  }
+  el.textContent = 'Target: ' + t.context
+    + (t.api_server_host ? ' · ' + t.api_server_host : '')
+    + ' · from this server’s ' + (t.kubeconfig || 'default kubeconfig')
+    + '; scans choose their own cluster separately';
+  el.className = 'fm rt-target';
+}
+
 function faRender(s){
+  faTarget(s.target);
   const state = s.state || 'unknown';
   const tag = document.getElementById('fa-state');
   tag.className = 'tag ' + (FA_TAG[state] || 'muted');
