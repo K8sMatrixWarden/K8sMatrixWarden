@@ -202,22 +202,49 @@ def test_an_identity_in_one_cluster_only_is_not_shared():
     assert rep.shared_identities == []
 
 
-def test_runtime_evidence_in_two_clusters_confirms_a_shared_identity():
+def _rt(name):
+    return {"correlation": {"correlations": [
+        {"confidence": "confirmed", "resource": name, "tactic": "Privilege Escalation",
+         "namespace": "default"}]}, "drift": {"drift": []}}
+
+
+def test_runtime_evidence_in_two_clusters_confirms_an_external_principal():
+    """A cloud IAM role really can be ONE principal that two clusters both assume, so
+    observing it act in both is evidence about a single identity."""
     from k8smatrixwarden.core.federation import build_federation
 
-    def rt(name):
-        return {"correlation": {"correlations": [
-            {"confidence": "confirmed", "resource": name, "tactic": "Privilege Escalation",
-             "namespace": "default"}]}, "drift": {"drift": []}}
-
     rep = build_federation([
-        _cluster_result("prod", [_identity("ServiceAccount", "deploy-bot")],
-                        runtime=rt("deploy-bot")),
-        _cluster_result("staging", [_identity("ServiceAccount", "deploy-bot")],
-                        runtime=rt("deploy-bot"))])
+        _cluster_result("prod", [_identity("CloudIAM", "deploy-bot")],
+                        runtime=_rt("deploy-bot")),
+        _cluster_result("staging", [_identity("CloudIAM", "deploy-bot")],
+                        runtime=_rt("deploy-bot"))])
     shared = rep.shared_identities[0]
     assert shared.status == "confirmed"
     assert "runtime evidence" in shared.verification
+
+
+def test_activity_never_confirms_a_cluster_local_identity():
+    """This test used to assert the opposite, with a ServiceAccount. It was wrong in the
+    way that is easy to miss: `default/deploy-bot` in prod and `default/deploy-bot` in
+    staging are two identities that happen to share a name, and prod's token authenticates
+    to nothing in staging. Watching both be busy is two observations, not one principal.
+
+    Measured live: two clusters running the same Falco Helm chart, each with a Role named
+    `falco`, were reported as a CONFIRMED cross-cluster lateral-movement path after a file
+    was read inside each cluster's own Falco pod.
+    """
+    from k8smatrixwarden.core.federation import build_federation
+
+    for kind in ("ServiceAccount", "Role", "ClusterRole", "ClusterRoleBinding", "Secret"):
+        rep = build_federation([
+            _cluster_result("prod", [_identity(kind, "deploy-bot")],
+                            runtime=_rt("deploy-bot")),
+            _cluster_result("staging", [_identity(kind, "deploy-bot")],
+                            runtime=_rt("deploy-bot"))])
+        shared = rep.shared_identities[0]
+        assert shared.status == "candidate", (
+            f"a {kind} was confirmed as one cross-cluster principal on activity alone")
+        assert "cluster-local" in shared.verification, shared.verification
 
 
 def test_a_single_cluster_is_reported_as_such():

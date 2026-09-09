@@ -87,6 +87,15 @@ def _is_unidentified(name: str) -> bool:
 #: dressed as evidence. Cluster-scoped kinds have no namespace and join on name alone.
 _NAMESPACED_KINDS = {"Role", "RoleBinding", "ServiceAccount", "Secret", "ConfigMap"}
 
+# Kinds whose principal is owned OUTSIDE any one cluster, and can therefore genuinely be
+# the same principal in two of them. Everything else in `_IDENTITY_KINDS` is a Kubernetes
+# object that exists per-cluster by construction: `cluster-admin` is in every cluster on
+# earth and is not shared, and a Role in one cluster's namespace grants nothing in
+# another's. Observed activity cannot change that -- watching two same-named things both
+# be busy is two observations, not one identity -- so only these kinds are ever eligible
+# for `confirmed`. See `_confirmable`.
+_CROSS_CLUSTER_PRINCIPAL_KINDS = {"CloudIAM", "ManagedIdentity"}
+
 
 #: Cluster labels that are placeholders rather than identities. A scan carrying one of
 #: these was read from somewhere that could not name its cluster, so two such scans may be
@@ -233,6 +242,42 @@ def latest_per_cluster(store) -> list:
     return [store.load(sid) for sid in seen.values()]
 
 
+def _confirmable(kind: str, observed: set, verified_sides: bool) -> bool:
+    """Whether observation is allowed to upgrade this edge to `confirmed`.
+
+    Runtime evidence proves a resource was ACTED ON. For a cluster-local Kubernetes object
+    that is not evidence the two clusters' copies are one principal, so no quantity of it
+    confirms the edge. A live dual-cluster run promoted `Role/falco/falco` to confirmed
+    because both clusters ran the same Falco Helm chart and each pod read a file: a
+    same-Helm-chart coincidence reported as a lateral-movement path.
+    """
+    return (kind in _CROSS_CLUSTER_PRINCIPAL_KINDS
+            and len(observed) >= 2 and verified_sides)
+
+
+def _verification_text(kind: str, observed: set, verified_sides: bool,
+                       confirmed: bool) -> str:
+    """Why this edge is where it is. A withheld confirmation has to say so, or the
+    operator reads the downgrade as the tool having found nothing."""
+    if not verified_sides:
+        return ("at least one side of this edge is not an observed cluster -- a "
+                "placeholder label, or a fixture/mock scan -- so it is not evidence of a "
+                "path BETWEEN two clusters; scan each cluster live through its own "
+                "kubeconfig context to give it a real identity")
+    if confirmed:
+        return f"runtime evidence names this resource in {', '.join(sorted(observed))}"
+    if len(observed) >= 2:
+        return (f"observed active in {', '.join(sorted(observed))}, but a {kind} is "
+                f"cluster-local: two clusters each running their own is not one "
+                f"principal, and activity in both is two observations rather than a path "
+                f"between them; only an externally-owned principal "
+                f"({', '.join(sorted(_CROSS_CLUSTER_PRINCIPAL_KINDS))}) can be confirmed "
+                f"this way")
+    return ("same kind+name in both clusters; confirm they are the same trust "
+            "principal (shared IaC, federated identity, or a reused cloud role) "
+            "before treating this as one blast radius")
+
+
 def build_federation(results: list) -> FederationReport:
     """Correlate one ScanResult per cluster into a blast-radius view."""
     # De-dup to newest scan per cluster, preserving input order for stability.
@@ -282,8 +327,9 @@ def build_federation(results: list) -> FederationReport:
             cluster_identity_verified(c, getattr(by_cluster.get(c), "mode", ""))
             for c in per_cluster)
         # An edge whose endpoints are not both identified cannot be confirmed either: the
-        # runtime evidence would be proving activity in a cluster we cannot name.
-        confirmed = len(observed) >= 2 and verified_sides
+        # runtime evidence would be proving activity in a cluster we cannot name. And a
+        # cluster-local kind is never confirmable by activity at all -- see _confirmable.
+        confirmed = _confirmable(kind, observed, verified_sides)
         shared.append(SharedIdentity(
             key=key, kind=kind, name=name, namespace=namespace,
             clusters=sorted(per_cluster.keys()),
@@ -293,17 +339,8 @@ def build_federation(results: list) -> FederationReport:
             relationship=_KIND_RELATIONSHIP.get(kind, "shared-resource"),
             cluster_identity_verified=verified_sides,
             status="confirmed" if confirmed else "candidate",
-            verification=(
-                "at least one side of this edge is not an observed cluster -- a "
-                "placeholder label, or a fixture/mock scan -- so it is not evidence of a "
-                "path BETWEEN two clusters; scan each cluster live through its own "
-                "kubeconfig context to give it a real identity"
-                if not verified_sides else
-                f"runtime evidence names this resource in {', '.join(sorted(observed))}"
-                if confirmed else
-                "same kind+name in both clusters; confirm they are the same trust "
-                "principal (shared IaC, federated identity, or a reused cloud role) "
-                "before treating this as one blast radius")))
+            verification=_verification_text(kind, observed, verified_sides,
+                                            confirmed)))
     shared.sort(key=lambda s: (-_SEV_RANK.get(s.worst_severity, 0), -len(s.clusters)))
 
     top_tactic = max(fed_tactics, key=fed_tactics.get) if fed_tactics else ""
