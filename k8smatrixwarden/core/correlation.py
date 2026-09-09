@@ -334,7 +334,12 @@ def _reason(level: str, pod: str, ns: str, matched: list) -> str:
 # --------------------------------------------------------------------------- #
 #: Paths a readOnlyRootFilesystem pod is still allowed to write (mounted rw by design).
 _WRITABLE_PREFIXES = ("/tmp", "/var/tmp", "/dev", "/proc", "/run", "/var/run")
-_WRITE_OPS = {"write", "openwrite", "open_write", "truncate", "rename", "unlink"}
+# Kept for callers that pass a pre-canonicalised op. Falco events arrive through
+# agents.runtime, which canonicalises `evt.type` to its base verb and decides write
+# intent for the ambiguous open family -- see `is_write_event`. Matching raw `*at`
+# syscalls here was why the readOnlyRootFilesystem drift branch never fired.
+_WRITE_OPS = {"write", "openwrite", "open_write", "truncate", "rename", "unlink",
+              "mkdir", "symlink", "link", "chmod", "chown"}
 #: Ops/binaries only a privileged (or extra-capability) container can perform.
 _PRIV_PROCS = {"nsenter", "mount", "insmod", "modprobe", "umount"}
 
@@ -363,6 +368,13 @@ def _declared_posture(pod: dict) -> dict:
             "non_privileged": non_privileged}
 
 
+def _wrote(event: dict, op: str) -> bool:
+    """Did this event modify a file? Delegates to the runtime agent, which owns the
+    provider vocabulary, and falls back to the local op set for non-Falco callers."""
+    from ..agents.runtime import is_write_event
+    return is_write_event(event) or op in _WRITE_OPS
+
+
 def detect_drift(pods: list[dict], events: list[dict]) -> dict:
     """Flag runtime behaviour that contradicts a Pod's declared security posture, the
     strongest signal there is, because it means a control the operator THINKS is in place
@@ -387,7 +399,7 @@ def detect_drift(pods: list[dict], events: list[dict]) -> dict:
         if posture["non_root"] and (uid == "0" or e.get("user") == "root"):
             drift = ("runAsNonRoot", "runAsNonRoot: true", "process running as uid 0",
                      "Privilege Escalation")
-        elif posture["read_only_fs"] and op in _WRITE_OPS and f and \
+        elif posture["read_only_fs"] and f and _wrote(e, op) and \
                 not f.startswith(_WRITABLE_PREFIXES):
             drift = ("readOnlyRootFilesystem", "readOnlyRootFilesystem: true",
                      f"write to {f}", "Defense Evasion")

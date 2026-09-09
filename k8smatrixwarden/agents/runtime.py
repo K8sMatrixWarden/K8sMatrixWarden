@@ -330,7 +330,10 @@ def normalize_falco_event(raw: dict) -> dict:
     # network fd if Falco gave a sip/rip, or the fd looks like host:port (not a path)
     is_net = bool(of.get("fd.sip") or of.get("fd.rip")) or (":" in fd and "/" not in fd)
     ev = {"source": "falco", "proc": of.get("proc.name"),
-          "op": of.get("evt.type"), "namespace": of.get("k8s.ns.name"),
+          # Canonical base verb, not the raw `*at` syscall: every matcher downstream was
+          # written against the base names and none of them could match otherwise.
+          "op": canonical_op(of.get("evt.type")),
+          "namespace": of.get("k8s.ns.name"),
           "pod": of.get("k8s.pod.name"), "uid": of.get("user.uid"),
           "time": when, "rule": raw.get("rule", ""),
           # Falco's own verdict, kept so an alert this agent has no equivalent rule for can
@@ -436,6 +439,57 @@ def _tally_deletions(events: list) -> None:
                     member["counted_in"] = marker
 
 
+
+# Falco reports `evt.type`, the raw syscall. Linux stopped handing libc the bare forms
+# years ago, so what actually arrives is `openat`, `unlinkat`, `renameat2`, `ftruncate` --
+# never `open`, `unlink`, `rename`, `truncate`. Matching on the bare names could not work,
+# and silently did not: see tests/test_falco_write_vocabulary.py.
+_OP_BASE = {
+    "openat": "open", "openat2": "open",
+    "unlinkat": "unlink",
+    "renameat": "rename", "renameat2": "rename",
+    "ftruncate": "truncate",
+    "pwrite": "write", "writev": "write", "pwritev": "write", "pwritev2": "write",
+    "mkdirat": "mkdir", "symlinkat": "symlink", "linkat": "link",
+    "fchmodat": "chmod", "fchownat": "chown",
+}
+#: Syscalls that cannot mean anything but "this changed a file".
+_MUTATING_OPS = {"write", "unlink", "rename", "truncate", "mkdir", "symlink", "link",
+                 "chmod", "chown"}
+#: The open family is ambiguous -- a read is an `openat` too -- so it is never treated as a
+#: write on the syscall alone. Falco's own rules encode the distinction in their conditions
+#: (`open_write`, O_TRUNC), and the rule name is the only place that verdict survives into
+#: the event. These are the stable-ruleset rules whose condition is write-only; anything
+#: not listed simply falls back to the syscall test, so an unknown rule under-reports
+#: rather than inventing a write.
+_PROVIDER_WRITE_RULES = {
+    "clear log activities",
+    "remove bulk data from disk",
+    "create symlink over sensitive files",
+    "create hardlink over sensitive files",
+    "drop and execute new binary in container",
+    "fileless execution via memfd_create",
+    "linux kernel module injection detected",
+}
+
+
+def canonical_op(op) -> str:
+    """The base verb for a raw syscall name. Unknown names pass through unchanged."""
+    op = str(op or "").lower()
+    return _OP_BASE.get(op, op)
+
+
+def is_write_event(event: dict) -> bool:
+    """Whether this event modified a file.
+
+    True for a syscall that can only be a mutation, or when the provider's own rule already
+    asserted a write (the open family carries no intent of its own).
+    """
+    if canonical_op(event.get("op")) in _MUTATING_OPS:
+        return True
+    return str(event.get("rule") or "").strip().lower() in _PROVIDER_WRITE_RULES
+
+
 class RuntimeAgent:
     def __init__(self):
         self.rules = self._build_rules()
@@ -463,7 +517,8 @@ class RuntimeAgent:
                         (e.get("proc") or "") in ("nsenter", "chroot")),
             RuntimeRule("rt-log-clear", "Container log cleared/truncated", S.HIGH,
                         M(T.DEFENSE_EVASION, "T1070", "Indicator Removal"),
-                        lambda e: e.get("op") == "truncate" and
+                        # Was `op == "truncate"`, which no Falco event has ever carried.
+                        lambda e: is_write_event(e) and
                         "/var/log" in str(e.get("file", "")), source="falco"),
             RuntimeRule("rt-new-rolebinding", "New (Cluster)RoleBinding created", S.CRITICAL,
                         M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts"),
