@@ -1516,7 +1516,7 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
         `not_rescanned` rather than being reported as fixed. Also returns the store's
         MTTD/MTTR timeline (how long findings have been open, and when ones that were
         fixed got fixed). Needs at least one saved scan; two for a comparison."""
-        from ..core.posture import latest_change
+        from ..core.posture import latest_change, posture_scope
         from ..core.report_store import ReportStore
         store = ReportStore(reports_dir)
         try:
@@ -1525,7 +1525,9 @@ def build_tools(config_path: Optional[str] = None) -> dict[str, Any]:
             return {"error": f"no stored report with scan-id {scan_id!r}"}
         if not change:
             return {"error": f"no stored reports in {reports_dir!r}, run a scan first"}
-        return {**change, "timeline": store.timeline()}
+        # Scoped to the cluster this scan is from: the store can hold several, and an
+        # age timeline blended across clusters describes none of them.
+        return {**change, "timeline": store.timeline(scope=posture_scope(store, scan_id))}
 
     # ================================================================== #
     # LAYER 4, Platform: least-privilege RBAC generation

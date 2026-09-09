@@ -306,18 +306,32 @@ class ReportStore:
 
         Without `scope` the whole index is returned as stored (scope-prefixed keys). With a
         scope, only that scope's entries come back, re-keyed to the bare finding identity
-        `core/posture.py` compares on. Legacy entries written before scoping existed have no
-        prefix and are included in every scoped view, so an upgraded store keeps detecting
-        regressions against the history it already had instead of starting over.
+        `core/posture.py` compares on.
+
+        Legacy entries written before scoping existed have no prefix. They are shared with a
+        scoped view ONLY while the store cannot be holding more than one cluster, so an
+        upgraded store keeps the history it already had instead of starting over. Once a
+        second scope appears the sharing stops: `posture.finding_key()` is
+        `rule|kind|name|namespace` with no cluster in it, and Kubernetes Goat deploys the
+        same namespaces and workload names on every cluster, so an unattributable entry
+        would answer "have we seen this before?" for a cluster it was never observed on --
+        reporting a genuinely new finding as `regressed`, or dropping it from `new`. The
+        resolve pass in `save()` was already strict this way; this makes the read agree.
         """
         tl = self._load_timeline()
         if scope is None:
             return tl
+        scopes = {self._entry_scope(k) for k in tl}
+        scopes.discard("")
+        share_legacy = len(scopes) <= 1
         out: dict = {}
         for key, entry in tl.items():
             entry_scope = self._entry_scope(key)
-            if entry_scope and entry_scope != scope:
-                continue
+            if entry_scope:
+                if entry_scope != scope:
+                    continue
+            elif not share_legacy:
+                continue                        # unattributable, and more than one cluster
             bare = key.split("#", 1)[1] if "#" in key else key
             # A scoped entry is authoritative over a legacy one for the same finding.
             if bare not in out or entry_scope:

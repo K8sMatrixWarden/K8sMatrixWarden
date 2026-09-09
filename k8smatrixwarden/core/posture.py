@@ -255,6 +255,22 @@ def _summary(previous, current, new_keys, resolved_keys, persistent_keys,
             f"{current.risk.cluster_risk} ({_direction(previous, current)}).{gap}")
 
 
+
+def posture_scope(store, scan_id: Optional[str] = None) -> Optional[str]:
+    """The security scope a scan's history belongs to, `cluster@scope`.
+
+    Callers that show a posture diff also show an age timeline beside it, and that timeline
+    has to describe the same cluster the diff does. One store can hold several. Returns
+    None for an empty store or an unknown id, which `timeline(scope=None)` reads as the
+    whole-store view -- the right answer when there is nothing to narrow to.
+    """
+    reports = store.list()
+    if not reports:
+        return None
+    chosen = next((r for r in reports if r.scan_id == scan_id), None) if scan_id else None
+    chosen = chosen or reports[0]
+    return store.scope_key_of(chosen.cluster, chosen.scope)
+
 def latest_change(store, scan_id: Optional[str] = None) -> dict:
     """Posture change for a stored scan against the previous scan OF THE SAME SCOPE.
 
@@ -279,6 +295,7 @@ def latest_change(store, scan_id: Optional[str] = None) -> dict:
     index = next(i for i, r in enumerate(reports) if r.scan_id == target)
     here = reports[index]
     scope = store.scope_key_of(here.cluster, here.scope)
+    del here
     earlier = next((r for r in reports[index + 1:]
                     if store.scope_key_of(r.cluster, r.scope) == scope), None)
     current = store.load(target)

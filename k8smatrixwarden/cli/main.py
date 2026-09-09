@@ -460,7 +460,7 @@ def cmd_federation(a) -> int:
 
 def cmd_posture(a) -> int:
     """What changed since the previous scan of the same cluster (§16)."""
-    from ..core.posture import latest_change
+    from ..core.posture import latest_change, posture_scope
     from ..core.report_store import ReportStore
     from ..core.timeutil import format_ist
 
@@ -475,7 +475,8 @@ def cmd_posture(a) -> int:
         return 0
     if a.output == "json":
         import json as _json
-        print(_json.dumps({**change, "timeline": store.timeline()}, indent=2))
+        print(_json.dumps({**change, "timeline": store.timeline(
+            scope=posture_scope(store, a.scan_id))}, indent=2))
         return 0
 
     print(f"Security posture change, {format_ist(change['current_generated_at'])}")

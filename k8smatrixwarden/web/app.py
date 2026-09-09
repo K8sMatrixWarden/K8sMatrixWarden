@@ -121,7 +121,7 @@ class WebApp:
             if method == "GET" and path == "/api/dashboard":
                 return _json(self._dashboard_data(q.get("scan_id")))
             if method == "GET" and path == "/api/timeline":
-                return _json(self.store.timeline())
+                return _json(self._api_timeline(q))
             if method == "GET" and path == "/api/finding":
                 return self._api_finding(q)
             if method == "POST" and path == "/api/scan":
@@ -193,6 +193,18 @@ class WebApp:
         with open(path, "rb") as fh:
             return Response(200, "application/javascript; charset=utf-8", fh.read())
 
+    def _api_timeline(self, q: dict) -> dict:
+        """Finding ages for ONE cluster. `scan_id` picks it; otherwise the newest scan's
+        cluster is used. Unscoped, this blended every cluster in the store into a single
+        MTTD/MTTR figure that described none of them."""
+        reports = self.store.list()
+        if not reports:
+            return self.store.timeline()
+        wanted = q.get("scan_id")
+        chosen = next((r for r in reports if r.scan_id == wanted), reports[0])
+        return self.store.timeline(
+            scope=self.store.scope_key_of(chosen.cluster, chosen.scope))
+
     def _dashboard_data(self, scan_id: Optional[str] = None) -> dict:
         """Everything the dashboard needs, in one payload: the selected (or latest) scan +
         findings + threat matrix + attack path + runtime readiness + risk trend + history.
@@ -208,6 +220,14 @@ class WebApp:
         known = {r.scan_id for r in reports}
         selected = scan_id if scan_id in known else reports[0].scan_id
         latest = self._load(selected)
+        # One report store can hold several clusters. The trend line, the history list and
+        # the age timeline are all statements ABOUT the selected cluster, so they are
+        # narrowed to its scope: a risk trend that interleaves two clusters' scans is not a
+        # trend, and an age timeline that blends them mis-ages both.
+        chosen = next(r for r in reports if r.scan_id == selected)
+        scope = self.store.scope_key_of(chosen.cluster, chosen.scope)
+        reports = [r for r in reports
+                   if self.store.scope_key_of(r.cluster, r.scope) == scope]
         matrix = build_threat_matrix(latest, self.p.registry.rules)
         from ..core.threat_matrix import attack_paths
         from ..agents.runtime import RuntimeAgent
@@ -264,7 +284,7 @@ class WebApp:
             # Runtime tab then shows the manual paste box instead. See cmd_scan.
             "runtime_correlation": latest.runtime,
             "trend": [[r.generated_at, r.risk_score] for r in reversed(reports)],
-            "timeline": self.store.timeline(),
+            "timeline": self.store.timeline(scope=scope),
             "history": [{"scan_id": r.scan_id, "name": r.name,
                          "display_name": r.display_name,
                          "generated_at": r.generated_at,
