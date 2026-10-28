@@ -186,9 +186,14 @@ class TaskManager:
         if not self._wait_for_slot(tid):
             return
         try:
+            # The child emits UTF-8 (e.g. the "→" in its saved-report line). Decode as
+            # UTF-8, not the platform default (cp1252 on Windows), or that arrow mangles
+            # and the scan-id regex misses — marking a saved scan "failed". errors=replace
+            # keeps any odd byte from crashing the reader thread.
             proc = subprocess.Popen([sys.executable, "-m", "k8smatrixwarden"] + args,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                    text=True, bufsize=1)
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         except OSError as exc:
             self._finish(tid, None, f"could not start the scan: {exc}")
             return
