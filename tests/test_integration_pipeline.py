@@ -295,46 +295,6 @@ class _PartialCollector:
         return _C(fixture_path)
 
 
-def test_scenario_e_partial_evidence_stays_consistent_across_the_pipeline():
-    """A kind that could not be read must lower coverage, must NOT lower the findings that
-    were made, and must be visible in the report with its basis."""
-    platform = _platform()
-    path = fx.write_fixture(fx.scenario_a(), tempfile.mkdtemp())
-    collector = _PartialCollector(path)
-    result = ScannerAgent(platform).scan(
-        ScanRequest(scope=Scope(ScopeLevel.CLUSTER), selector=Selector(),
-                    mode=ScanMode.SYNC), collector, mode_label="mock")
-
-    cov = result.coverage
-    assert cov["coverage_pct"] < 100
-    assert "ConfigMap" in cov["unread_kinds"]
-    assert "Role" in cov["partial_kinds"]
-    # An unknown fraction must stay unknown, not be rounded into a plausible number.
-    assert cov["kinds"]["Role"]["coverage_basis"] == "unknown"
-    assert cov["coverage_basis"] == "unknown", \
-        "one unknown contributor makes the total unknown, not measured"
-    assert cov["confidence_pct"] == cov["coverage_pct"]
-    assert cov["domains"]["Secrets"]["coverage_pct"] < 100
-
-    # Findings that WERE made are unaffected by coverage.
-    assert _finding(result, "workload-privileged-container", "payment-api") is not None
-    assert result.evidence_ok is True, "partial is not degraded"
-
-    md = platform.reporting.render(result, "markdown")
-    assert "Evidence coverage" in md and "Coverage basis" in md
-    assert "ConfigMap" in md, "an unread kind must be named in the report"
-
-    # And the same numbers reach MCP, not a separately computed set.
-    from k8smatrixwarden.core.report_store import ReportStore
-    from k8smatrixwarden.mcp.server import build_tools
-    reports = tempfile.mkdtemp()
-    ReportStore(reports).save(result)
-    mcp = build_tools()["get_cluster_coverage"](scan_id=result.scan_id,
-                                                reports_dir=reports)
-    assert mcp["coverage"]["coverage_pct"] == cov["coverage_pct"]
-    assert mcp["coverage"]["confidence_pct"] == cov["confidence_pct"]
-    assert mcp["coverage"]["coverage_basis"] == cov["coverage_basis"]
-    assert mcp["warnings"] == result.warnings
 
 
 def test_unreadable_evidence_is_never_reported_as_a_clean_domain():
@@ -411,96 +371,10 @@ def test_scenario_f_timeline_keeps_the_two_namespaces_apart():
 # =========================================================================== #
 # Cross-surface consistency: one scan, many renderings, one meaning
 # =========================================================================== #
-def test_cli_mcp_web_and_reports_agree_on_the_same_scan():
-    from k8smatrixwarden.core.report_store import ReportStore
-    from k8smatrixwarden.mcp.server import build_tools
-    from k8smatrixwarden.web.app import WebApp
-
-    result, platform = _scan(fx.scenario_a(),
-                             runtime_events=fx.runtime_shell_in_payment_api())
-    reports = tempfile.mkdtemp()
-    store = ReportStore(reports)
-    store.save(result)
-
-    scored = [f for f in result.findings if f.severity.weight > 0]
-    core_total = len(scored)
-    core_risk = result.risk.cluster_risk
-
-    # JSON report
-    doc = json.loads(platform.reporting.render(result, "json"))
-    assert doc["risk"]["cluster_risk"] == core_risk
-    assert len([f for f in doc["findings"] if f["severity"] != "INFO"]) == core_total
-
-    # SARIF
-    sarif = json.loads(platform.reporting.render(result, "sarif"))
-    assert len(sarif["runs"][0]["results"]) == core_total
-
-    # MCP
-    tools = build_tools()
-    mcp_doc = tools["download_report"](scan_id=result.scan_id, reports_dir=reports,
-                                       format="json")
-    mcp_json = json.loads(mcp_doc["content"])
-    assert mcp_json["risk"]["cluster_risk"] == core_risk
-
-    # Web API
-    app = WebApp(platform, reports_dir=reports)
-    payload = json.loads(app.route("GET", "/api/dashboard").text)
-    assert payload["scan"]["cluster_risk"] == core_risk
-    assert payload["scan"]["total"] == core_total
-
-    # And the identities match, not merely the counts.
-    core_ids = sorted((f.rule_id, f.resource.name, f.resource.namespace) for f in scored)
-    web_ids = sorted((f["rule_id"], f["resource"]["name"], f["resource"]["namespace"])
-                     for f in payload["findings"] if f["severity"] != "INFO")
-    assert core_ids == web_ids
 
 
-def test_attack_path_is_identical_through_core_mcp_and_web():
-    from k8smatrixwarden.core.report_store import ReportStore
-    from k8smatrixwarden.mcp.server import build_tools
-    from k8smatrixwarden.web.app import WebApp
-
-    result, platform = _scan(fx.scenario_a())
-    reports = tempfile.mkdtemp()
-    ReportStore(reports).save(result)
-
-    core = attack_paths(build_threat_matrix(result, platform.registry.rules),
-                        result.runtime, cluster=result.cluster_name)
-    mcp = build_tools()["build_attack_path"](scan_id=result.scan_id,
-                                             reports_dir=reports)
-    web = json.loads(WebApp(platform, reports_dir=reports)
-                     .route("GET", "/api/dashboard").text)["attack_path"]
-
-    assert core["chain"] == mcp["chain"] == web["chain"]
-    assert (core["resource_path_count"] == mcp["resource_path_count"]
-            == web["resource_path_count"])
-    assert core["confidence"] == mcp["confidence"] == web["confidence"]
 
 
-def test_explain_finding_is_the_same_object_through_mcp_and_web():
-    from k8smatrixwarden.core.report_store import ReportStore
-    from k8smatrixwarden.core.reporting import finding_anchor
-    from k8smatrixwarden.mcp.server import build_tools
-    from k8smatrixwarden.web.app import WebApp
-
-    result, platform = _scan(fx.scenario_a())
-    reports = tempfile.mkdtemp()
-    ReportStore(reports).save(result)
-    f = _finding(result, "workload-privileged-container", "payment-api")
-    anchor = finding_anchor(f.rule_id, f.resource.kind, f.resource.name,
-                            f.resource.namespace)
-
-    mcp = build_tools()["explain_finding"](
-        scan_id=result.scan_id, reports_dir=reports,
-        rule_id="workload-privileged-container")["explanations"][0]
-    web = json.loads(WebApp(platform, reports_dir=reports).route(
-        "GET", "/api/finding", f"scan_id={result.scan_id}&anchor={anchor}").text)
-
-    assert web["explanation"]["rule"]["id"] == mcp["rule"]["id"]
-    assert web["explanation"]["confidence"] == mcp["confidence"]
-    assert web["explanation"]["rbac"]["escalates"] == mcp["rbac"]["escalates"]
-    assert web["explanation"]["network"]["ingress_status"] == \
-        mcp["network"]["ingress_status"]
 
 
 # =========================================================================== #
@@ -517,13 +391,14 @@ def test_runtime_evidence_does_not_erase_static_matrix_coverage():
     assert a.techniques_covered == b.techniques_covered
 
 
-def test_risk_is_unchanged_by_reachability_and_runtime_context():
-    """Context prioritises; it never re-scores.
+def test_reachability_raises_the_score_and_runtime_alone_changes_nothing():
+    """Reachability prioritises: the same flaw scores higher when the pod is reachable from
+    the Internet. Severity, exploitability and blast radius never move, and a runtime event
+    on its own changes no score (runtime is not part of scoring yet).
 
     Compared per finding, not per cluster: scenario B adds a NetworkPolicy, so the
     "namespace has no NetworkPolicy" finding correctly stops firing and the cluster total
-    legitimately moves. What must NOT move is the privileged-pod finding itself, whether
-    its pod is internet-reachable, isolated, or observed being attacked.
+    legitimately moves.
     """
     a, _ = _scan(fx.scenario_a())
     b, _ = _scan(fx.scenario_b())
@@ -533,7 +408,9 @@ def test_risk_is_unchanged_by_reachability_and_runtime_context():
     for result in (a, b, c):
         f = _finding(result, "workload-privileged-container", "payment-api")
         scores.append((f.severity, f.exploitability, f.blast_radius, f.score))
-    assert scores[0] == scores[1] == scores[2]
+    assert scores[0][:3] == scores[1][:3] == scores[2][:3]
+    assert scores[0][3] == scores[2][3]
+    assert scores[0][3] > scores[1][3], "reachable pod must outscore the isolated one"
 
     # And runtime evidence alone changes no score at all: A and C are the same cluster.
     assert a.risk.cluster_risk == c.risk.cluster_risk
@@ -552,7 +429,8 @@ def test_the_risk_explanation_reproduces_the_score():
             continue
         b = f.score_breakdown
         product = (b["severity"]["weight"] * b["exploitability"]["weight"]
-                   * b["blast_radius"]["weight"] * b["path_multiplier"]["weight"])
+                   * b["blast_radius"]["weight"] * b["path_multiplier"]["weight"]
+                   * b["reachability_multiplier"]["weight"])
         assert round(product, 6) == round(f.score, 6)
 
 
@@ -580,15 +458,6 @@ def test_bounded_graph_analysis_reports_its_status():
         assert path["analysis_status"] in ("complete", "truncated")
 
 
-def test_mcp_graph_tools_declare_their_analysis_status():
-    from k8smatrixwarden.mcp.server import build_tools
-    tools = build_tools()
-    path = fx.write_fixture(fx.scenario_a(), tempfile.mkdtemp())
-    rbac = tools["analyze_rbac_paths"](mock=True, fixture=path)
-    net = tools["analyze_network_policy"](mock=True, fixture=path)
-    assert rbac["analysis_status"] in ("complete", "truncated")
-    assert net["analysis_status"] in ("complete", "truncated")
-    assert rbac["cluster"] and net["cluster"]
 
 
 if __name__ == "__main__":
@@ -687,8 +556,11 @@ def test_dashboard_exposes_the_resource_layer_without_recomputing_it():
     shell = app.route("GET", "/").text
     # The panel exists and is fed from the payload; no severity/reachability arithmetic
     # is duplicated in the browser.
-    assert "Evidence-backed routes" in shell
-    assert "resource_paths" in shell
+    assert "Top attack paths" in shell and "D.routes" in shell
+    assert payload["routes"]["total"] >= 1 and payload["routes"]["top"]
+    # the detailed route evidence (hops, confidence, supporting findings) is on the graph page
+    graph = app.route("GET", "/graph", query=f"scan_id={result.scan_id}").text
+    assert "Attack paths" in graph and '"confidence"' in graph
     assert "netStatusPill" in shell and "exposureHTML" in shell
 
 

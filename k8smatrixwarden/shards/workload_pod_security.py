@@ -216,6 +216,107 @@ def _sshd(rule, ev, scope):
                     evidence={"container": c.get("name")})
 
 
+def _host_port(rule, ev, scope):
+    for res, _spec, containers in _iter(ev):
+        for c in containers:
+            for port in c.get("ports", []) or []:
+                if port.get("hostPort"):
+                    yield rule.finding(
+                        ref(ev, res), f"container '{c.get('name')}' binds hostPort "
+                        f"{port['hostPort']} on the node",
+                        evidence={"container": c.get("name"), "hostPort": port["hostPort"]})
+
+
+def _share_process_ns(rule, ev, scope):
+    for res, spec, _c in _iter(ev):
+        if spec.get("shareProcessNamespace") is True:
+            yield rule.finding(ref(ev, res), "containers share one process namespace, so each "
+                               "can see and signal the others' processes")
+
+
+def _no_security_context(rule, ev, scope):
+    for res, spec, containers in _iter(ev):
+        if not spec.get("securityContext") and not any(c.get("securityContext")
+                                                       for c in containers):
+            yield rule.finding(ref(ev, res), "no securityContext on the pod or any container")
+
+
+def _host_process(rule, ev, scope):
+    for res, spec, containers in _iter(ev):
+        flags = [Evidence.dig(spec, "securityContext.windowsOptions.hostProcess")] + \
+                [Evidence.dig(c, "securityContext.windowsOptions.hostProcess") for c in containers]
+        if any(f is True for f in flags):
+            yield rule.finding(ref(ev, res), "Windows HostProcess container runs directly "
+                               "on the node", blast_radius=BlastRadius.CLUSTER)
+
+
+def _default_namespace(rule, ev, scope):
+    for res, _spec, _c in _iter(ev):
+        if (res.get("metadata", {}) or {}).get("namespace") == "default":
+            yield rule.finding(ref(ev, res), "workload runs in the default namespace")
+
+
+_VULN_SEV = {"Critical": S.CRITICAL, "High": S.HIGH, "Medium": S.MEDIUM}
+
+
+def _vuln_exploitability(kev: list, epss: float):
+    """How likely a CVE is to be used, from outside evidence rather than a guess.
+
+    Known-exploited (CISA KEV) or an EPSS score of 0.5+ is treated like a remotely usable
+    flaw (3). EPSS 0.05+ is adjacent (2). Everything else is local (1): a theoretical CVE
+    adds little on its own, and the reachability multiplier still raises it when the pod
+    is Internet-facing. EPSS is Grype's own field; when absent it counts as 0."""
+    if kev or epss >= 0.5:
+        return EX.REMOTE
+    return EX.ADJACENT if epss >= 0.05 else EX.LOCAL
+
+
+def _image_vulns(rule, ev, scope):
+    """One finding per running pod image whose Grype result has a fixable or known-exploited
+    Medium-or-worse vulnerability. Looks the image up by the digest the pod is running, so a
+    rebuilt (patched) image under the same tag is judged on its own contents."""
+    by_digest, by_ref = {}, {}
+    for it in ev.get("ImageVulnerability", all_scopes=True):
+        spec = it.get("spec", {}) or {}
+        if "error" in spec:
+            continue
+        if spec.get("digest"):
+            by_digest[spec["digest"]] = spec
+        by_ref.setdefault(spec.get("image"), spec)
+    for pod in ev.get("Pod"):
+        statuses = ((pod.get("status", {}) or {}).get("containerStatuses") or []) + \
+                   ((pod.get("status", {}) or {}).get("initContainerStatuses") or [])
+        for cs in statuses:
+            digest = (cs.get("imageID") or "").rpartition("@")[2] or cs.get("imageID") or ""
+            spec = by_digest.get(digest) or (by_ref.get(cs.get("image")) if not digest.startswith("sha256:") else None)
+            if not spec:
+                continue
+            matches = [m for m in spec.get("matches", []) if m["severity"] in _VULN_SEV
+                       or m["knownExploited"]]
+            kev = [m for m in matches if m["knownExploited"]]
+            fixable = [m for m in matches if m["fixState"] == "fixed"]
+            pool = kev or fixable
+            if not pool:
+                continue          # nothing to patch and nothing actively exploited
+            worst_epss = max((m["epss"] for m in matches), default=0)
+            sev = S.CRITICAL if kev else max((_VULN_SEV.get(m["severity"], S.MEDIUM) for m in pool),
+                                             key=lambda s: s.value)
+            if worst_epss >= 0.5 and sev is not S.CRITICAL:
+                sev = S.HIGH if sev is S.MEDIUM else S.CRITICAL      # likely to be exploited soon
+            counts = {}
+            for m in matches:
+                counts[m["severity"]] = counts.get(m["severity"], 0) + 1
+            top = sorted(matches, key=lambda m: (not m["knownExploited"], m["severity"] != "Critical",
+                                                 -m["epss"]))[:10]
+            yield rule.finding(
+                ref(ev, pod), f"image {spec.get('image')} has {len(matches)} vulnerabilities "
+                f"({len(fixable)} with a fix available, {len(kev)} known to be exploited)",
+                severity=sev, exploitability=_vuln_exploitability(kev, worst_epss),
+                evidence={"container": cs.get("name"), "image": spec.get("image"),
+                          "digest": spec.get("digest"), "counts": counts, "top": top,
+                          "scanner": "grype", "dbBuilt": spec.get("dbBuilt")})
+
+
 class WorkloadPodSecurityShard(DomainShard):
     name = SHARD_NAME
     title = "Workload & Pod Security"
@@ -250,7 +351,7 @@ class WorkloadPodSecurityShard(DomainShard):
             Rule("workload-caps-not-dropped", "Capabilities not dropped (ALL)", self.name,
                  ["Pod"], S.HIGH, DM.STATIC_CONFIG, _caps_not_dropped,
                  mitre=[M(T.PRIVILEGE_ESCALATION, "T1610", "Deploy Container")],
-                 owasp="K01", cis=["5.2.9"], evidence_needs=OWNER_LOOKUP_KINDS),
+                 owasp="K01", cis=["5.2.9", "5.2.10"], evidence_needs=OWNER_LOOKUP_KINDS),
             Rule("workload-host-pid", "Host PID namespace shared", self.name, ["Pod"],
                  S.CRITICAL, DM.STATIC_CONFIG, _host_ns("hostPID", "Disable Namespacing"),
                  mitre=[M(T.PRIVILEGE_ESCALATION, "T1610", "Disable namespacing (host PID/IPC/net)")],
@@ -299,6 +400,30 @@ class WorkloadPodSecurityShard(DomainShard):
                  ["Pod"], S.HIGH, DM.IMAGE, _sshd,
                  mitre=[M(T.EXECUTION, "T1610", "SSH server running inside container")],
                  owasp="K01", evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-host-port", "Container uses hostPort", self.name, ["Pod"],
+                 S.MEDIUM, DM.STATIC_CONFIG, _host_port,
+                 mitre=[M(T.LATERAL_MOVEMENT, "T1610", "Deploy Container")],
+                 owasp="K01", cis=["5.2.13"], evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-share-process-ns", "Shared process namespace", self.name, ["Pod"],
+                 S.MEDIUM, DM.STATIC_CONFIG, _share_process_ns,
+                 mitre=[M(T.LATERAL_MOVEMENT, "T1610", "Deploy Container")],
+                 owasp="K01", evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-no-security-context", "No securityContext", self.name, ["Pod"],
+                 S.MEDIUM, DM.STATIC_CONFIG, _no_security_context,
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1610", "Deploy Container")],
+                 owasp="K01", cis=["5.7.3"], evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-windows-hostprocess", "Windows HostProcess container", self.name,
+                 ["Pod"], S.CRITICAL, DM.STATIC_CONFIG, _host_process,
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1611", "Escape to Host")],
+                 owasp="K01", cis=["5.2.11"], evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-default-namespace", "Workload in the default namespace", self.name,
+                 ["Pod"], S.LOW, DM.STATIC_CONFIG, _default_namespace,
+                 mitre=[M(T.DEFENSE_EVASION, "T1610", "Deploy Container")],
+                 owasp="K01", cis=["5.7.4"], evidence_needs=OWNER_LOOKUP_KINDS),
+            Rule("workload-image-vulnerabilities", "Running image has known vulnerabilities",
+                 self.name, ["Pod", "ImageVulnerability"], S.HIGH, DM.IMAGE, _image_vulns,
+                 mitre=[M(T.INITIAL_ACCESS, "T1190", "Exploit Public-Facing Application")],
+                 owasp="K07", evidence_needs=["Pod", "ImageVulnerability"] + OWNER_LOOKUP_KINDS),
         ]
 
 

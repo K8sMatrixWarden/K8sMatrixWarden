@@ -22,7 +22,6 @@ from k8smatrixwarden.agents.orchestrator import Orchestrator
 from k8smatrixwarden.bootstrap import build_platform
 from k8smatrixwarden.cli.main import _build_scope, _build_selector
 from k8smatrixwarden.core.models import ScopeLevel, Selector
-from k8smatrixwarden.mcp.server import build_tools
 from k8smatrixwarden.web.app import WebApp
 
 
@@ -35,52 +34,12 @@ def _cli_args(**over):
     return SimpleNamespace(**base)
 
 
-def test_all_entry_points_resolve_the_same_rule_set():
-    """One logical request ('the RBAC module'), four entry points, identical rule ids IN
-    IDENTICAL ORDER."""
-    platform = build_platform()
-    app = WebApp(platform)
-    tools = build_tools()
-
-    cli = platform.mapping.resolve(_build_selector(_cli_args(module=["rbac_identity"])))
-    web = platform.mapping.resolve(app._selector_from({"modules": ["rbac_identity"]}))
-    mcp = tools["preview_scan"](modules=["rbac_identity"])["resolved_rule_ids"]
-    chat = platform.mapping.resolve(
-        Orchestrator(platform).interpret("scan rbac").request.selector)
-
-    assert cli == web == mcp == chat, {
-        "cli": cli, "web": web, "mcp": mcp, "chat": chat}
-    assert cli, "the rbac_identity module must resolve to at least one rule"
 
 
-def test_entry_points_agree_on_a_tactic_selector():
-    platform = build_platform()
-    app = WebApp(platform)
-    tools = build_tools()
-    tactic = "Privilege Escalation"
-
-    cli = platform.mapping.resolve(_build_selector(_cli_args(tactic=[tactic])))
-    web = platform.mapping.resolve(app._selector_from({"tactics": [tactic]}))
-    mcp = tools["preview_scan"](tactics=[tactic])["resolved_rule_ids"]
-    assert cli == web == mcp and cli
 
 
-def test_entry_points_agree_on_an_alias_selector():
-    platform = build_platform()
-    tools = build_tools()
-    cli = platform.mapping.resolve(_build_selector(_cli_args(alias=["Container Escape"])))
-    mcp = tools["preview_scan"](aliases=["Container Escape"])["resolved_rule_ids"]
-    assert cli == mcp and cli
 
 
-def test_natural_language_and_explicit_flags_agree():
-    """The chat/NL path is a Selector BUILDER, never a second resolver: what it produces
-    must resolve exactly like the equivalent explicit flags."""
-    platform = build_platform()
-    interp = Orchestrator(platform).interpret("scan the cluster for privilege escalation")
-    assert interp.request.selector.tactics == ["Privilege Escalation"]
-    assert interp.resolved_rule_ids == platform.mapping.resolve(
-        _build_selector(_cli_args(tactic=["Privilege Escalation"])))
 
 
 def test_scope_is_built_identically_by_cli_and_web():

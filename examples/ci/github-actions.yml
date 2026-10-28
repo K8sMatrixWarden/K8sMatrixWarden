@@ -1,0 +1,34 @@
+# Copy to .github/workflows/k8s-security.yml
+#
+# On every pull request: check the manifests, fail only on problems the change ADDS, put the
+# fixes in a PR comment, and show the findings in GitHub's Security tab.
+name: Kubernetes security
+on: [pull_request]
+permissions: {contents: read, pull-requests: write, security-events: write}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+
+      # What the base branch looks like today (so old findings never block a PR).
+      - name: Baseline from the base branch
+        run: |
+          git worktree add ../base "origin/${{ github.base_ref }}"
+          pip install --quiet "git+https://github.com/YOUR-ORG/K8sMatrixWarden#egg=k8smatrixwarden[manifests]"
+          k8smatrixwarden check ../base/k8s -o json --output-file base.json > /dev/null || true
+
+      - uses: YOUR-ORG/K8sMatrixWarden@main
+        with:
+          path: k8s
+          fail-on: HIGH
+          baseline: base.json
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: {sarif_file: k8smatrixwarden.sarif}
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: always()
+        with: {path: k8smatrixwarden-comment.md}

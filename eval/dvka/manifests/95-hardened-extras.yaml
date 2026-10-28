@@ -1,0 +1,77 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- NEG-NS2: The 'default' namespace hardened  [expects: nothing]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# ---- NEG-CP: Healthy control plane flags and a log collector  [expects: nothing]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: logging
+  labels:
+    app: fluent-bit
+    app.kubernetes.io/part-of: dvka
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: logging
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress

@@ -77,6 +77,10 @@ _API_GROUPS = {
     "Role": "rbac.authorization.k8s.io", "RoleBinding": "rbac.authorization.k8s.io",
     "ClusterRole": "rbac.authorization.k8s.io",
     "ClusterRoleBinding": "rbac.authorization.k8s.io",
+    "EndpointSlice": "discovery.k8s.io", "Event": "events.k8s.io",
+    "StorageClass": "storage.k8s.io", "PodDisruptionBudget": "policy",
+    "APIService": "apiregistration.k8s.io",
+    "CustomResourceDefinition": "apiextensions.k8s.io",
     "MutatingWebhookConfiguration": "admissionregistration.k8s.io",
     "ValidatingWebhookConfiguration": "admissionregistration.k8s.io",
 }

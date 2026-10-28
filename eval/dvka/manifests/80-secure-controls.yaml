@@ -1,0 +1,329 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- NEG-NS: Hardened namespace: PSA restricted + default-deny in both directions  [expects: nothing]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# ---- NEG-RB: Least-privilege Role bound to one ServiceAccount  [expects: nothing]
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reader-sa
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dvka-pod-reader
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dvka-pod-reader-binding
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dvka-pod-reader
+subjects:
+- kind: ServiceAccount
+  name: reader-sa
+  namespace: dvka-secure
+---
+# ---- NEG-NET: ClusterIP Service, LoadBalancer with source ranges, Ingress with TLS  [expects: nothing]
+apiVersion: v1
+kind: Service
+metadata:
+  name: neg-clusterip
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: ClusterIP
+  selector:
+    app: neg-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neg-lb-restricted
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: LoadBalancer
+  selector:
+    app: neg-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+  loadBalancerSourceRanges:
+  - 203.0.113.0/24
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: neg-ingress-tls
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  tls:
+  - hosts:
+    - secure.dvka.example
+    secretName: tls
+  rules:
+  - host: secure.dvka.example
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: neg-clusterip
+            port:
+              number: 8080
+---
+# ---- NEG-SEC: Secret consumed as a read-only file; benign ConfigMap  [expects: nothing]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+type: Opaque
+stringData:
+  password: placeholder-not-a-real-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neg-secret-as-file
+  namespace: dvka-secure
+  labels:
+    app: neg-secret-as-file
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neg-secret-as-file
+  template:
+    metadata:
+      labels:
+        app: neg-secret-as-file
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: s
+          mountPath: /etc/app/secrets
+          readOnly: true
+      volumes:
+      - name: s
+        secret:
+          secretName: db-credentials
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neg-app-config
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+data:
+  log_level: info
+  region: eu-west-1
+---
+# ---- NEG-AS: A ServiceAccount used by only two workloads  [expects: nothing]
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pair-sa
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neg-pair-a
+  namespace: dvka-secure
+  labels:
+    app: neg-pair-a
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neg-pair-a
+  template:
+    metadata:
+      labels:
+        app: neg-pair-a
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: pair-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neg-pair-b
+  namespace: dvka-secure
+  labels:
+    app: neg-pair-b
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neg-pair-b
+  template:
+    metadata:
+      labels:
+        app: neg-pair-b
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: pair-sa
+---
+# ---- NEG-WL: A fully hardened workload (every pod-security control on)  [expects: nothing]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neg-api
+  namespace: dvka-secure
+  labels:
+    app: neg-api
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neg-api
+  template:
+    metadata:
+      labels:
+        app: neg-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: neg-api-sa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: neg-api-sa
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka

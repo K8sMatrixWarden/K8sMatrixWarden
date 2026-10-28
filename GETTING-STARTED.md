@@ -18,9 +18,10 @@ You do not need a Kubernetes cluster, a cloud account, or any dependencies to be
 product ships with a sample cluster so you can learn the tool offline before pointing it
 at anything real.
 
-**A note on safety.** K8sMatrixWarden never modifies your cluster. It has no remediation
-path, no apply command, and no write-capable operation on any interface. Every action
-described in this guide is read-only. The single exception is Section 11, where *you*
+**A note on safety.** K8sMatrixWarden never modifies your cluster by default. It has no remediation
+path and no apply command. Every action described in this guide is read-only, except the
+Runtime tab's optional Falco deploy, which is switched off unless you start the dashboard with
+`K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1` and then confirm. The single exception is Section 11, where *you*
 apply an RBAC manifest that the tool generates for you.
 
 ---
@@ -54,17 +55,16 @@ apply an RBAC manifest that the tool generates for you.
 14. [The web dashboard](#14-the-web-dashboard)
 15. [Runtime correlation](#15-runtime-correlation)
 16. [Reports and scan history](#16-reports-and-scan-history)
-17. [Compliance and benchmarks](#17-compliance-and-benchmarks)
+17. [CIS Benchmark](#17-cis-benchmark)
 18. [CI/CD integration](#18-cicd-integration)
-19. [AI agent integration (MCP)](#19-ai-agent-integration-mcp)
 
 **Part V: Reference**
 
-20. [Command reference](#20-command-reference)
-21. [Configuration](#21-configuration)
-22. [Troubleshooting](#22-troubleshooting)
-23. [Glossary](#23-glossary)
-24. [The confidence model](#24-the-confidence-model)
+19. [Command reference](#19-command-reference)
+20. [Configuration](#20-configuration)
+21. [Troubleshooting](#21-troubleshooting)
+22. [Glossary](#22-glossary)
+23. [The confidence model](#23-the-confidence-model)
 
 ---
 
@@ -79,7 +79,7 @@ product answers three, and connects the answers to each other.
 
 **Question 1: What is misconfigured?**
 
-The scanner applies 62 detection rules across 11 security domains. It identifies issues
+The scanner applies 55 detection rules across 7 security domains. It identifies issues
 such as privileged containers, overly broad RBAC permissions, missing network
 segmentation, exposed management interfaces, unencrypted secret storage, and inadequate
 audit logging.
@@ -114,13 +114,13 @@ Neither connects the two observations. K8sMatrixWarden does.
 
 ### 1.3 Capabilities
 
-- Kubernetes configuration analysis across 11 domains
+- Kubernetes configuration analysis across 7 domains
 - Multi-hop RBAC privilege escalation path analysis
 - NetworkPolicy evaluation in both directions
 - Runtime correlation with Falco and Kubernetes audit events
 - CIS Kubernetes Benchmark v1.8, all 130 controls
-- Governance frameworks: PCI DSS v4.0, SOC 2, ISO 27001:2022, NIST 800-53 rev5
-- Cross-cluster blast radius analysis
+- Manifest and Helm chart scanning before deploy, with CI baseline gating and accepted-risk suppressions
+- Image CVE scanning via Grype, tied into reachability scoring
 
 ---
 
@@ -131,24 +131,20 @@ Neither connects the two observations. K8sMatrixWarden does.
 The product is built on one organizing idea: **where a rule lives and what a rule means
 are separate concerns.**
 
-**Domain shards** define where a rule lives. There are 11, and they form the execution
+**Domain shards** define where a rule lives. There are 7, and they form the execution
 boundary of the scanner.
 
 | Shard | Covers |
 |---|---|
-| `cluster_control_plane` | API server, etcd, kubelet, and Kubernetes version |
 | `workload_pod_security` | Pod and container security context |
 | `rbac_identity` | Roles, bindings, ServiceAccounts, and privilege escalation |
 | `network_security` | Services, Ingress, NetworkPolicy, and exposure |
-| `image_supply_chain` | Image references, tags, signatures, and pull policy |
 | `secrets` | Secret handling, storage, and exposure |
 | `compliance` | Pod Security Admission and baseline posture |
 | `attack_surface` | Cross-cutting exposure analysis |
-| `admission_control` | Admission webhooks and scheduled jobs |
-| `cloud_iam` | Cloud identity reachable from the cluster |
 | `log_analysis` | Audit policy, retention, rotation, and log shipping |
 
-`log_analysis` answers a question the other ten do not. The others ask whether a door is
+`log_analysis` answers a question the other six do not. The others ask whether a door is
 unlocked. This one asks whether anyone is recording who walked through it.
 
 **MITRE ATT&CK tactics** define what a rule means to an attacker. Tactics are tags applied
@@ -175,7 +171,7 @@ Aggregator            deduplicates findings and merges tags
        |
 Risk Scoring          applies attack-path-aware scoring
        |
-Reporting             renders to any of 8 output formats
+Reporting             renders to any of 7 output formats
 ```
 
 The single most important property here is **fetch once**. All selected rules evaluate
@@ -190,7 +186,7 @@ The product maintains two independent detection surfaces that feed one evidence 
 
 | Surface | Data source | Question answered | Rule count |
 |---|---|---|---|
-| **Scan** | Kubernetes API objects, point in time | Is this door unlocked? | 62 |
+| **Scan** | Kubernetes API objects, point in time | Is this door unlocked? | 55 |
 | **Runtime** | Falco alerts and Kubernetes audit events | Did somebody walk through it? | 11 |
 
 These catalogs are deliberately separate and are never merged. A scan rule describes a
@@ -300,7 +296,7 @@ python --version
 **Supported versions: 3.10 through 3.14.** The 3.10 floor is imposed by the optional
 extras, not by the engine. **Python 3.11 or 3.12 is recommended for production use**,
 because every optional extra has shipped prebuilt packages for those versions for years.
-The full test suite of 966 tests passes on both 3.11 and 3.14.
+The full test suite of 952 tests passes on both 3.11 and 3.14.
 
 ### 4.2 Optional, by capability
 
@@ -310,25 +306,9 @@ capability.
 | To do this | You need | Install command |
 |---|---|---|
 | Scan a real cluster | `kubernetes` package and a kubeconfig | `pip install -e ".[live]"` |
+| Scan YAML / Helm charts before deploy (`--manifests`, `check`) | `pyyaml` | `pip install -e ".[manifests]"` |
 | Formatted terminal tables | `rich` | `pip install -e ".[pretty]"` |
-| Use from Cursor, Claude, or VS Code | `mcp` | `pip install -e ".[mcp]"` |
-| Export PDF reports | `fpdf2` | `pip install -e ".[pdf]"` |
-| Export Excel workbooks | `openpyxl` | `pip install -e ".[excel]"` |
-| Local chat assistant with an LLM | `anthropic`, or any OpenAI-compatible endpoint | `pip install -e ".[agent]"` |
 | All of the above | | `pip install -e ".[all]"` |
-
-> **MCP SDK version.** K8sMatrixWarden requires **`mcp>=1.0,<2`**, and the `[mcp]` and
-> `[all]` extras pin it. The server is written against the v1 FastMCP API
-> (`mcp.server.fastmcp.FastMCP`); mcp 2.x renamed that class to `MCPServer` and removed the
-> module, so **mcp 2.x is not supported in this release** and is not a silent degradation —
-> `k8smatrixwarden mcp` refuses to start and `k8smatrixwarden doctor` reports the SDK as
-> FAIL. If you already have mcp 2.x from another project, install the supported range:
->
-> ```
-> pip install "mcp>=1.0,<2"
-> ```
->
-> Every tool stays callable in-process through `build_tools()` regardless of the SDK.
 
 ### 4.3 Cluster access requirements
 
@@ -355,45 +335,30 @@ cd K8sMatrixWarden
 
 ### 5.2 Verify the installation
 
-Run the health check first. Always run this before reporting a problem.
+Run the test suite first. Always run this before reporting a problem.
 
 ```bash
-python -m k8smatrixwarden doctor
+python -m tests.run_tests     # bundled stdlib runner, no pytest needed
+python -m pytest tests/       # also works
 ```
 
-Expected result on a fresh checkout:
+Expected result on a fresh checkout: **892 of 952 tests passing.** This exercises every
+shard and rule loading correctly, every MITRE technique identifier resolving against the
+vendored ATT&CK taxonomy, every composite alias resolving to real rule identifiers, no
+duplicate rule identifiers across shards, all 7 report formats rendering, the runtime
+catalog loading, and the generated RBAC containing only read verbs.
 
-```
-20 pass · 0 warn · 0 fail · 7 not configured
-```
-
-Reading the output:
-
-| Status | Meaning | Action |
-|---|---|---|
-| `PASS` | Working correctly | None |
-| `NOT CONFIGURED` | An optional extra is absent | None, unless you want that capability |
-| `WARN` | Functional, with a caveat | Read the message |
-| `FAIL` | Broken | Must be resolved |
-
-`FAIL` is the only status that indicates a problem.
-
-The doctor command validates 20 items: every shard and rule loaded correctly, every MITRE
-technique identifier resolves against the vendored ATT&CK taxonomy, every composite alias
-resolves to real rule identifiers, no duplicate rule identifiers exist across shards, all
-8 report formats render, the runtime catalog loaded, and the generated RBAC contains only
-read verbs.
-
-For the detail behind every check:
+To sanity-check the install without touching a cluster:
 
 ```bash
-python -m k8smatrixwarden doctor --verbose
+python -m k8smatrixwarden rules          # the full rule catalog loads
+python -m k8smatrixwarden scan --mock --dry-run
 ```
 
 ### 5.3 Install optional extras
 
 An **editable install is recommended**. It places the package permanently on the Python
-path, which allows AI agent clients and any working directory to locate it.
+path, so it resolves from any working directory.
 
 ```bash
 pip install -e ".[all]"
@@ -402,9 +367,8 @@ pip install -e ".[all]"
 Or install only what you need:
 
 ```bash
-pip install -e ".[live]"     # real cluster scanning
-pip install -e ".[mcp]"      # AI agent integration
-pip install -e ".[pdf]"      # PDF export
+pip install -e ".[live]"        # real cluster scanning
+pip install -e ".[manifests]"   # scan YAML / Helm charts before deploy
 ```
 
 ### 5.4 Invocation: prefer the module form
@@ -412,8 +376,8 @@ pip install -e ".[pdf]"      # PDF export
 After installation, two invocation styles work:
 
 ```bash
-python -m k8smatrixwarden doctor     # module form, recommended
-k8smatrixwarden doctor               # console script
+python -m k8smatrixwarden rules     # module form, recommended
+k8smatrixwarden rules               # console script
 ```
 
 **Use the module form.** `pip` installs the console script into a per-interpreter
@@ -426,23 +390,20 @@ With multiple Python versions installed, be explicit:
 
 ```bash
 py -3.12 -m pip install -e ".[all]"
-py -3.12 -m k8smatrixwarden doctor
+py -3.12 -m k8smatrixwarden rules
 ```
 
 ### 5.5 Choosing an interface
 
-The product offers three interfaces over the same engine. They produce identical results,
-and scans from any of them are saved to the same report store.
+The product offers two interfaces over the same engine. They produce identical results,
+and scans from either are saved to the same report store.
 
 | Interface | Best for | Section |
 |---|---|---|
-| **AI agent client (MCP)** | The intended primary workflow. Describe what you want; the agent selects from 47 tools. | [19](#19-ai-agent-integration-mcp) |
 | **Command line** | Scripting, CI pipelines, and precise control over scope and selectors. | [13](#13-running-a-live-scan) |
 | **Web dashboard** | Reviewing results, browsing scan history, and sharing findings. | [14](#14-the-web-dashboard) |
 
 This guide teaches the command line first, because it makes the underlying model visible.
-Once the concepts in Part I are familiar, the agent interface is usually faster for daily
-work.
 
 ---
 
@@ -479,6 +440,7 @@ python -m k8smatrixwarden coverage
 
 # the global threat matrix across all rules
 python -m k8smatrixwarden matrix --coverage
+python -m k8smatrixwarden topology      # network topology: exposure paths + who can reach whom
 
 # resolve a selector and show which rules would run, without scanning
 python -m k8smatrixwarden scan --module secrets --dry-run
@@ -700,15 +662,11 @@ Then scan it:
 python -m k8smatrixwarden scan --live --name "goat" --yes
 ```
 
-**Reference results** from Kubernetes Goat on Docker Desktop, 30 pods:
-
-- 489 findings: 28 CRITICAL, 215 HIGH, 246 MEDIUM. Risk score 9.9 of 10.
-- Evidence coverage 95.5 percent, basis `measured`. The missing 4.5 percent is the
-  `cloud_iam` domain, which has no Kubernetes API path on a local cluster and is therefore
-  reported as unread rather than clean.
-- 9 MITRE tactics chained, reaching Impact, plus 25 evidence-backed resource routes.
-- Complete scan time including RBAC graph and NetworkPolicy evaluation: roughly 213
-  milliseconds.
+**What to expect** from Kubernetes Goat on Docker Desktop: dozens of findings across
+CRITICAL, HIGH, and MEDIUM, a risk score near the top of the scale, evidence coverage
+basis `measured` (every shard in this branch has a real Kubernetes API path, so nothing
+is reported as unread by design), several MITRE tactics chained, and a scan completing in
+well under a second including RBAC graph construction and NetworkPolicy evaluation.
 
 The count includes Falco's own DaemonSet, which is privileged and mounts host paths by
 design. The scanner reports it rather than exempting it, so the output stays auditable.
@@ -1011,10 +969,6 @@ different `AWS_PROFILE` set can silently target a different account. Confirm wit
 access to the VPC through a VPN, bastion host, or Direct Connect. No credential
 configuration substitutes for a missing network path.
 
-**Cloud IAM coverage.** The `cloud_iam` domain has no Kubernetes API path, so the scanner
-reports it as unread rather than clean. Expect roughly 4.5 percent of evidence coverage to
-be reported as missing, along with a warning stating why. This is intentional accuracy,
-not a failure.
 
 ---
 
@@ -1258,11 +1212,9 @@ workflow, and you perform it, not the product:**
 kubectl apply -f k8smatrixwarden-rbac.json
 ```
 
-The read-only property is asserted on every `doctor` run:
-
-```
-PASS   generated RBAC is read-only, every generated verb is get/list/watch
-```
+The read-only property is asserted by the test suite:
+`tests/test_registry.py::test_deployment_manifest_binds_every_shard` checks that every rule
+across every emitted ClusterRole carries only `get`, `list`, or `watch`.
 
 Nothing in the generated RBAC grants a write verb, `exec`, or access to Secret contents.
 Every cluster-telemetry metric the dashboard shows (privileged pods, hostPath and host
@@ -1308,7 +1260,7 @@ Select one. The default is the entire cluster.
 
 ### 13.4 Selector options
 
-Combine freely. The default is all 62 rules.
+Combine freely. The default is all 55 rules.
 
 | Flag | Selects by |
 |---|---|
@@ -1338,7 +1290,7 @@ python -m k8smatrixwarden scan --live --no-runtime
 
 ### 13.6 Output formats
 
-`-o` accepts `terminal`, `text`, `markdown`, `json`, `sarif`, `html`, `pdf`, and `xlsx`.
+`-o` accepts `terminal`, `text`, `markdown`, `json`, `sarif`, `html`, and `brief`.
 Use `--output-file PATH` to write to a file.
 
 A saved scan can be re-rendered into any of these formats later without rescanning, as
@@ -1356,16 +1308,21 @@ python -m k8smatrixwarden web --port 8080 --open
 
 ### 14.1 Tabs
 
-The dashboard has six tabs:
-
 | Tab | Contents |
 |---|---|
+| **Start here** | Orientation: what to do first, with links into the rest of the dashboard |
 | **Overview** | Cluster overview telemetry, risk score, severity distribution, pod exposure, remediation priority, evidence coverage, and posture change |
-| **Findings** | Searchable and sortable finding list, with the count in the tab label. Expanding a finding shows its NetworkPolicy posture and RBAC escalation path. |
-| **Threat Matrix** | MITRE ATT&CK heatmap for this scan |
-| **Attack Path** | Tactic-level kill chain, the force-directed attack graph, and evidence-backed resource routes |
+| **Issues** | Searchable and sortable finding list, with the count in the tab label. Expanding a finding shows its NetworkPolicy posture and RBAC escalation path. |
+| **Threat matrix** | MITRE ATT&CK heatmap for this scan |
+| **What changed** | Findings new, resolved, persistent, or regressed since the previous scan of the same cluster |
+| **Investigate a workload** | Drill into one workload: its findings, exposure, and RBAC path |
+| **Cluster** | Node and namespace telemetry for the scanned cluster |
+| **Policy review** | Review and accept findings as known risk, with the suppression file they generate |
 | **Runtime** | Runtime correlation and configuration drift for this scan, with a live refresh |
+| **Build an app** | A safe-by-default, drag-and-drop manifest builder |
 | **Scans** | Every saved scan, re-openable, plus the scan form |
+| **Tasks** | Background task status for long-running scans |
+| **Accepted risks** | Findings suppressed by a baseline or suppressions file |
 
 Every tab is keyboard operable: the tab strip is a single stop in the tab order, and the
 left and right arrow keys move between tabs. Filter chips, sortable column headers, matrix
@@ -1471,6 +1428,24 @@ python -m k8smatrixwarden scan --live --falco-namespace falco-system --falco-sin
 # disable the runtime feed
 python -m k8smatrixwarden scan --live --no-runtime
 ```
+
+**Falco needs a real kernel underneath it.** Its probe attaches eBPF tracepoints to the
+node's own kernel, so it works on EKS/GKE/AKS nodes, bare metal, and `kind`/`k3d`. It does
+**not** work reliably inside nested virtualization — minikube's `docker` driver on macOS,
+for instance, runs the "node" as a container inside Docker Desktop's own Linux VM, and
+Falco's probe cannot attach the tracepoints it needs there. The pod starts and its rules
+load without error, but zero syscalls are ever captured. This is a kernel-access
+limitation, not a configuration mistake; there is no flag that fixes it. Use a real node
+(a cloud cluster, or Docker Desktop's VM directly) to see live Falco events end to end.
+
+**Try the correlation without deploying Falco at all.** The dashboard's Runtime tab has a
+"Try with sample events" button: it builds three synthetic, Falco-shaped events from
+*this scan's own findings* — one naming the exact resource of a real finding, one in the
+same namespace but on a resource the scan never saw, one with no MITRE tag at all — and
+pushes them through the identical `/api/runtime` ingestion code a real sensor uses. The
+result is clearly labelled "Sample data, not a real detection" and never persists as if it
+were live. It is how `core/runtime_demo.py` demonstrates confirmed / corroborated /
+runtime-only without any cluster-level dependency.
 
 ### 15.2 Kubernetes audit events: no agent required
 
@@ -1616,12 +1591,12 @@ python -m k8smatrixwarden scan --live --name "Q3 prod audit"
 
 ```bash
 python -m k8smatrixwarden report list --limit 20
-python -m k8smatrixwarden report download --scan-id <id> --format pdf --output audit.pdf
+python -m k8smatrixwarden report download --scan-id <id> --format markdown --output audit.md
 python -m k8smatrixwarden report download --format sarif --output latest.sarif
 ```
 
 Omitting `--scan-id` uses the most recent scan. A saved scan can be re-rendered into any
-of the 8 formats without rescanning, because the stored result carries the complete
+of the 7 formats without rescanning, because the stored result carries the complete
 analysis.
 
 ### 16.4 Posture comparison
@@ -1637,25 +1612,9 @@ Findings are classified as new, resolved, persistent, or regressed.
 Kubernetes object UID is deliberately excluded from finding identity. A recreated Pod
 carrying the same flaw is the same finding, not a fix followed by a regression.
 
-### 16.5 Cross-cluster analysis
-
-Save a scan per cluster, then correlate blast radius across them:
-
-```bash
-python -m k8smatrixwarden federation -o html --output-file blast-radius.html
-```
-
-This identifies **shared non-default identities**, meaning the same custom ClusterRole,
-ServiceAccount, or cloud IAM role present in more than one cluster, and flags them as
-candidate cross-cluster lateral movement paths to verify. Kubernetes built-in defaults are
-excluded, because their presence everywhere carries no signal.
-
-The practical question this answers: if the production cluster is compromised, does
-staging fall with it, and which shared identity is the link.
-
 ---
 
-## 17. Compliance and benchmarks
+## 17. CIS Benchmark
 
 ### 17.1 CIS Kubernetes Benchmark v1.8
 
@@ -1692,21 +1651,6 @@ To resolve the 31 node controls:
 kube-bench run --targets master,node,etcd,policies --json > kb.json
 python -m k8smatrixwarden cis --live --kube-bench-json kb.json
 ```
-
-### 17.2 Governance frameworks
-
-```bash
-python -m k8smatrixwarden compliance --live -o pdf --output-file attestation.pdf
-python -m k8smatrixwarden compliance --live --frameworks PCI-DSS-4.0,SOC2
-```
-
-Supported frameworks: PCI DSS v4.0, SOC 2, ISO 27001:2022, and NIST 800-53 rev5.
-
-Output is auditor-facing rather than a finding dump. Each requirement carries a pass or
-fail status with supporting evidence, and the report states plainly where posture blocks
-attestation, for example "N findings block PCI-DSS attestation".
-
-Available output formats: `markdown`, `json`, `html`, and `pdf`.
 
 ---
 
@@ -1754,254 +1698,62 @@ SARIF output uploads directly to GitHub code scanning.
 
 ---
 
-## 19. AI agent integration (MCP)
-
-Running the product through an AI agent client is the intended primary workflow. Instead
-of composing flags, you describe what you want and the agent selects the tools.
-
-The product exposes 40 read-only tools over the Model Context Protocol, covering scanning,
-correlation, RBAC analysis, threat matrix construction, and reporting.
-
-**No write-capable tool is exposed.** This is enforced by
-`tests/test_mcp.py::test_no_remediation_or_apply_tool_is_exposed`.
-
-### 19.1 Install and verify
-
-```bash
-pip install -e ".[mcp]"
-```
-
-Confirm the server works before configuring any client. This prints all 47 tools without
-starting the server:
-
-```bash
-python -m k8smatrixwarden mcp --list-tools
-```
-
-If this succeeds but a client shows no tools, the problem is in the client configuration
-rather than the product. See Section 19.7.
-
-### 19.2 Clients with project-local configuration
-
-**Configuration files for these clients ship in the repository.** There is nothing to
-write and no path to fill in.
-
-| Client | File it reads | Included |
-|---|---|---|
-| Cursor | `.cursor/mcp.json` | Yes |
-| Claude Code (CLI, desktop app, VS Code and JetBrains extensions) | `.mcp.json` | Yes |
-| VS Code Copilot Chat, Agent mode, version 1.102 or later | `.vscode/mcp.json` | Yes |
-
-**Setup:**
-
-1. Clone the repository:
-
-   ```bash
-   git clone <repository-url> && cd K8sMatrixWarden
-   ```
-
-2. Open the folder in your MCP client.
-
-3. Enable the server and confirm the tools load:
-
-   | Client | Where to look |
-   |---|---|
-   | Cursor | Settings, then Tools and MCP. `k8smatrixwarden` should be listed, enabled, showing 47 tools. |
-   | Claude Code | Run `/mcp` and approve the project-scoped server the first time it prompts. |
-   | VS Code | Open Copilot Chat, switch the mode selector to **Agent**, then open the tools picker. MCP tools appear in Agent mode only. |
-
-4. Open the agent chat and describe what you want. The agent selects the tools.
-
-### 19.3 Configuration file contents
-
-You do not need to create these. They are documented here so you can verify them, adapt
-them for a client not listed above, or reproduce them elsewhere.
-
-**Cursor,** `.cursor/mcp.json`, and **Claude Code,** `.mcp.json`. Both use the same shape:
-
-```json
-{
-  "mcpServers": {
-    "k8smatrixwarden": {
-      "command": "python",
-      "args": ["-m", "k8smatrixwarden", "mcp"]
-    }
-  }
-}
-```
-
-**VS Code,** `.vscode/mcp.json`. Note the different top-level key and the explicit
-transport type:
-
-```json
-{
-  "servers": {
-    "k8smatrixwarden": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "k8smatrixwarden", "mcp"]
-    }
-  }
-}
-```
-
-**Why the formats differ.** MCP standardizes the protocol, not configuration discovery.
-Each client chose its own filename, directory, and JSON shape. VS Code nests entries under
-`servers` and requires `"type": "stdio"`; every other client uses `mcpServers`. The server
-itself never varies: all clients launch the identical process and see the identical 40
-tools.
-
-**Why `python -m` rather than the console script.** The `k8smatrixwarden mcp` console
-script also works, but it is more fragile. `pip` installs that launcher into a
-per-interpreter `Scripts/` directory on Windows or `bin/` directory elsewhere, which is
-frequently absent from `PATH`. With several Python versions installed you get one launcher
-each, with no control over which one resolves first. The `python -m` form avoids both
-problems.
-
-### 19.4 Clients with machine-wide configuration
-
-Claude Desktop and Windsurf read a single machine-wide configuration file rather than a
-project file, so no repository file can reach them.
-
-**Install the package editable first.** This places it permanently on the Python path, so
-the server starts regardless of which directory the client launches it from:
-
-```bash
-pip install -e ".[mcp]"
-```
-
-Then add this entry to the client's configuration file:
-
-```json
-{
-  "mcpServers": {
-    "k8smatrixwarden": {
-      "command": "python",
-      "args": ["-m", "k8smatrixwarden", "mcp"]
-    }
-  }
-}
-```
-
-| Client | Configuration file |
-|---|---|
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json`, reachable from Settings, then Developer, then Edit Config |
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-
-Restart the client after editing.
-
-### 19.5 Tool categories
-
-| Category | Count | Examples |
-|---|---|---|
-| Knowledge | 14 | `list_rules`, `get_rule`, `get_taxonomy`, `mitre_coverage` |
-| Scan, audit, runtime, graph analysis | 16 | `run_scan`, `intelligent_scan`, `correlate_runtime`, `analyze_rbac_paths` |
-| Reports and stored scan analysis | 7 | `list_reports`, `download_report`, `posture_history` |
-| Runtime provider lifecycle | 6 | `get_falco_status`, `deploy_falco`, `get_helm_status`, `install_helm` |
-| Platform and application lifecycle | 4 | `run_doctor`, `start_web_server`, `get_web_server_status`, `stop_web_server` |
-
-Every tool parameter carries a schema description, so the agent can select and populate
-tools without additional prompting.
-
-### 19.6 Example prompts
-
-**Mock scan, no cluster required:**
-
-> Run an `intelligent_scan` for privilege escalation on the mock cluster and summarize the
-> findings, and also start the web interface.
-
-**Live scan:**
-
-> Use k8smatrixwarden and run a live scan of my cluster covering the whole attack matrix.
-> kubeconfig `"C:\Users\me\.kube\config"`, name it `"Prod live Scan"`, and give me a
-> markdown report. Also start the web interface.
-
-**Scans run over MCP are saved to the shared report store by default**, so anything the
-agent scans appears immediately in the web dashboard's Scan history. See Section 16.
-
-### 19.7 When tools do not appear
-
-Work through these in order.
-
-1. **Verify the server independently.** If this fails, the problem is the installation,
-   not the client:
-
-   ```bash
-   python -m k8smatrixwarden mcp --list-tools
-   ```
-
-2. **Check the interpreter.** MCP clients launch whichever interpreter the name `python`
-   resolves to. If that is not the interpreter you installed into, the server cannot
-   start. Install editable into the interpreter the client actually uses:
-
-   ```bash
-   py -3.12 -m pip install -e ".[mcp]"
-   ```
-
-3. **For VS Code, confirm you are in Agent mode.** MCP tools are hidden in every other
-   mode.
-
-4. **Restart the client.** Machine-wide configuration changes are read at startup.
-
----
-
 # Part V: Reference
 
-## 20. Command reference
+## 19. Command reference
 
-### 20.1 Commands
+### 19.1 Commands
 
 | Command | Purpose |
 |---|---|
 | `scan` | Run a scan by scope and selector, or as a natural-language query |
-| `rules` | List the 62-rule registry, filterable by `--module` and `--tactic` |
+| `check` | `scan` with sensible CI defaults: brief output, `--manifests` for a path, `--live` otherwise, nothing saved unless `--save` |
+| `rules` | List the 55-rule registry, filterable by `--module` and `--tactic` |
 | `coverage` | MITRE tactic coverage, expressed as rules per tactic |
 | `matrix` | Print the threat matrix for a scan, or `--coverage` for the global matrix |
+| `topology` | Print the network topology: exposure paths and who can reach whom |
 | `cis` | CIS Kubernetes Benchmark v1.8, all 130 controls |
-| `compliance` | PCI DSS 4.0, SOC 2, ISO 27001:2022, and NIST 800-53 rev5 |
 | `posture` | What changed since the previous scan of the same cluster |
-| `federation` | Cross-cluster blast radius from saved per-cluster scans |
 | `report list` | List stored reports |
 | `report download` | Re-render a stored report in any format |
 | `roles` | Generate scoped read-only RBAC, one ClusterRole per shard plus a platform-inventory role |
+| `notify` | Post the latest saved scan summary to Slack or a compatible webhook |
 | `web` | Launch the dashboard, bound to `127.0.0.1` |
-| `chat` | Interactive conversational assistant, confirm before running |
-| `mcp` | Run the MCP server, or list its tools with `--list-tools` |
-| `doctor` | Full health and consistency check |
 
-### 20.2 Flags common to cluster-touching commands
+### 19.2 Flags common to cluster-touching commands
 
 | Flag | Purpose |
 |---|---|
 | `--mock` | Use the bundled sample cluster. This is the default. |
 | `--live` | Scan the live cluster |
+| `--manifests PATH...` | Scan YAML or Helm chart paths instead of a cluster |
 | `--fixture PATH` | Use a custom cluster JSON file |
 | `--kubeconfig PATH` | Kubeconfig location, defaulting to `~/.kube/config` |
 | `--context NAME` | Kubeconfig context, defaulting to the current context |
 
-### 20.3 Scan flags
+### 19.3 Scan flags
 
 ```
 scope     --namespace/-n · --pod · --workload KIND/name · --node · --image · --helm-release
 selector  --tactic · --technique · --module · --rule · --alias · --framework · --severity-min
-output    -o {terminal,text,markdown,json,sarif,html,pdf,xlsx} · --output-file PATH
+output    -o {terminal,text,markdown,json,sarif,html,brief} · --output-file PATH
 naming    --name "<scan name>"
 storage   saved by default · --no-save · --reports-dir PATH
-control   --dry-run · --yes · --fail-on {LOW,MEDIUM,HIGH,CRITICAL}
+control   --dry-run · --yes · --fail-on {LOW,MEDIUM,HIGH,CRITICAL} · --baseline REF
 runtime   --no-runtime · --falco-namespace NAME · --falco-since DURATION
+images    --grype (scan running images for CVEs, needs the grype program)
+risk      --suppressions FILE (accepted-risk file; also reads .k8smatrixwarden-ignore.yaml)
 ```
 
 ---
 
-## 21. Configuration
+## 20. Configuration
 
-### 21.1 Configuration files
+### 20.1 Configuration files
 
 | File | Purpose |
 |---|---|
 | `k8smatrixwarden/config/default_config.json` | Shard toggles, rule severity overrides, composite aliases |
-| `k8smatrixwarden/config/agent.json` | Optional LLM provider settings |
 | `k8smatrixwarden/taxonomy/*.json` | MITRE ATT&CK, OWASP, and compliance crosswalk data |
 
 Override the configuration file globally:
@@ -2010,86 +1762,15 @@ Override the configuration file globally:
 python -m k8smatrixwarden --config /path/to/config.json scan --mock
 ```
 
-### 21.2 The optional LLM layer
-
-**The scanner never requires an LLM.** Every value the product produces, including
-findings, risk scores, coverage, the threat matrix, attack paths, and CIS and compliance
-status, is computed by deterministic Python with no model involvement.
-
-The optional LLM layer powers only the local `chat` command's multi-step tool chaining. An
-AI agent client connecting over MCP brings its own model and does not use this layer at
-all.
-
-No provider or model is compiled in. Configure it through environment variables:
-
-```bash
-# any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter, Together,
-# Groq, vLLM, llama.cpp, LM Studio, or Ollama, including fully local models
-export K8SMATRIXWARDEN_LLM_PROVIDER=openai-compatible
-export K8SMATRIXWARDEN_LLM_BASE_URL=http://localhost:11434/v1
-export K8SMATRIXWARDEN_LLM_MODEL=llama3.1:70b
-
-# or a hosted Anthropic model
-export K8SMATRIXWARDEN_LLM_PROVIDER=anthropic
-export K8SMATRIXWARDEN_LLM_MODEL=<any model your account can call>
-export ANTHROPIC_API_KEY=...
-```
-
-| Setting | Environment variable | Meaning |
-|---|---|---|
-| `provider` | `K8SMATRIXWARDEN_LLM_PROVIDER` | `anthropic`, `openai`, `azure-openai`, `openai-compatible`, or `ollama` |
-| `model` | `K8SMATRIXWARDEN_LLM_MODEL` | Any model identifier the endpoint serves |
-| `base_url` | `K8SMATRIXWARDEN_LLM_BASE_URL` | Endpoint, for self-hosted, gateway, or local servers |
-| `api_key_env` | `K8SMATRIXWARDEN_LLM_API_KEY_ENV` | Name of the variable holding the key, so the key itself never enters a file |
-| | `K8SMATRIXWARDEN_LLM_API_KEY` | The key directly, if a named variable is not wanted |
-| `extra` | `K8SMATRIXWARDEN_LLM_EXTRA` | JSON for provider-specific extras such as custom headers or Azure deployment settings |
-
-Equivalent settings can live in the `llm` block of `config/agent.json`:
-
-```json
-{
-  "llm": {
-    "provider": "openai-compatible",
-    "model": "llama3.1:70b",
-    "base_url": "http://localhost:11434/v1",
-    "api_key_env": "MY_LOCAL_KEY",
-    "extra": {"headers": {"X-Tenant": "sec-team"}}
-  }
-}
-```
-
-**Selection is deterministic and documented.** Precedence, highest first:
-
-1. An explicit argument passed by an API caller
-2. Environment variables
-3. The `llm` block of `agent.json`
-4. Controlled auto-detection, in this fixed order: `ANTHROPIC_API_KEY`, then
-   `OPENAI_API_KEY`, then `AZURE_OPENAI_API_KEY`, then `OLLAMA_HOST`
-
-If auto-detection finds more than one candidate, **the product refuses to guess.** It
-reports the ambiguity and asks you to name the provider. It never depends on dictionary or
-environment iteration order. With no candidate at all, the agent path stays off and the
-scanner is unaffected.
-
-Verify the active configuration:
-
-```bash
-python -m k8smatrixwarden doctor            # report provider, model, and validity
-python -m k8smatrixwarden doctor --probe    # additionally make one small live call
-```
-
-Any LLM problem, whether a missing key, an incorrect model name, an unreachable endpoint,
-a rate limit, or a missing package, is reported, and the product falls back to its
-deterministic path. **An LLM failure can never change what a scan found.**
-
-The OpenAI-compatible adapter uses standard library HTTP and requires no third-party
-package. Only the Anthropic adapter needs one, installed with `pip install -e ".[agent]"`.
+**The scanner never requires an LLM or any external service.** Every value the product
+produces, including findings, risk scores, coverage, the threat matrix, and attack paths,
+is computed by deterministic Python with no model involvement.
 
 ---
 
-## 22. Troubleshooting
+## 21. Troubleshooting
 
-### 22.1 `Kubernetes API authentication failed for context '...'`
+### 21.1 `Kubernetes API authentication failed for context '...'`
 
 The kubeconfig loaded, but no valid credentials could be obtained. **The product refuses
 to save a result in this situation by design**, because a scan of a cluster it could not
@@ -2107,12 +1788,12 @@ Resolve by cloud provider:
 Confirm with `kubectl get nodes` before rescanning. To scan the bundled sample cluster
 instead, add `--mock`.
 
-### 22.2 `error: You must be logged in to the server (Unauthorized)` on EKS
+### 21.2 `error: You must be logged in to the server (Unauthorized)` on EKS
 
 Layer 1 succeeded and Layer 2 failed. You are authenticated to AWS but not authorized
 inside the cluster. See Section 9.5.
 
-### 22.3 `Unable to locate credentials` or `ExpiredToken` on AWS
+### 21.3 `Unable to locate credentials` or `ExpiredToken` on AWS
 
 The Identity Center session expired:
 
@@ -2120,7 +1801,7 @@ The Identity Center session expired:
 aws sso login --profile <name>
 ```
 
-### 22.4 `ModuleNotFoundError: No module named 'kubernetes'`
+### 21.4 `ModuleNotFoundError: No module named 'kubernetes'`
 
 The live scanning extra is not installed:
 
@@ -2128,55 +1809,34 @@ The live scanning extra is not installed:
 pip install -e ".[live]"
 ```
 
-### 22.5 `k8smatrixwarden: command not found`
+### 21.5 `k8smatrixwarden: command not found`
 
 The console script was installed into a directory that is not on `PATH`. Use the module
 form, which always works:
 
 ```bash
-python -m k8smatrixwarden doctor
+python -m k8smatrixwarden rules
 ```
 
-### 22.6 `no Kubernetes API path; needs an external evidence adapter`
-
-Expected behavior, not an error. The `cloud_iam` domain has no Kubernetes API to read
-from, so it is reported as **unread rather than clean**. Its rules ran, found nothing
-because there was nothing to read, and the product says so instead of implying a pass.
-This typically accounts for about 4.5 percent of evidence coverage.
-
-### 22.7 MCP tools do not appear in the client
-
-Most often the client launched a different Python interpreter than the one you installed
-into. Work through the ordered checklist in Section 19.7.
-
-### 22.8 Findings appear duplicated
+### 21.6 Findings appear duplicated
 
 They are not. See Section 3.1. Kubernetes propagates a Deployment's specification to its
 ReplicaSets and Pods, and all of them genuinely carry the flaw. `workload_issues` is the
 number of fixes required.
 
-### 22.9 The scan reports the Falco DaemonSet as insecure
+### 21.7 The scan reports the Falco DaemonSet as insecure
 
 Correct behavior. Falco is privileged and mounts host paths by design. The scanner reports
 its own sensor rather than exempting it, because a scanner with a built-in exemption list is
 a scanner whose output you cannot audit.
 
-### 22.10 `analysis_status: truncated`
+### 21.8 `analysis_status: truncated`
 
 A graph traversal reached a bound and reported it, along with the bound that stopped it, so
 that a capped result cannot be mistaken for an exhaustive one. Narrow the scope with
 `-n <namespace>` to complete the analysis.
 
-### 22.11 PDF or Excel export fails
-
-The corresponding extra is not installed:
-
-```bash
-pip install -e ".[pdf]"      # fpdf2
-pip install -e ".[excel]"    # openpyxl
-```
-
-### 22.12 Report write failures on Windows
+### 21.9 Report write failures on Windows
 
 Reports are written by atomic rename and read with a bounded retry across that window, so
 event ingestion and the dashboard can operate simultaneously.
@@ -2187,24 +1847,26 @@ and a reader polling with no pause can starve the writer. Neither is a normal us
 profile. A failed write is reported as `stored: false` rather than assumed to have
 succeeded.
 
-### 22.13 General diagnosis
+### 21.10 General diagnosis
 
 When the cause is unclear, start here:
 
 ```bash
-python -m k8smatrixwarden doctor --verbose
+python -m tests.run_tests
+python -m k8smatrixwarden rules
+python -m k8smatrixwarden scan --mock --dry-run
 ```
 
-This runs 20 checks across shards, configuration, rules, taxonomy, MCP, report formats,
-runtime, LLM configuration, dependencies, and read-only invariants.
+This exercises shard and rule loading, configuration, taxonomy, report formats, runtime
+correlation, and the read-only invariants in one pass.
 
 ---
 
-## 23. Glossary
+## 22. Glossary
 
 | Term | Definition |
 |---|---|
-| **Shard** | A domain module owning a set of detection rules. There are 11. Shards form the scanner's execution boundary. |
+| **Shard** | A domain module owning a set of detection rules. There are 7. Shards form the scanner's execution boundary. |
 | **Tactic** | A MITRE ATT&CK attacker objective such as Initial Access, Persistence, or Impact. A cross-cutting tag, not a location. |
 | **Technique** | A specific method within a tactic, for example `T1611 Escape to Host`. |
 | **Selector** | Any criterion that narrows which rules run: tactic, technique, module, rule identifier, alias, framework, or severity. |
@@ -2217,7 +1879,7 @@ runtime, LLM configuration, dependencies, and read-only invariants.
 | **Reachability** | A workload's live attack vector: internet-reachable, post-breach only, or RBAC escalation. Used for prioritization, never to change severity. |
 | **`unknown` and `partial`** | Real values, never synonyms for `false` or `safe`. They propagate as themselves through coverage, NetworkPolicy evaluation, RBAC analysis, reports, and the dashboard. |
 
-### 23.1 Validated Kubernetes semantics
+### 22.1 Validated Kubernetes semantics
 
 RBAC and NetworkPolicy are where a scanner most easily invents or misses a finding, so the
 exact semantics are pinned by an adversarial test suite written to prove the tool wrong.
@@ -2263,7 +1925,7 @@ safe value.
 
 ---
 
-## 24. The confidence model
+## 23. The confidence model
 
 Five distinct confidences exist because they answer five distinct questions. They are kept
 separate deliberately. Collapsing them is how a scanner ends up sounding certain about
@@ -2300,7 +1962,19 @@ The policy lives in `core/explain.py` as `CONFIDENCE_POLICY` and is enforced by
 
 | Resource | Contents |
 |---|---|
-| `K8sMatrixWarden-doc.html` | Complete technical reference. One self-contained searchable page covering architecture and design decisions, risk-scoring mathematics, all 11 shard rule catalogs, MITRE, OWASP and CIS coverage, the full CLI flag reference, configuration, live cluster setup, the runtime correlation layer, the complete MCP tool reference with per-client setup, known limitations, and troubleshooting. |
+| `K8sMatrixWarden-doc.html` | Complete technical reference. One self-contained searchable page covering architecture and design decisions, risk-scoring mathematics, all 7 shard rule catalogs, MITRE, OWASP and CIS coverage, the full CLI flag reference, configuration, live cluster setup, the runtime correlation layer, known limitations, and troubleshooting. |
 | `README.md` | Feature overview and product positioning |
-| `python -m k8smatrixwarden doctor --verbose` | Installation verification, with the detail behind every check |
-| `python -m tests.run_tests` | The full test suite, 966 tests, no external test framework required |
+| `python -m tests.run_tests` | The full test suite, 952 tests, no external test framework required |
+
+
+## Everyday use: check, accept risks, tell the team
+
+```bash
+k8smatrixwarden check                       # what to fix first, on the cluster kubectl points at
+k8smatrixwarden check ./k8s --fail-on HIGH  # the same on manifests; exit 1 gates CI
+k8smatrixwarden check --save && k8smatrixwarden notify --dry-run
+k8smatrixwarden notify --webhook-url https://hooks.slack.com/services/XXX --min-severity HIGH
+```
+
+`notify` posts the latest saved scan (counts per owner and the top issues with their fix) to Slack.
+It only sends when you run it, and only to an `https://` address.

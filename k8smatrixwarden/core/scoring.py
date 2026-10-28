@@ -2,7 +2,10 @@
 Risk Scoring Engine (§18.1), attack-path aware.
 
     finding_score = severity_weight × exploitability × blast_radius × path_multiplier
+                    × reachability_multiplier
     path_multiplier = 1 + 0.25 × (distinct_tactics_on_finding − 1)     # attack-path bonus
+    reachability_multiplier = 1 + 0.5 × [reachable from the Internet]
+                                + 0.25 × [its ServiceAccount can reach secrets / escalate]
     cluster_risk (0–10) = 10 × raw / (raw + K), raw = Σ finding_score
     security_score (0–100) = round((1 − cluster_risk/10) × 100)
 
@@ -70,10 +73,19 @@ class RiskScoringEngine:
                 f.score_breakdown = {}
                 continue
             path_mult = 1.0 + 0.25 * max(0, len(f.tactics) - 1)
+            # Reachability, from evidence the scan already holds: the same flaw is worth
+            # more when an attacker can actually get to it and the identity it runs as can
+            # go further. Only ever raises a score; a workload that is not reachable is not
+            # discounted, because "not reachable today" is not "safe".
+            internet = "ingress" in (f.exploitable_by or [])
+            identity = ("rbac-escalation" in (f.exploitable_by or [])
+                        or any(n.get("kind") == "Capability" for n in f.exploit_path or []))
+            reach_mult = 1.0 + 0.5 * internet + 0.25 * identity
             fscore = (f.severity.weight
                       * f.exploitability.weight
                       * f.blast_radius.weight
-                      * path_mult)
+                      * path_mult
+                      * reach_mult)
             f.score = fscore
             # Same multiplication, spelled out. An analyst can reproduce `score` from these
             # four numbers by hand, which is the whole point of publishing them.
@@ -85,8 +97,12 @@ class RiskScoringEngine:
                                  "weight": f.blast_radius.weight},
                 "path_multiplier": {"tactics": [t.value for t in f.tactics],
                                     "weight": round(path_mult, 2)},
+                "reachability_multiplier": {"internet_reachable": internet,
+                                            "identity_can_escalate": identity,
+                                            "weight": round(reach_mult, 2)},
                 "score": round(fscore, 3),
-                "formula": "severity × exploitability × blast_radius × path_multiplier",
+                "formula": "severity × exploitability × blast_radius × path_multiplier "
+                           "× reachability_multiplier",
             }
 
         # One contributor per remediation unit. `workload_issues` picks the representative
@@ -140,7 +156,7 @@ class RiskScoringEngine:
         derived = sum(1 for f in findings if getattr(f, "is_derived_resource", False))
         return {
             "formula": ("issue_score = severity × exploitability × blast_radius × "
-                        "path_multiplier, scored once per (rule × owning workload); "
+                        "path_multiplier × reachability_multiplier, scored once per (rule × owning workload); "
                         "cluster_risk = 10 × raw / (raw + K)"),
             "scoring_basis": "workload_issues",
             "saturation_k": SATURATION_K,

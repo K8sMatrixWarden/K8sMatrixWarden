@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .finding_context import fill
+from .remediation import fix_for
 from .correlation import belongs_to
 from .finding_context import build_finding_context
 from .models import Finding
@@ -263,6 +265,9 @@ def explain_finding(finding: Finding, *, rule=None, runtime: Optional[dict] = No
         "tactics": tactics,
         "scoring": {"score": round(finding.score, 3), **finding.score_breakdown},
         "validation_steps": list(ctx.validation_steps),
+        "fix": {k: fill(v, finding) for k, v in fix_for(finding.rule_id).items()},
+        "image_scan": ({k: finding.evidence.get(k) for k in ("image", "digest", "counts", "top", "dbBuilt")}
+                       if (finding.evidence or {}).get("scanner") == "grype" else None),
         "confidence": finding_confidence(finding, rule, runtime_block),
     }
 

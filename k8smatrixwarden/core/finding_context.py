@@ -157,17 +157,29 @@ def mitre_for(finding: Finding) -> list[MitreRef]:
     return out
 
 
-def _format_all(templates: list, finding: Finding) -> list[str]:
+def fill(text: str, finding: Finding, braces: bool = False) -> str:
+    """Put this finding's real kind/name/namespace into a command or snippet.
+
+    Fills {name} {namespace} {kind} (knowledge-base templates) and <name> <ns> <kind> <pod>
+    <workload> (fix snippets); anything else in angle brackets, like <digest> or <new>, is a
+    value only the engineer has and is left alone. Plain replacement, not str.format, so
+    the jq and jsonpath braces in a command can never make the whole template fall back to
+    unfilled. `braces` turns the `{{`/`}}` escapes the knowledge base uses back into braces."""
     res = finding.resource
-    ns = res.namespace or "default"
     kind = (res.kind or "pod").lower()
-    out = []
-    for t in templates:
-        try:
-            out.append(t.format(name=res.name, namespace=ns, kind=kind))
-        except Exception:
-            out.append(t)
-    return out
+    subj = (finding.evidence or {}).get("subject") or {}
+    ns = res.namespace or (res.name if kind == "namespace" else None) \
+        or subj.get("namespace") or "default"
+    for tok, val in (("{name}", res.name), ("{namespace}", ns), ("{kind}", kind),
+                     ("<name>", res.name), ("<pod>", res.name), ("<workload>", res.name),
+                     ("<ns>", ns), ("<kind>", kind),
+                     ("<image>", str((finding.evidence or {}).get("image") or "<image>"))):
+        text = text.replace(tok, val)
+    return text.replace("{{", "{").replace("}}", "}") if braces else text
+
+
+def _format_all(templates: list, finding: Finding) -> list[str]:
+    return [fill(t, finding, braces=True) for t in templates]
 
 
 def _fallback_impact(finding: Finding) -> str:
@@ -204,109 +216,6 @@ def build_finding_context(finding: Finding) -> FindingContext:
 # =================================================================================== #
 FINDING_CONTEXT: dict[str, dict] = {
 
-    # ---------------------------------------------------------------- shard ① control plane
-    "apiserver-anonymous-auth": {
-        "summary": "The API server accepts unauthenticated requests under the "
-                   "`system:anonymous` identity, so anyone who can reach it can act as a "
-                   "cluster user without presenting any credential.",
-        "impact": "An attacker who can route a request to the API server, from inside the "
-                 "network, a misconfigured LoadBalancer, or a leaked endpoint, gets "
-                 "whatever access the `system:unauthenticated` group's bindings grant, "
-                 "often enough to enumerate cluster state or, if that group is ever bound "
-                 "to anything permissive, escalate outright.",
-        "validation": [
-            "kubectl get --raw /api -v=6 2>&1 | head -20  "
-            "# an unauthenticated 200 instead of 401/403 confirms anonymous auth is on",
-        ],
-    },
-    "apiserver-insecure-port": {
-        "summary": "The API server's deprecated `--insecure-port` is enabled, serving the "
-                   "API with no authentication or encryption on a plaintext HTTP port.",
-        "impact": "Any request reaching that port bypasses authentication, authorization, "
-                 "and TLS entirely, a direct, unauthenticated path to full API access, "
-                 "including secrets, from anywhere with network reachability.",
-        "validation": [
-            "kubectl -n kube-system get pod -l component=kube-apiserver -o "
-            "jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\\n' | grep insecure-port",
-        ],
-    },
-    "etcd-client-cert-auth": {
-        "summary": "etcd, the cluster's entire state store, including every Secret in "
-                   "plaintext unless encryption-at-rest is separately enabled, does not "
-                   "require client certificate authentication.",
-        "impact": "Anyone who can reach etcd's client port (2379) can read or write the "
-                 "raw cluster datastore directly, completely bypassing the Kubernetes API, "
-                 "RBAC, and admission control. This is a full cluster compromise path.",
-        "validation": [
-            "kubectl -n kube-system get pod -l component=etcd -o "
-            "jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\\n' | grep client-cert-auth",
-        ],
-    },
-    "kubelet-anonymous-auth": {
-        "summary": "A node's kubelet API accepts unauthenticated requests on port "
-                   "10250. Anyone who can reach it can read pod specs, pull logs, and exec "
-                   "into containers on the node with no credential, a well-known path to "
-                   "node and workload compromise.",
-        "impact": "The kubelet API can list every pod's spec (including env-var secrets), "
-                 "exec into containers, and fetch logs. Anonymous access to it is a "
-                 "well-known, actively exploited path to full node and workload compromise.",
-        "validation": [
-            "curl -sk https://<node-ip>:10250/pods  "
-            "# a 200 with pod data instead of 401 confirms anonymous kubelet access",
-        ],
-    },
-    "kubelet-authz-always-allow": {
-        "summary": "The kubelet's authorization mode is `AlwaysAllow`, so even an "
-                   "authenticated caller's identity is never actually checked against "
-                   "RBAC before the kubelet honors the request.",
-        "impact": "Any credential that can merely authenticate to the kubelet, not "
-                 "necessarily one with any RBAC grant, gets full kubelet API access: "
-                 "pod exec, log retrieval, and container lifecycle control on that node.",
-        "validation": [
-            "kubectl get --raw /api/v1/nodes/<node>/proxy/configz 2>/dev/null | "
-            "jq '.kubeletconfig.authorization.mode'",
-        ],
-    },
-    "apiserver-audit-logging": {
-        "summary": "The API server has no `--audit-log-path` configured, so no record of "
-                   "who did what against the cluster is being kept.",
-        "impact": "Without an audit trail, a compromise, a privilege-escalation attempt, or "
-                 "even ordinary operator error is unrecoverable after the fact, there is "
-                 "nothing to investigate, correlate, or use as evidence.",
-        "validation": [
-            "kubectl -n kube-system get pod -l component=kube-apiserver -o "
-            "jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\\n' | grep audit-log-path",
-        ],
-    },
-    "etcd-encryption-missing": {
-        "summary": "No `--encryption-provider-config` is set on the API server, so "
-                   "Secrets are stored in etcd as plaintext, not encrypted at rest.",
-        "impact": "Anyone with read access to etcd's data directory or its backups, a "
-                 "stolen disk snapshot, an exposed backup bucket, a compromised etcd node "
-                 ", can read every Secret in the cluster directly, with no additional key "
-                 "required.",
-        "validation": [
-            "kubectl -n kube-system get pod -l component=kube-apiserver -o "
-            "jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\\n' | "
-            "grep encryption-provider-config",
-        ],
-    },
-    "kubelet-read-only-port": {
-        "summary": "The kubelet's deprecated read-only port 10255 is open, an "
-                   "unauthenticated HTTP endpoint exposing pod and node state.",
-        "impact": "Anyone with network access to the node can enumerate every pod's "
-                 "spec, resource usage, and metadata on it with zero authentication, a "
-                 "reconnaissance foothold for planning further attacks.",
-        "validation": ["curl -s http://<node-ip>:10255/pods | head -5"],
-    },
-    "deprecated-k8s-version": {
-        "summary": "The cluster is running an end-of-life or otherwise outdated "
-                   "Kubernetes version with known, patched CVEs in supported releases.",
-        "impact": "Every disclosed CVE affecting that version, including any with public "
-                 "exploit code, remains exploitable indefinitely, since no further "
-                 "security patches are being backported to an EOL release.",
-        "validation": ["kubectl version --short 2>/dev/null || kubectl version"],
-    },
 
     # ---------------------------------------------------------- shard ② workload/pod security
     "workload-privileged-container": {
@@ -446,6 +355,20 @@ FINDING_CONTEXT: dict[str, dict] = {
             "kubectl get {kind} {name} -n {namespace} -o "
             "jsonpath='{{.spec.volumes[*].hostPath.path}}'",
         ],
+    },
+    "workload-image-vulnerabilities": {
+        "summary": "Grype matched packages inside the image this pod is running against "
+                   "known vulnerabilities that have a fix or are known to be exploited.",
+        "impact": "A vulnerable package in a running container is a way in or a way up. "
+                  "The risk depends on reach: the same CVE in an Internet-facing pod, or one "
+                  "whose ServiceAccount can read secrets, ranks above the same CVE in an "
+                  "isolated pod, which is why this finding is scored with the pod's reachability. "
+                  "Severity is the worst fixable (or known-exploited) vulnerability, raised one "
+                  "level when its EPSS score is 0.5 or more; known-exploited (CISA KEV) is always "
+                  "Critical. Exploitability is Remote for KEV or EPSS 0.5+, Adjacent for EPSS 0.05+, "
+                  "otherwise Local.",
+        "validation": ["kubectl get pod {name} -n {namespace} -o jsonpath='{{.status.containerStatuses[*].imageID}}'",
+                       "grype <image> --only-fixed"],
     },
     "workload-sshd-present": {
         "summary": "The container appears to run an SSH server, a second, "
@@ -620,6 +543,66 @@ FINDING_CONTEXT: dict[str, dict] = {
                       "select(.rules[]? | select(.resources[]?==\"secrets\") | "
                       ".verbs[]? | IN(\"get\",\"list\")) | .metadata.name'"],
     },
+    "rbac-create-pods": {
+        "summary": "A subject that can create pods can run one as any ServiceAccount in the namespace and read its token.",
+        "impact": "A subject that can create pods can run one as any ServiceAccount in the namespace and read its token. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can create pods still applies, then re-scan."],
+    },
+    "rbac-system-masters": {
+        "summary": "system:masters bypasses RBAC and admission authorization entirely, and cannot be revoked by editing a role.",
+        "impact": "system:masters bypasses RBAC and admission authorization entirely, and cannot be revoked by editing a role. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that system:masters group bound still applies, then re-scan."],
+    },
+    "rbac-create-pv": {
+        "summary": "A PersistentVolume can be a hostPath, which exposes the node filesystem to any pod that claims it.",
+        "impact": "A PersistentVolume can be a hostPath, which exposes the node filesystem to any pod that claims it. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can create persistentvolumes still applies, then re-scan."],
+    },
+    "rbac-node-proxy": {
+        "summary": "nodes/proxy reaches the kubelet API directly, skipping admission control and audit logging.",
+        "impact": "nodes/proxy reaches the kubelet API directly, skipping admission control and audit logging. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can use nodes/proxy still applies, then re-scan."],
+    },
+    "rbac-csr-approve": {
+        "summary": "Approving a CertificateSigningRequest lets the holder mint a client certificate for any identity.",
+        "impact": "Approving a CertificateSigningRequest lets the holder mint a client certificate for any identity. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can approve csrs still applies, then re-scan."],
+    },
+    "rbac-webhook-config-write": {
+        "summary": "A mutating or validating webhook sees every request, so its owner can rewrite or block anything.",
+        "impact": "A mutating or validating webhook sees every request, so its owner can rewrite or block anything. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can edit admission webhooks still applies, then re-scan."],
+    },
+    "rbac-sa-token-create": {
+        "summary": "`serviceaccounts/token` creation issues a token for any ServiceAccount the role can name, so the holder can act as it.",
+        "impact": "`serviceaccounts/token` creation issues a token for any ServiceAccount the role can name, so the holder can act as it. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that role can mint serviceaccount tokens still applies, then re-scan."],
+    },
+    "workload-host-port": {
+        "summary": "A hostPort binds the container to the node's own network interface, bypassing Service and NetworkPolicy controls.",
+        "impact": "A hostPort binds the container to the node's own network interface, bypassing Service and NetworkPolicy controls. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that container uses hostport still applies, then re-scan."],
+    },
+    "workload-share-process-ns": {
+        "summary": "With a shared process namespace every container can list, signal and read /proc of the others.",
+        "impact": "With a shared process namespace every container can list, signal and read /proc of the others. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that shared process namespace still applies, then re-scan."],
+    },
+    "workload-no-security-context": {
+        "summary": "With no securityContext the container runs on runtime defaults, often as root with a writable filesystem.",
+        "impact": "With no securityContext the container runs on runtime defaults, often as root with a writable filesystem. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that no securitycontext still applies, then re-scan."],
+    },
+    "workload-windows-hostprocess": {
+        "summary": "A HostProcess container runs directly on the Windows node with host privileges.",
+        "impact": "A HostProcess container runs directly on the Windows node with host privileges. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that windows hostprocess container still applies, then re-scan."],
+    },
+    "workload-default-namespace": {
+        "summary": "The default namespace has no boundary of its own; RBAC, quotas and policies scoped to a team do not apply.",
+        "impact": "The default namespace has no boundary of its own; RBAC, quotas and policies scoped to a team do not apply. An attacker who reaches this workload or identity can use it to widen their foothold.",
+        "validation": ["Confirm in the cluster that workload in the default namespace still applies, then re-scan."],
+    },
     "rbac-can-delete-events": {
         "summary": "A Role/ClusterRole grants `delete` on `events`. Since events are "
                    "where responders look first, a subject with this grant can erase "
@@ -656,7 +639,7 @@ FINDING_CONTEXT: dict[str, dict] = {
                  ", multiple real-world breaches (including a widely reported Tesla "
                  "cryptomining incident) started from an internet-reachable, "
                  "under-authenticated Dashboard used to schedule an attacker-controlled pod.",
-        "validation": ["kubectl -n kubernetes-dashboard get svc kubernetes-dashboard -o "
+        "validation": ["kubectl -n {namespace} get svc {name} -o "
                       "jsonpath='{{.spec.type}} {{.status.loadBalancer.ingress}}'"],
     },
     "net-lb-no-source-range": {
@@ -711,54 +694,6 @@ FINDING_CONTEXT: dict[str, dict] = {
                       "jsonpath='{{.spec.type}} {{.spec.ports[*].nodePort}}'"],
     },
 
-    # ---------------------------------------------------------- shard ⑤ image/supply-chain
-    "img-kubeconfig-embedded": {
-        "summary": "A container image has a kubeconfig file baked into one of its "
-                   "layers. Anyone who can pull the image gets a working set of cluster "
-                   "credentials, possibly for a higher-privilege cluster than the one it "
-                   "runs in.",
-        "impact": "Anyone who can pull the image, including from a public registry, or "
-                 "via a leaked/typosquatted mirror, gets a working set of cluster "
-                 "credentials, potentially for a completely different, higher-privilege "
-                 "cluster than the one the image is actually deployed to.",
-        "validation": ["docker history --no-trunc {name} 2>/dev/null | grep -i kubeconfig "
-                      "|| echo 'inspect layers manually: docker save {name} | tar -tv | grep kube'"],
-    },
-    "img-typosquat": {
-        "summary": "The image name closely resembles a popular, legitimate image "
-                   "(e.g. `nignx` instead of `nginx`), a classic supply-chain typosquat "
-                   "pattern.",
-        "impact": "A typosquatted image pulled by mistake (a copy-paste error, a "
-                 "misconfigured base-image reference) can run arbitrary attacker code with "
-                 "whatever privileges the pod spec grants it, supply-chain compromise "
-                 "with no exploit required, just a plausible-looking name.",
-        "validation": ["kubectl get {kind} {name} -n {namespace} -o "
-                      "jsonpath='{{.spec.containers[*].image}}'  "
-                      "# compare against the intended, correctly-spelled image name"],
-    },
-    "img-not-signed": {
-        "summary": "The image carries no cosign/notary signature to verify its "
-                   "provenance. Without verification, the cluster cannot tell the image the "
-                   "team built from one swapped in at the registry or through a compromised "
-                   "CI pipeline.",
-        "impact": "Without signature verification, the cluster cannot distinguish between "
-                 "the image the team actually built and one substituted at the registry "
-                 "(via a compromised CI pipeline, a registry-level compromise, or a "
-                 "man-in-the-middle), image signing is the control that closes that gap.",
-        "validation": ["cosign verify {name} 2>&1 | head -5"],
-    },
-    "img-pull-policy": {
-        "summary": "The container uses `imagePullPolicy: IfNotPresent` on a tag that "
-                   "isn't pinned to a digest. Nodes with a stale cached copy keep running "
-                   "it after a fix is pushed under the same tag, so a patched vulnerability "
-                   "can linger on some nodes.",
-        "impact": "A node that already has a stale cached copy of the tag will keep "
-                 "running it even after a fix has been pushed to the registry under the "
-                 "same tag, a patched vulnerability can remain exploitable on some nodes "
-                 "well after the image was 'fixed'.",
-        "validation": ["kubectl get {kind} {name} -n {namespace} -o "
-                      "jsonpath='{{.spec.containers[*].imagePullPolicy}}'"],
-    },
 
     # -------------------------------------------------------------------- shard ⑥ secrets
     "sec-etcd-not-encrypted": {
@@ -805,96 +740,7 @@ FINDING_CONTEXT: dict[str, dict] = {
                       "jsonpath='{{.spec.containers[*].volumeMounts[*].mountPath}}'"],
     },
 
-    # --------------------------------------------------------------- shard ⑨ admission control
-    "admission-malicious-webhook": {
-        "summary": "A Mutating or Validating webhook is configured with a suspiciously "
-                   "broad scope and/or an external endpoint outside the cluster.",
-        "impact": "A mutating webhook can silently rewrite every matching object the API "
-                 "server processes, inject a sidecar, add a hostPath mount, alter "
-                 "securityContext, on every create/update, cluster-wide, invisibly to "
-                 "whoever submitted the original manifest. It's one of the stealthiest "
-                 "persistence mechanisms in Kubernetes.",
-        "validation": ["kubectl get mutatingwebhookconfigurations,"
-                      "validatingwebhookconfigurations -o json | "
-                      "jq '.items[] | {{name: .metadata.name, webhooks: [.webhooks[] | "
-                      "{{name, clientConfig, failurePolicy}}]}}'"],
-    },
-    "admission-webhook-failurepolicy": {
-        "summary": "A security-relevant admission webhook is set to `failurePolicy: "
-                   "Ignore`. If it ever goes unreachable, from a crash or a deliberate "
-                   "attacker, every object it should gate is admitted anyway, so the policy "
-                   "can be bypassed rather than defeated.",
-        "impact": "If the webhook is ever unreachable, network issue, the webhook pod "
-                 "itself crashing, or an attacker deliberately taking it offline, every "
-                 "object it was supposed to validate or mutate is admitted anyway, "
-                 "silently. An attacker who can make a policy webhook unavailable can "
-                 "bypass it entirely rather than needing to defeat its logic.",
-        "validation": ["kubectl get mutatingwebhookconfigurations,"
-                      "validatingwebhookconfigurations -o json | "
-                      "jq '.items[].webhooks[] | select(.failurePolicy==\"Ignore\") | .name'"],
-    },
-    "admission-sidecar-injection": {
-        "summary": "A mutating webhook injects a sidecar container into the pods it "
-                   "processes. This is normal for service meshes, but it is also a way to "
-                   "smuggle an attacker-controlled container into every pod cluster-wide, "
-                   "so what gets injected and by whom needs review.",
-        "impact": "Sidecar injection is legitimate for service meshes and observability "
-                 "agents, but it is also a documented technique for smuggling an "
-                 "attacker-controlled container into every pod cluster-wide via a single "
-                 "webhook compromise, reviewing exactly what gets injected and by whom is "
-                 "necessary to distinguish the two.",
-        "validation": ["kubectl get mutatingwebhookconfigurations -o json | "
-                      "jq '.items[].webhooks[] | {{name, rules}}'"],
-    },
-    "cronjob-suspicious": {
-        "summary": "A CronJob has a suspicious schedule, image, or command, the pattern "
-                   "used by backdoors that need to survive pod restarts and even node "
-                   "reboots.",
-        "impact": "A CronJob is a durable, self-reinstating persistence mechanism: even if "
-                 "the malicious pod it spawns is found and killed, the CronJob simply "
-                 "creates another one on its next scheduled tick, with no further attacker "
-                 "action required.",
-        "validation": ["kubectl get cronjob {name} -n {namespace} -o "
-                      "jsonpath='{{.spec.schedule}} {{.spec.jobTemplate.spec.template.spec.containers[*].image}} "
-                      "{{.spec.jobTemplate.spec.template.spec.containers[*].command}}'"],
-    },
 
-    # ------------------------------------------------------------------ shard ⑩ cloud IAM
-    "iam-overpermissive": {
-        "summary": "The AWS IAM role (IRSA) attached to this ServiceAccount grants "
-                   "permissions well beyond what the workload actually uses.",
-        "impact": "Any pod using this ServiceAccount inherits the role's full permission "
-                 "set for the lifetime of its token, a container compromise translates "
-                 "directly into whatever that over-broad IAM policy allows in the cloud "
-                 "account, not just what the application itself needed.",
-        "validation": ["kubectl get sa {name} -n {namespace} -o "
-                      "jsonpath='{{.metadata.annotations.eks\\.amazonaws\\.com/role-arn}}'  "
-                      "# then: aws iam list-attached-role-policies --role-name <role>"],
-    },
-    "iam-node-role-broad": {
-        "summary": "The EC2/node instance role is broader than any pod actually scheduled "
-                   "on that node needs.",
-        "impact": "Before IRSA/Workload Identity was adopted (or for pods that don't use "
-                 "it), every pod on the node can reach the node's own instance role via the "
-                 "metadata API, an overly broad node role means every workload on that "
-                 "node, trusted or not, effectively holds that role's full permissions.",
-        "validation": ["aws ec2 describe-instances --instance-ids <id> --query "
-                      "'Reservations[].Instances[].IamInstanceProfile'"],
-    },
-    "iam-managed-identity-reachable": {
-        "summary": "A managed cloud identity's credentials are reachable from a pod on "
-                   "this node. Paired with an open metadata path, a container compromise "
-                   "becomes a cloud-account compromise; the credential is one "
-                   "unauthenticated HTTP request away.",
-        "impact": "Combined with an open path to the metadata API (see "
-                 "`net-metadata-api-open`), this is the concrete mechanism by which a "
-                 "container compromise becomes a cloud-account compromise, the credential "
-                 "is sitting one unauthenticated HTTP request away.",
-        "validation": ["kubectl exec -n {namespace} {name} -- "
-                      "curl -s -m 2 -H 'Metadata: true' "
-                      "'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01' "
-                      "2>/dev/null"],
-    },
 
     # --------------------------------------------------------------------- shard ⑦ compliance
     "compliance-psa-not-restricted": {

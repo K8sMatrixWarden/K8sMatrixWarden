@@ -1,0 +1,83 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- AP-01: Internet -> Service -> privileged Pod -> ServiceAccount -> Secrets  [expects: workload-privileged-container, workload-allow-priv-escalation, net-lb-no-source-range]
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ap-frontend-sa
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ap-frontend
+  namespace: dvka-vuln
+  labels:
+    app: ap-frontend
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ap-frontend
+  template:
+    metadata:
+      labels:
+        app: ap-frontend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: ap-frontend-sa
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ap-frontend
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: LoadBalancer
+  selector:
+    app: ap-frontend
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ap-frontend-secrets
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dvka-secret-reader
+subjects:
+- kind: ServiceAccount
+  name: ap-frontend-sa
+  namespace: dvka-vuln

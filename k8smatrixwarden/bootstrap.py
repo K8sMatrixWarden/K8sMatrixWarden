@@ -236,10 +236,16 @@ class Platform:
     # -- collectors ------------------------------------------------------- #
     def make_collector(self, *, mock: bool = True, fixture: Optional[str] = None,
                        kubeconfig: Optional[str] = None,
-                       context: Optional[str] = None) -> EvidenceCollector:
+                       context: Optional[str] = None,
+                       grype: bool = False) -> EvidenceCollector:
         if mock:
             return MockEvidenceCollector(fixture or default_fixture_path())
-        return LiveEvidenceCollector(kubeconfig=kubeconfig, context=context)
+        scanner = None
+        if grype:
+            from .core.image_scan import GrypeRunner
+            scanner = GrypeRunner()
+        return LiveEvidenceCollector(kubeconfig=kubeconfig, context=context,
+                                     image_scanner=scanner)
 
     # -- introspection ---------------------------------------------------- #
     def coverage(self) -> dict:

@@ -233,10 +233,19 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
             # operator told otherwise triages the wrong weakness. Same strength, accurate
             # claim: the full matched set is already in `static_findings` for the reader to
             # judge which weakness, if any, was the route.
-            conf, verdict, matched = ("confirmed",
-                f"live {a.tactic} activity on the exact resource this finding is on; the "
-                f"weakness is exposed to it, though the event does not prove this "
-                f"weakness was the vector", resource_hit)
+            #
+            # That caveat lived only in this sentence until a UI pass showed only
+            # `static_findings[0]`, silently dropping the other candidates it names: a
+            # reader saw one weakness and no hint there were more to judge between. The verdict
+            # text now says the count out loud too, so the ambiguity survives even where a
+            # surface renders only the first line of it.
+            n = len(resource_hit)
+            verdict = (f"live {a.tactic} activity on the exact resource this finding is on; "
+                      + (f"the event does not prove this weakness was the vector"
+                         if n == 1 else
+                         f"{n} weaknesses on this resource share the tactic, and the event "
+                         f"does not say which (if any) was the vector"))
+            conf, matched = "confirmed", resource_hit
         elif foreign:
             conf, verdict, matched = ("corroborated",
                 f"event is labelled cluster {_event_cluster(a.event)!r}, not "
@@ -271,6 +280,10 @@ def correlate(findings: list[Finding], alerts: list, cluster: str = "",
             "namespace": ns,
             "runtime": _alert_view(a),
             "static_findings": [_finding_view(f) for f in matched[:5]],
+            # The true count, independent of the 5-item display cap above: a surface that
+            # renders only `static_findings[0]` (or any prefix of it) can still say "N
+            # candidates" without silently implying there was only ever one.
+            "static_count": len(matched),
             "related_finding": _finding_view(matched[0]) if matched else None,
         })
 

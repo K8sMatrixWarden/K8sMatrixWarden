@@ -128,23 +128,6 @@ def test_coverage_survives_a_save_load_round_trip():
     assert restored.coverage == result.coverage
 
 
-def test_coverage_reaches_the_report_and_the_mcp_layer():
-    import json
-    from k8smatrixwarden.mcp.server import build_tools
-    import tempfile
-
-    platform = build_platform()
-    result = _scan(platform.make_collector(mock=True))
-    doc = json.loads(platform.reporting.json(result))
-    assert doc["summary"]["evidence_coverage_pct"] == 100.0
-    assert doc["summary"]["assessment_confidence"] == "High"
-
-    reports_dir = tempfile.mkdtemp()
-    from k8smatrixwarden.core.report_store import ReportStore
-    ReportStore(reports_dir).save(result)
-    out = build_tools()["get_cluster_coverage"](reports_dir=reports_dir)
-    assert out["coverage"]["coverage_pct"] == 100.0
-    assert out["evidence_ok"] is True
 
 
 # --------------------------------------------------------------------------- #
@@ -242,3 +225,24 @@ def test_partial_coverage_never_suppresses_confidence_below_a_degraded_scan():
                 "estimated_coverage": 0.0, "coverage_basis": "measured"}}, degraded=True))
     assert partial["confidence_pct"] == 50.0
     assert dead["confidence_pct"] == 0.0 and dead["confidence_label"] == "None"
+
+
+def test_a_denied_extended_kind_does_not_lower_confidence():
+    from types import SimpleNamespace
+    from k8smatrixwarden.core.coverage import build_coverage
+    ok = {"status": "ok", "count": 1, "reason": ""}
+    denied = {"status": "skipped", "count": 0, "reason": "forbidden"}
+    c = build_coverage(SimpleNamespace(coverage={"Pod": ok, "Event": denied},
+                                       degraded=False))
+    assert c["coverage_pct"] == 100.0 and "Event" in c["unread_kinds"]
+
+
+def test_the_scanner_reads_the_extended_kinds():
+    from k8smatrixwarden.bootstrap import build_platform
+    from k8smatrixwarden.core.evidence import EXTENDED_KINDS
+    from k8smatrixwarden.core.models import ScanRequest
+    from k8smatrixwarden.agents.scanner import ScannerAgent
+    p = build_platform()
+    col = p.make_collector(mock=True)
+    ScannerAgent(p).scan(ScanRequest(), col)
+    assert set(EXTENDED_KINDS) <= set(col.coverage)

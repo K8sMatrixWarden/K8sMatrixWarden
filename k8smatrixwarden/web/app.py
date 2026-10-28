@@ -27,7 +27,7 @@ from ..core.results import ScanResult
 from ..core.threat_matrix import build_threat_matrix
 from . import pages
 
-_VALID_FORMATS = {"json", "markdown", "md", "sarif", "html", "text", "terminal"}
+_VALID_FORMATS = {"json", "markdown", "md", "sarif", "html", "text", "terminal", "brief"}
 _VENDOR_ASSETS = {"cytoscape.min.js"}  # allow-list, no arbitrary file reads via /vendor/<name>
 
 
@@ -59,6 +59,18 @@ def _text(s: str, status: int = 200) -> Response:
 _RUNTIME_PERSIST_LOCK = threading.Lock()
 
 
+def _slim(d: dict) -> dict:
+    """A finding as the list views need it. The route lists and the full last-applied manifest
+    each object carries were most of the payload and nothing in a list reads them."""
+    out = {k: v for k, v in d.items() if k != "rbac_paths"}
+    res = dict(out.get("resource") or {})
+    ann = dict(res.get("annotations") or {})
+    ann.pop("kubectl.kubernetes.io/last-applied-configuration", None)
+    res["annotations"] = ann
+    out["resource"] = res
+    return out
+
+
 def _workload_summary(result) -> dict:
     """Resource-finding and workload-issue counts for the dashboard, recomputed for reports
     saved before workload aggregation existed so an old scan still shows both."""
@@ -85,6 +97,458 @@ class WebApp:
         self.allow_client_kubeconfig = allow_client_kubeconfig
 
     @property
+    def tasks(self):
+        if getattr(self, "_tasks", None) is None:
+            from .tasks import TaskManager
+            self._tasks = TaskManager(self.reports_dir)
+        return self._tasks
+
+    # ------------------------------------------------------------------ #
+    # Tasks (background scans) and accepted risks
+    def _api_tasks(self, method: str, parts: list, q: dict, body: bytes) -> Response:
+        from .tasks import KINDS, TaskError
+        if method == "GET":
+            if len(parts) == 3:
+                t = self.tasks.get(parts[2])
+                return _json(t, 200) if t else _json({"error": "No such task."}, 404)
+            return _json({"tasks": self.tasks.list(), "kinds": KINDS,
+                          "can_run": self.allow_scan, "can_use_paths": self.allow_client_kubeconfig})
+        if not self.allow_scan:
+            return _json({"error": "Starting scans is disabled on this server."}, 403)
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        if method == "POST" and parts[2:] == ["cancel"]:
+            return _json({"cancelled": self.tasks.cancel(str(data.get("id", "")))})
+        if method == "POST" and len(parts) == 2:
+            if data.get("kind") == "scan-manifests" and not self.allow_client_kubeconfig:
+                return _json({"error": "Scanning server-side paths is only allowed when the "
+                                       "dashboard is bound to loopback."}, 403)
+            try:
+                return _json(self.tasks.submit(str(data.get("kind", "")), data), 202)
+            except TaskError as exc:
+                return _json({"error": str(exc)}, 400)
+        return _json({"error": "Unsupported request."}, 405)
+
+    def _api_build(self, method: str, action: str, body: bytes) -> Response:
+        """The builder: components in, manifests / Helm chart / security check out. Pure
+        generation, never applied to a cluster."""
+        from ..core import builder
+        if method != "POST":
+            return _json({"error": "Use POST."}, 405)
+        try:
+            spec = json.loads(body or b"{}")
+        except ValueError as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        try:
+            if action == "designs":
+                op = spec.get("op", "list")
+                if op != "list" and not self.allow_scan:
+                    return _json({"error": "Saving designs is disabled on this server."}, 403)
+                if op == "save":
+                    builder.blueprint_save(self.reports_dir, spec.get("name"), spec.get("spec") or {})
+                elif op == "load":
+                    return _json({"spec": builder.blueprint_load(self.reports_dir, spec.get("name"))})
+                elif op == "delete":
+                    builder.blueprint_delete(self.reports_dir, spec.get("name"))
+                return _json({"designs": builder.blueprint_list(self.reports_dir)})
+            if action == "exceptions":
+                return _json({"exceptions": builder.exceptions(spec)})
+            if action == "drift":
+                sid = spec.pop("scan_id", None)
+                if sid:
+                    result = self.store.resolve(sid)
+                else:
+                    recent = self.store.list(limit=1)
+                    result = self.store.resolve(recent[0].scan_id) if recent else None
+                if result is None:
+                    return _json({"error": "There is no saved scan to compare with. Run a scan first."}, 404)
+                return _json(dict(builder.drift(spec, result.cluster_inventory), scan=result.display_name))
+            if action == "digest":
+                if not self.allow_scan:
+                    return _json({"error": "Looking up images is disabled on this server."}, 403)
+                return _json(builder.resolve_digest(spec.get("image")))
+            if action == "imagescan":
+                if not self.allow_scan:
+                    return _json({"error": "Scanning images is disabled on this server."}, 403)
+                return _json(builder.scan_image(spec.get("image")))
+            if action == "preview":
+                analysis = builder.analyze(spec, self.p)
+                lay = builder.layers(spec, self._build_env())
+                return _json({"yaml": builder.manifests_yaml(spec), "install": builder.install_command(spec),
+                              "check": builder.check(spec, self.p, analysis), "layers": lay,
+                              "threat_model": builder.threat_model(spec, lay, analysis),
+                              "attack_paths": self._design_paths(analysis),
+                              "presets": builder.ROLE_PRESETS, "env": self._build_env()})
+            if action == "chart":
+                return Response(200, "application/gzip", builder.chart_tgz(spec))
+            if action == "files":
+                return _json({"files": builder.chart_files(spec)})
+        except builder.BuildError as exc:
+            body = {"error": str(exc), "component": getattr(exc, "component", "")}
+            if action == "preview":
+                try:                                  # the layers need no resolved targets, so a half-built design still gets them
+                    body["layers"] = builder.layers(spec, self._build_env())
+                    body["presets"] = builder.ROLE_PRESETS
+                    body["env"] = self._build_env()
+                except builder.BuildError:
+                    pass
+            return _json(body, 422)
+        return _json({"error": f"Unknown builder action '{action}'."}, 404)
+
+    def _deps_state(self) -> dict:
+        if getattr(self, "_deps", None) is None:
+            from ..core.dependencies import SbomStore
+            self._deps = {"store": SbomStore(), "observed": {}, "jobs": {}, "lock": threading.Lock()}
+        return self._deps
+
+    def _api_deps(self, method: str, action: str, body: bytes) -> Response:
+        """Dependency manager: SBOM per running image, vulnerabilities on it, and what is really loaded.
+        Building SBOMs pulls images and observing runs read-only commands inside pods, both only when asked."""
+        import subprocess
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        from ..core import dependencies as dp
+        if method != "POST":
+            return _json({"error": "Use POST."}, 405)
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        st = self._deps_state()
+        store = st["store"]
+        try:
+            pods = self.p.make_collector(mock=False).collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
+        except Exception as exc:                                    # no cluster is a state, not a crash
+            return _json({"error": "Could not read the cluster: " + str(exc).splitlines()[0][:160]}, 502)
+        imgs = {i["key"]: i for i in dp.inventory(pods)}
+        key = data.get("key", "")
+        if action == "images":
+            rows = []
+            for i in imgs.values():
+                obs = st["observed"].get(i["key"])
+                rows.append({"key": i["key"], "image": i["image"], "pinned": i["pinned"], "workloads": i["workloads"],
+                             "pods": len(i["pods"]), "sbom": store.has(i["key"]), "job": st["jobs"].get(i["key"]),
+                             "observed": bool(obs), "observedAt": obs["at"] if obs else None})
+            return _json({"tools": store.tools(), "images": rows})
+        if action == "generate":
+            keys = list(imgs) if data.get("all") else [k for k in (data.get("keys") or [key]) if k in imgs]
+            todo = [k for k in keys if not store.has(k) and (st["jobs"].get(k) or {}).get("state") != "running"]
+            for k in todo:
+                st["jobs"][k] = {"state": "running"}
+
+            def work(k):
+                r = store.generate(imgs[k])
+                st["jobs"][k] = {"state": "error", "error": r["error"]} if "error" in r else {"state": "done"}
+            if todo:
+                def run_all():
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        list(pool.map(work, todo))
+                threading.Thread(target=run_all, daemon=True).start()
+            return _json({"started": len(todo)})
+        if action == "report":
+            img = imgs.get(key)
+            sb = store.load(key) if img else None
+            if not sb:
+                return _json({"error": "No SBOM for this image yet. Build it first."}, 404)
+            obs = st["observed"].get(key)
+            rep = dp.report(sb, store.vulnerabilities(key), set(obs["files"]) if obs else None)
+            rep["image"] = {k: img[k] for k in ("key", "image", "workloads", "pinned")}
+            rep["observation"] = {"at": obs["at"], "pods": obs["pods"]} if obs else None
+            return _json(rep)
+        if action == "search":
+            stores = {}
+            for k, i in imgs.items():
+                sb = store.load(k) if store.has(k) else None
+                if sb:
+                    stores[k] = {"image": i["image"], "workloads": i["workloads"], "packages": sb["packages"]}
+            return _json({"results": dp.search(stores, data.get("q", "")), "searched": len(stores), "images": len(imgs)})
+        if action == "export":
+            out = store.export(key, data.get("format", "cyclonedx-json"))
+            return _json({"error": "No SBOM to export."}, 404) if out is None else Response(200, "application/json", out.encode())
+        if action == "observe":
+            img = imgs.get(key)
+            if not img:
+                return _json({"error": "That image is not running."}, 404)
+            if data.get("confirm") != "observe":
+                return _json({"error": "Observing runs read-only commands inside the pods. Send confirm=observe."}, 400)
+            running, seen = [], set()
+            for pd in img["pods"]:                                    # one pod per workload, three at most
+                wl = pd["name"].rsplit("-", 2)[0]
+                if pd["running"] and wl not in seen and len(running) < 3:
+                    seen.add(wl)
+                    running.append(pd)
+            files, results = set(), []
+            for pd in running:
+                try:
+                    r = subprocess.run(["kubectl", "exec", "-n", pd["namespace"], pd["name"], "-c", pd["container"], "--",
+                                        "sh", "-c", dp.OBSERVE_SCRIPT], capture_output=True, text=True, timeout=30)
+                    ok = r.returncode == 0 and "F /" in r.stdout
+                    files |= set(dp.parse_observation(r.stdout)["files"]) if ok else set()
+                    results.append({"pod": pd["name"], "ok": ok, "error": "" if ok else (r.stderr.strip().splitlines() or ["no output"])[-1][:200]})
+                except (OSError, subprocess.SubprocessError) as exc:
+                    results.append({"pod": pd["name"], "ok": False, "error": str(exc)[:200]})
+            if files:
+                st["observed"][key] = {"files": sorted(files), "at": time.strftime("%Y-%m-%d %H:%M:%S"), "pods": results}
+            return _json({"observed": bool(files), "pods": results})
+        return _json({"error": f"Unknown dependency action '{action}'."}, 404)
+
+    def _falco_status(self) -> dict:
+        """Falco's state from a live, read-only cluster read (cached briefly: the page asks often)."""
+        import time
+        from ..core import falco_deploy
+        cached = getattr(self, "_falco_cache", None)
+        if cached and time.time() - cached[0] < 15:
+            return cached[1]
+        try:
+            collector = self.p.make_collector(mock=False)
+            ev = collector.collect({"DaemonSet", "Pod", "Node", "Deployment", "Secret"}, Scope(ScopeLevel.CLUSTER))
+            st = falco_deploy.status(ev)
+        except Exception as exc:                                    # no cluster access is a state, not a crash
+            why = str(exc).splitlines()[0][:160]
+            if "Service host/port" in why or "Connection refused" in why or "Max retries" in why:
+                why = "no cluster answered. Start your cluster, or check the kubeconfig and context the dashboard was started with."
+            st = {"state": "unreachable", "message": "Could not read the cluster: " + why, "nodes": [], "node_count": 0,
+                  "namespace": "", "name": "", "version": "", "ready": 0, "desired": 0, "coverage": 0.0, "problems": [], "sidekick": False}
+        self._falco_cache = (time.time(), st)
+        return st
+
+    def _api_rules(self, method: str, action: str, body: bytes) -> Response:
+        """The Runtime tab's rule workbench: what is deployed, guided rule creation, tests, and a gated Falco deploy."""
+        import tempfile
+        from ..core import falco_deploy, runtime_rules as rr
+        if method != "POST":
+            return _json({"error": "Use POST."}, 405)
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        spec = data.get("spec") or {}
+        try:
+            if action == "behaviors":
+                return _json({"behaviors": {k: {kk: vv for kk, vv in v.items()} for k, v in rr.BEHAVIORS.items()}, "tactics": rr.TACTICS,
+                              "priorities": rr.PRIORITIES, "exception_fields": rr._EXC_FIELDS, "examples": rr.EXAMPLES})
+            if action == "catalog":
+                cache = os.path.join(os.path.expanduser("~"), ".cache", "k8smatrixwarden")
+                dflt = rr.default_rules(cache) if data.get("defaults") else {"rules": [], "error": ""}
+                return _json({"curated": rr.curated_rules(), "default": dflt["rules"], "default_error": dflt["error"],
+                              "custom": rr.list_saved(self.reports_dir)})
+            if action == "generate":
+                y = rr.to_yaml(spec)
+                return _json({"yaml": y, "condition": rr.condition(spec), "lint": rr.lint(y), "explain": [] if rr.normalize(spec)["advanced"] else rr.explain(spec)})
+            if action == "test":
+                custom = [{"label": c.get("label"), "event": rr.parse_event_lines(c.get("lines", "")) if "lines" in c else c.get("event"),
+                           "expected": c.get("expected")} for c in data.get("events") or []]
+                return _json(rr.run_tests(spec, custom))
+            if action == "validate":
+                y = rr.to_yaml(spec)
+                return _json({"lint": rr.lint(y), "engine": rr.validate_with_falco(y) if data.get("engine") else None})
+            if action in ("save", "delete"):
+                if not self.allow_scan:
+                    return _json({"error": "Saving rules is disabled on this server."}, 403)
+                if action == "save":
+                    rr.save_rule(self.reports_dir, spec)
+                else:
+                    rr.delete_rule(self.reports_dir, data.get("name"))
+                return _json({"custom": rr.list_saved(self.reports_dir)})
+            if action == "falco-status":
+                return _json(self._falco_status())
+            if action in ("rule-stats", "health"):
+                from ..core import runtime_ops as ops
+                ns = data.get("namespace") or "falco"
+                hours = max(1, min(168, int(data.get("hours") or 24)))
+                try:
+                    collector = self.p.make_collector(mock=False)
+                except Exception as exc:
+                    return _json({"error": "Could not reach the cluster: " + str(exc).splitlines()[0][:140]}, 400)
+                if action == "health":
+                    return _json(ops.health(collector.falco_logs(ns, hours * 3600)  if hasattr(collector, "falco_logs") else {}, hours))
+                events = collector.collect_runtime_events(namespace=ns, since_seconds=hours * 3600, tail_lines=4000)
+                stats = ops.rule_stats(events, hours)
+                extra = {}
+                for r in rr.list_saved(self.reports_dir):
+                    st = stats.get(r["name"])
+                    extra[r["name"]] = {"advice": ops.advice(st, r["stage"]), "suggestions": ops.suggest_exceptions(st, r["spec"])}
+                return _json({"stats": stats, "tuning": extra, "events_read": len(events), "hours": hours})
+            if action == "coverage":
+                from ..core import runtime_ops as ops
+                cache = os.path.join(os.path.expanduser("~"), ".cache", "k8smatrixwarden")
+                rules = rr.curated_rules() + rr.list_saved(self.reports_dir) + rr.default_rules(cache)["rules"]
+                return _json(ops.mitre_coverage(rules, self._falco_status().get("state", "")))
+            if action in ("agents", "agents-save"):
+                from ..core import agent_coverage as ac
+                if action == "agents-save":
+                    if not self.allow_scan:
+                        return _json({"error": "Changing the agent list is disabled on this server."}, 403)
+                    ac.save_config(self.reports_dir, data.get("tracked") or [], data.get("min_versions") or {}, data.get("custom") or [])
+                agents = ac.load_agents(self.reports_dir)
+                try:
+                    collector = self.p.make_collector(mock=False)
+                    ev = collector.collect({"Node", "Pod", "DaemonSet"}, Scope(ScopeLevel.CLUSTER))
+                except Exception as exc:
+                    return _json({"error": "Could not read the cluster: " + str(exc).splitlines()[0][:140], "config": agents}, 400)
+                rep = ac.report(ev, agents)
+                rep["config"] = [{k: a[k] for k in ("id", "name", "vendor", "kind", "tracked", "min_version", "custom", "what")} for a in agents]
+                return _json(rep)
+            if action == "history":
+                return _json({"history": rr.history(self.reports_dir, data.get("name"))})
+            if action == "restore":
+                if not self.allow_scan:
+                    return _json({"error": "Changing rules is disabled on this server."}, 403)
+                rr.restore(self.reports_dir, data.get("name"), data.get("index"))
+                return _json({"custom": rr.list_saved(self.reports_dir)})
+            if action == "export":
+                from ..core import runtime_rules as _r
+                return _json({"pack": rr.export_pack(self.reports_dir), "yaml": _r.to_yaml([x["spec"] for x in rr.list_saved(self.reports_dir)]) if rr.list_saved(self.reports_dir) else ""})
+            if action == "import":
+                if not self.allow_scan:
+                    return _json({"error": "Importing rules is disabled on this server."}, 403)
+                res = rr.import_pack(self.reports_dir, data.get("pack"), bool(data.get("overwrite")))
+                return _json(dict(res, custom=rr.list_saved(self.reports_dir)))
+            if action == "simulate":
+                from ..core import runtime_ops as ops
+                return _json(ops.simulation_plan(spec))
+            if action == "falco-plan":
+                saved = [x["spec"] for x in rr.list_saved(self.reports_dir)] if data.get("include_rules", True) else []
+                return _json(falco_deploy.plan(self._falco_status(), rr.to_yaml(saved) if saved else "", data.get("namespace") or "falco",
+                                               data.get("context") or "", data.get("node_selector") or None, alerts=data.get("alerts")))
+            if action in ("falco-deploy", "falco-remove"):
+                want = "deploy-falco" if action == "falco-deploy" else "remove-falco"
+                if not self.allow_scan:
+                    return _json({"error": "Changing the cluster is disabled on this server (--no-scan)."}, 403)
+                if not falco_deploy.writes_enabled():
+                    return _json({"error": "This dashboard is read-only. To allow it to deploy Falco, restart it with "
+                                           f"{falco_deploy.GATE}=1. Nothing was changed.", "gated": True}, 403)
+                if data.get("confirm") != want:
+                    return _json({"error": f"Confirmation missing: send confirm='{want}'."}, 400)
+                ns, ctx = data.get("namespace") or "falco", data.get("context") or ""
+                if not hasattr(self, "_deployer"):
+                    self._deployer = falco_deploy.Deployer()
+                if action == "falco-deploy":
+                    st = self._falco_status()
+                    if any(c["status"] == "bad" for c in falco_deploy.preflight(st, namespace=ns)):
+                        return _json({"error": "A pre-flight check failed; fix it first (see the checks)."}, 409)
+                    saved = [x["spec"] for x in rr.list_saved(self.reports_dir)] if data.get("include_rules", True) else []
+                    tmp = tempfile.mkdtemp(prefix="kmw-falco-")
+                    steps, stdin_map = falco_deploy.deploy_steps(st, rr.to_yaml(saved) if saved else "", ns, ctx, tmp, data.get("node_selector") or None, data.get("alerts"))
+                else:
+                    steps, stdin_map = falco_deploy.remove_steps(ns, ctx), {}
+                rid = self._deployer.start(action, steps, stdin_map)
+                self._falco_cache = None
+                return _json({"run": rid}, 202)
+            if action == "falco-run":
+                run = getattr(self, "_deployer", None) and self._deployer.get(str(data.get("run")))
+                if not run:
+                    return _json({"error": "Unknown run."}, 404)
+                if run["state"] in ("done", "failed"):
+                    self._falco_cache = None
+                    if run["state"] == "done" and run["kind"] == "falco-deploy" and not run.get("marked"):
+                        run["marked"] = True
+                        rr.mark_deployed(self.reports_dir, [x["name"] for x in rr.list_saved(self.reports_dir)])
+                return _json(run)
+        except (rr.RuleError, ValueError) as exc:
+            return _json({"error": str(exc)}, 422)
+        return _json({"error": f"Unknown action '{action}'."}, 404)
+
+    @staticmethod
+    def _design_paths(analysis) -> list:
+        """Attack paths our own graph analysis finds in what the builder generated."""
+        try:
+            from .graph_page import build_graph
+            return [{"summary": p["summary"], "severity": p["severity"], "entry": p["entry"], "target": p["target"],
+                     "internet": p["internet"]} for p in build_graph(analysis)["paths"][:5]]
+        except Exception:
+            return []
+
+    def _build_env(self) -> dict:
+        """What the builder can learn about the real cluster from the latest saved scan: today, the
+        network plugin, because a NetworkPolicy on a plugin that ignores it protects nothing."""
+        import time
+        cached = getattr(self, "_env_cache", None)
+        if cached and time.time() - cached[0] < 60:
+            return cached[1]
+        env = {}
+        try:
+            recent = self.store.list(limit=1)
+            result = self.store.resolve(recent[0].scan_id) if recent else None
+            inv = (result.cluster_inventory if result else {}) or {}
+            sec = inv.get("sections") or {}
+            if sec:
+                env["scanned"] = True
+                names = " ".join(w.get("name", "") + " " + " ".join(w.get("images", []))
+                                 for w in sec.get("workloads", [])
+                                 if w.get("namespace") in ("kube-system", "calico-system", "tigera-operator", "cilium", "linkerd", "istio-system"))
+                low = names.lower()
+                for plugin in ("calico", "cilium", "antrea", "weave", "kube-router", "flannel", "kindnet"):
+                    if plugin in low:
+                        env["cni"] = plugin
+                        break
+                crds = " ".join((e.get("name") or "") + " " + (e.get("group") or "") for e in sec.get("extensions", []))
+                nss = {n.get("name") for n in sec.get("namespaces", [])}
+                if "linkerd.io" in crds or "linkerd" in nss:
+                    env["mesh"] = "linkerd"
+                elif "istio.io" in crds or "istio-system" in nss:
+                    env["mesh"] = "istio"
+                env["certmanager"] = "cert-manager.io" in crds or "cert-manager" in nss
+                env["kyverno"] = "kyverno.io" in crds or "kyverno" in nss
+        except Exception:
+            env = {}
+        self._env_cache = (time.time(), env)
+        return env
+
+    def _supp_file(self) -> str:
+        return os.path.join(self.reports_dir, "suppressions.json")
+
+    def _supp_read(self) -> list:
+        try:
+            with open(self._supp_file(), encoding="utf-8") as fh:
+                return list((json.load(fh) or {}).get("suppressions", []))
+        except (OSError, ValueError):
+            return []
+
+    def _supp_write(self, items: list) -> None:
+        os.makedirs(self.reports_dir, exist_ok=True)
+        with open(self._supp_file(), "w", encoding="utf-8") as fh:
+            json.dump({"suppressions": items}, fh, indent=2)
+
+    def _api_suppressions(self, method: str, parts: list, body: bytes) -> Response:
+        import datetime as dt
+        import uuid
+        items = self._supp_read()
+        if method == "GET":
+            today = dt.date.today().isoformat()
+            return _json({"suppressions": [dict(i, expired=bool(i.get("expires")) and i["expires"] < today)
+                                           for i in items]})
+        if not self.allow_scan:
+            return _json({"error": "Changing accepted risks is disabled on this server."}, 403)
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        if method == "POST" and parts[2:] == ["delete"]:
+            keep = [i for i in items if i.get("id") != data.get("id")]
+            self._supp_write(keep)
+            return _json({"deleted": len(items) - len(keep)})
+        if method == "POST" and len(parts) == 2:
+            rule, reason = str(data.get("rule", "")).strip(), str(data.get("reason", "")).strip()
+            if not rule or not reason:
+                return _json({"error": "An accepted risk needs a rule and a reason."}, 400)
+            exp = str(data.get("expires", "")).strip()
+            if exp:
+                try:
+                    dt.date.fromisoformat(exp)
+                except ValueError:
+                    return _json({"error": "Expiry must be a date like 2026-12-31."}, 400)
+            items.append({"id": uuid.uuid4().hex[:8], "rule": rule,
+                          "resource": str(data.get("resource", "")).strip() or "*", "reason": reason,
+                          "owner": str(data.get("owner", "")).strip(), "expires": exp,
+                          "created": dt.date.today().isoformat()})
+            self._supp_write(items)
+            return _json({"ok": True, "suppressions": items}, 201)
+        return _json({"error": "Unsupported request."}, 405)
+
+    @property
     def store(self) -> ReportStore:
         return ReportStore(self.reports_dir)
 
@@ -104,68 +568,51 @@ class WebApp:
             if method == "GET" and path == "/health":
                 return _json({"status": "ok", "rules": self.p.rule_count(),
                               "shards": len(self.p.registry.shard_names())})
-            if method == "GET" and path == "/matrix":
-                return self._coverage_matrix()
-            if method == "GET" and path == "/compliance":
-                return self._compliance(q)
-            if method == "GET" and path == "/api/compliance":
-                return self._api_compliance(q)
-            if method == "GET" and path == "/federation":
-                return self._federation()
-            if method == "GET" and path == "/api/federation":
-                return self._api_federation()
+            if method == "GET" and path == "/graph":
+                return _html(pages.topology_page(self._load(q.get("scan_id"))))
             if method == "GET" and parts[:1] == ["vendor"] and len(parts) == 2:
                 return self._vendor_asset(parts[1])
             if method == "GET" and path == "/api/reports":
                 return self._api_reports(q)
             if method == "GET" and path == "/api/dashboard":
-                return _json(self._dashboard_data(q.get("scan_id")))
+                return self._cached_dashboard(q.get("scan_id"))
             if method == "GET" and path == "/api/timeline":
                 return _json(self._api_timeline(q))
             if method == "GET" and path == "/api/finding":
                 return self._api_finding(q)
             if method == "POST" and path == "/api/scan":
                 return self._api_scan(body)
+            if parts[:2] == ["api", "build"] and len(parts) == 3:
+                return self._api_build(method, parts[2], body)
+            if parts[:2] == ["api", "runtime-rules"] and len(parts) == 3:
+                return self._api_rules(method, parts[2], body)
+            if parts[:2] == ["api", "deps"] and len(parts) == 3:
+                return self._api_deps(method, parts[2], body)
+            if path == "/api/tasks" or parts[:2] == ["api", "tasks"]:
+                return self._api_tasks(method, parts, q, body)
+            if path == "/api/suppressions" or parts[:2] == ["api", "suppressions"]:
+                return self._api_suppressions(method, parts, body)
             if method == "POST" and path == "/api/runtime/refresh":
                 return self._api_runtime_refresh(body)
+            if method == "POST" and path == "/api/runtime/demo":
+                return self._api_runtime_demo(body)
             if method == "POST" and path == "/api/runtime":
                 return self._api_runtime(body)
             # Read side of the same path. Method dispatch keeps ingestion untouched: a
             # falcosidekick POST and an operator GET never meet.
             if method == "GET" and path == "/api/runtime":
                 return self._api_runtime_events(q)
-            if method == "GET" and path == "/api/falco/status":
-                return self._api_falco("status", b"", q)
-            if method == "POST" and path == "/api/falco/deploy":
-                return self._api_falco("deploy", body, q)
-            if method == "POST" and path == "/api/falco/remove":
-                return self._api_falco("remove", body, q)
-            if method == "GET" and path == "/api/helm/status":
-                return self._api_helm("status")
-            if method == "POST" and path == "/api/helm/install":
-                return self._api_helm("install")
-            if method == "POST" and path == "/api/helm/remove":
-                return self._api_helm("remove")
-            # /runtime-management is the canonical address for the operations page.
-            # /runtime is kept because it served this page before the rename, and a
-            # bookmark or an open tab should not 404 over a label change.
-            if method == "GET" and path in ("/runtime-management", "/runtime"):
-                return _html(pages.runtime_ops_page())
-            # The event feed, likewise addressable by the name it had before the split.
-            if method == "GET" and path in ("/runtime-events", "/runtime/events"):
+            if method == "GET" and path in ("/runtime-events", "/runtime/events",
+                                            "/runtime-management", "/runtime"):
                 return self._runtime_page()
-            # /report/<id>  and  /report/<id>/matrix
-            if method == "GET" and len(parts) >= 2 and parts[0] == "report":
-                if len(parts) == 2:
-                    return self._report_html(parts[1])
-                if len(parts) == 3 and parts[2] == "matrix":
-                    return self._report_matrix_html(parts[1])
             # /api/report/<id>  and  /api/report/<id>/matrix
             if method == "GET" and len(parts) >= 3 and parts[:2] == ["api", "report"]:
                 if len(parts) == 3:
                     return self._api_report(parts[2], q)
                 if len(parts) == 4 and parts[3] == "matrix":
                     return self._api_report_matrix(parts[2])
+                if len(parts) == 4 and parts[3] == "topology":
+                    return _json(self._load(parts[2]).topology)
         except _NotFound as exc:
             return self._not_found(str(exc), q)
         except Exception as exc:  # never leak a stack trace to the browser
@@ -204,6 +651,25 @@ class WebApp:
         chosen = next((r for r in reports if r.scan_id == wanted), reports[0])
         return self.store.timeline(
             scope=self.store.scope_key_of(chosen.cluster, chosen.scope))
+
+    def _cached_dashboard(self, scan_id: Optional[str]) -> Response:
+        """The dashboard payload is expensive (it loads and compares saved scans) and changes
+        only when a report is written, so it is cached against the report folder's contents."""
+        try:
+            sig = tuple(sorted((e.name, e.stat().st_mtime_ns) for e in os.scandir(self.reports_dir)
+                               if e.name.endswith(".json") and e.name != "tasks.json"))
+        except OSError:
+            sig = ()
+        cache = self.__dict__.setdefault("_dash_cache", {})
+        key = (scan_id or "", sig)
+        hit = cache.get(key)
+        if hit is None:
+            hit = json.dumps(self._dashboard_data(scan_id), indent=None, separators=(",", ":"),
+                             ensure_ascii=False).encode("utf-8")
+            if len(cache) > 6:
+                cache.clear()
+            cache[key] = hit
+        return Response(200, "application/json; charset=utf-8", hit)
 
     def _dashboard_data(self, scan_id: Optional[str] = None) -> dict:
         """Everything the dashboard needs, in one payload: the selected (or latest) scan +
@@ -259,7 +725,9 @@ class WebApp:
                      # Scan health, every dashboard view that shows a score or a finding
                      # count reads these so an unread cluster is never painted as clean.
                      "evidence_ok": latest.evidence_ok,
-                     "warnings": scan_warning_lines(latest)},
+                     "warnings": scan_warning_lines(latest),
+                     "suppressed": list(latest.suppressed),
+                     "suppression_notes": list(latest.suppression_notes)},
             # Evidence coverage / assessment confidence (§5) and the score's own
             # contributor breakdown (§7). Both are computed server-side; the dashboard
             # renders them and never recomputes security logic in JavaScript.
@@ -267,13 +735,19 @@ class WebApp:
             "risk_explanation": latest.risk.explanation,
             # What changed since the previous scan of this cluster (§16).
             "posture": self._posture(selected),
+            "changes": self._changes(selected, latest),
             "inventory": latest.inventory,
+            "routes": self._routes(latest),
+            "cluster_inventory": latest.cluster_inventory,
             # Both counts, and the remediation units behind the evidence. The findings list
             # below is unchanged and remains the resource-level record; this is the same
             # information grouped by the object an operator would edit.
             "aggregation": _workload_summary(latest),
             "workload_issues": list(latest.workload_issues or []),
-            "findings": [f.as_dict() for f in latest.findings],
+            # rbac_paths repeats the same escalation routes on every finding of a pod and was
+            # most of the payload (28 MB on the DVKA cluster); the drawer fetches the routes
+            # per finding from /api/finding, so the list view does not need them.
+            "findings": [_slim(f.as_dict()) for f in latest.findings],
             "threat_matrix": matrix.as_dict(),
             "attack_path": attack_paths(matrix, latest.runtime,
                                         cluster=latest.cluster_name),
@@ -291,6 +765,25 @@ class WebApp:
                          "rating": r.rating, "risk_score": r.risk_score,
                          "total": r.total, "scope": r.scope} for r in reports],
         }
+
+    def _changes(self, scan_id: str, current) -> dict:
+        """Object-level changes since the previous scan of the same cluster and scope. Isolated:
+        no previous scan, or one saved before the inventory existed, simply yields nothing."""
+        from ..core.changes import diff
+        try:
+            reports = self.store.list()
+            i = next(n for n, r in enumerate(reports) if r.scan_id == scan_id)
+            scope = self.store.scope_key_of(reports[i].cluster, reports[i].scope)
+            earlier = next((r for r in reports[i + 1:]
+                            if self.store.scope_key_of(r.cluster, r.scope) == scope), None)
+            if not earlier:
+                return {"since": None, "items": []}
+            prev = self.store.load(earlier.scan_id)
+            return {"since": {"scan_id": prev.scan_id, "name": prev.display_name,
+                              "generated_at": prev.generated_at},
+                    "items": diff(prev.cluster_inventory, current.cluster_inventory)}
+        except Exception:
+            return {"since": None, "items": []}
 
     def _posture(self, scan_id: str) -> dict:
         """Posture change vs the previous scan of the same cluster. Isolated: a store with
@@ -310,18 +803,46 @@ class WebApp:
             data = json.loads(body or b"{}")
         except Exception as exc:
             return _json({"error": f"Invalid JSON body: {exc}"}, 400)
-        from ..agents.runtime import RuntimeAgent, normalize_batch
-        from ..core.correlation import correlate, detect_drift
-
-        # Body can be {"events":[...], "scan_id"?} (our batch), OR a bare Falco event
-        # posted by falcosidekick (one event per request). Normalize either into the
-        # flat internal shape the matchers use.
         scan_id = data.get("scan_id") if isinstance(data, dict) else None
         raw = data.get("events") if (isinstance(data, dict) and "events" in data) else data
-        events, rejected = normalize_batch(raw)
+        out = self._ingest_runtime(scan_id, raw)
+        return _json(out, 400 if list(out) == ["error"] else 200)
+
+    def _api_runtime_demo(self, body: bytes) -> Response:
+        """Push three synthetic, clearly-labelled events through the SAME ingestion path a
+        real sensor uses, built from this scan's own findings (core/runtime_demo.py). Lets
+        the Runtime tab be tried with no Falco deployed. Never invents a resource the scan
+        did not already find."""
+        try:
+            data = json.loads(body or b"{}")
+        except Exception as exc:
+            return _json({"error": f"Invalid JSON body: {exc}"}, 400)
+        scan_id = data.get("scan_id") if isinstance(data, dict) else None
         result = self.store.resolve(scan_id)
         if result is None:
             return _json({"error": "No saved scan to correlate against. Run a scan first."}, 400)
+        from ..core.runtime_demo import sample_events
+        events = sample_events(result)
+        if not events:
+            return _json({"error": "This scan has no finding with a MITRE tactic to "
+                                   "build a demo from."}, 400)
+        out = self._ingest_runtime(result.scan_id, events)
+        if "error" not in out:
+            out["demo"] = True
+            out["demo_events"] = events
+        return _json(out, 400 if "error" in out else 200)
+
+    def _ingest_runtime(self, scan_id: Optional[str], raw) -> dict:
+        """Normalize, detect, correlate, persist. Shared by the real push path and the
+        in-dashboard demo, so a demo event is judged by the exact same code a falcosidekick
+        POST is."""
+        from ..agents.runtime import RuntimeAgent, normalize_batch
+        from ..core.correlation import correlate, detect_drift
+
+        events, rejected = normalize_batch(raw)
+        result = self.store.resolve(scan_id)
+        if result is None:
+            return {"error": "No saved scan to correlate against. Run a scan first."}
         # drift needs live pod specs; reuse the scan's mode (mock/live) via a fresh fetch
         mock = result.mode != "live"
         try:
@@ -382,13 +903,13 @@ class WebApp:
             stored = False
 
         # Response shape is unchanged for existing clients; `stored` is additive.
-        return _json({"correlation": correlation,
-                      "detection_coverage": detection_coverage,
-                      "identity_coverage": identity_coverage,
-                      "events_received": len(events) + len(rejected),
-                      "stored": stored,
-                      "scan_id": result.scan_id,
-                      "drift": drift})
+        return {"correlation": correlation,
+                "detection_coverage": detection_coverage,
+                "identity_coverage": identity_coverage,
+                "events_received": len(events) + len(rejected),
+                "stored": stored,
+                "scan_id": result.scan_id,
+                "drift": drift}
 
     def _api_finding(self, q: dict) -> Response:
         """Full report-grade context for one finding (summary, impact, verification
@@ -417,6 +938,7 @@ class WebApp:
         return _json({"summary": explanation["what"],
                       "impact": explanation["why_it_matters"],
                       "validation": explanation["validation_steps"],
+                      "fix": explanation["fix"],
                       "explanation": explanation})
 
     def _api_runtime_events(self, q: dict) -> Response:
@@ -441,67 +963,6 @@ class WebApp:
             severity=(q.get("severity") or ""),
             namespace=(q.get("namespace") or ""),
             since=(q.get("since") or "")))
-
-    def _api_falco(self, action: str, body: bytes, q: dict) -> Response:
-        """Falco lifecycle for the dashboard: status (GET), deploy / remove (POST).
-
-        A thin adapter over core/falco_lifecycle, the same service the CLI's `falco`
-        command and the MCP tools call. No deployment logic lives here and none lives in
-        the browser: a Deploy button that built its own helm invocation in JavaScript
-        would be a second security-relevant implementation to keep in step, which is
-        exactly how the three surfaces drift apart.
-
-        Deploy and remove mutate the cluster and are refused unless the server's
-        environment sets K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1. The refusal is a normal
-        200 response describing what would run, not an error: the operator asked a fair
-        question and the honest answer is "not without the gate".
-        """
-        from ..core import falco_lifecycle as falco
-        data: dict = {}
-        if body:
-            try:
-                parsed = json.loads(body)
-                data = parsed if isinstance(parsed, dict) else {}
-            except Exception as exc:
-                return _json({"error": f"Invalid JSON body: {exc}"}, 400)
-        namespace = str(data.get("namespace") or q.get("namespace")
-                        or falco.DEFAULT_NAMESPACE)
-        release = str(data.get("release") or q.get("release") or falco.DEFAULT_RELEASE)
-        try:
-            if action == "status":
-                return _json(falco.status(namespace=namespace, release=release))
-            if action == "remove":
-                return _json(falco.remove(namespace=namespace, release=release))
-            webhook = str(data.get("webhook_url") or "").strip()
-            if not webhook:
-                # The page sends the address it is itself reachable on, because the browser
-                # knows the port and this object does not. 8080 is the documented default
-                # when something calls the endpoint directly without saying.
-                webhook = "http://host.docker.internal:8080/api/runtime"
-            return _json(falco.deploy(webhook, namespace=namespace, release=release))
-        except Exception as exc:                       # never leak a stack trace
-            return _json({"status": "error", "error": str(exc)}, 500)
-
-    def _api_helm(self, action: str) -> Response:
-        """Helm lifecycle for the dashboard: status (GET), install / remove (POST).
-
-        A thin adapter over core/helm_lifecycle, the same service the CLI's `helm` command
-        and the MCP tools call. There are no parameters by design — the version, the
-        download host and the checksums are constants in the service, and an endpoint that
-        accepted any of them from a browser would be an arbitrary-download endpoint.
-
-        Install and remove write to this machine and are refused by the service unless the
-        write gate is set. The refusal is a normal 200 describing why, not an error: the
-        operator asked a fair question.
-        """
-        from ..core import helm_lifecycle as helm
-        try:
-            return _json({"status": helm.status, "install": helm.install,
-                          "remove": helm.remove}[action]())
-        except KeyError:
-            raise _NotFound(f"No such Helm action: {action}")
-        except Exception as exc:                       # never leak a stack trace
-            return _json({"status": "error", "error": str(exc)}, 500)
 
     def _runtime_page(self) -> Response:
         return _html(pages.runtime_page())
@@ -544,23 +1005,6 @@ class WebApp:
         self.store.save(result)
         return _json({"runtime": feed})
 
-    def _report_html(self, scan_id: str) -> Response:
-        result = self._load(scan_id)
-        return _html(self.p.reporting.render(result, "html"))
-
-    def _report_matrix_html(self, scan_id: str) -> Response:
-        result = self._load(scan_id)
-        tm = build_threat_matrix(result, self.p.registry.rules)
-        return _html(pages.matrix_page(tm, result=result))
-
-    def _coverage_matrix(self) -> Response:
-        """The global 'what can the tool detect' matrix, every registered rule's coverage,
-        no findings. Distinct from a scan matrix, which overlays this scan's hits."""
-        empty = _empty_result(self.p)
-        tm = build_threat_matrix(empty, self.p.registry.rules)
-        note = (f"Detection coverage across all {self.p.rule_count()} registered rules")
-        return _html(pages.matrix_page(tm, result=None, title_note=note))
-
     # ------------------------------------------------------------------ #
     # JSON API
     # ------------------------------------------------------------------ #
@@ -573,27 +1017,11 @@ class WebApp:
                        "total_findings": r.total, "scope": r.scope}
                       for r in self.store.list(limit=limit)])
 
-    #: Binary export formats and their MIME types. These render to bytes (not str) and
-    #: need the optional extra (`fpdf2` for pdf, `openpyxl` for xlsx); a missing dependency
-    #: surfaces as a clean 400 rather than a 500.
-    _BINARY_FORMATS = {
-        "pdf": "application/pdf",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }
-
     def _api_report(self, scan_id: str, q: dict) -> Response:
         result = self._load(scan_id)
         fmt = (q.get("format") or "json").lower()
-        if fmt == "excel":
-            fmt = "xlsx"
-        if fmt in self._BINARY_FORMATS:
-            try:
-                data = self.p.reporting.render(result, fmt)
-            except RuntimeError as exc:      # optional dependency not installed
-                return _json({"error": str(exc)}, 400)
-            return Response(200, self._BINARY_FORMATS[fmt], data)
         if fmt not in _VALID_FORMATS:
-            valid = sorted(_VALID_FORMATS | set(self._BINARY_FORMATS))
+            valid = sorted(_VALID_FORMATS)
             return _json({"error": f"Unknown format {fmt!r}. Valid formats: {', '.join(valid)}"}, 400)
         content = self.p.reporting.render(result, fmt)
         if fmt == "json":
@@ -603,83 +1031,21 @@ class WebApp:
             return _html(content)
         return _text(content)
 
+    @staticmethod
+    def _routes(result) -> dict:
+        """The attack-path summary the Overview shows, from the same builder as the Attack paths
+        page so the two can never disagree about how many routes there are."""
+        from .graph_page import build_graph
+        paths = build_graph(result)["paths"]
+        return {"total": len(paths), "internet": sum(1 for p in paths if p["internet"]),
+                "top": [{"severity": p["severity"], "internet": p["internet"], "issues": p["issues"],
+                         "title": p["title"], "target": p["target"],
+                         "steps": [s for s in p["steps"] if s["t"] not in ("ClusterRoleBinding", "RoleBinding")]}
+                        for p in paths[:6]]}
+
     def _api_report_matrix(self, scan_id: str) -> Response:
         result = self._load(scan_id)
         return _json(build_threat_matrix(result, self.p.registry.rules).as_dict())
-
-    # ------------------------------------------------------------------ #
-    # Compliance audit, a standalone page like /matrix. Audits the mock target by
-    # default; a live audit needs a kubeconfig context, so it runs from the CLI/MCP where
-    # the target is explicit (the web live-scan path is separately kubeconfig-gated).
-    # ------------------------------------------------------------------ #
-    # Compliance audit tied to the scan the user is actually viewing. A saved scan carries
-    # findings but not a CIS run, so this is a FINDINGS-DERIVED audit: a requirement fails
-    # when a finding tagged with one of its CIS controls exists. It cannot show CIS PASS
-    # states (nothing affirmatively ran the benchmark), so those requirements read
-    # NOT_ASSESSED and the page says to run `k8smatrixwarden compliance` for the full audit.
-    # Only when the store is empty do we fall back to a live/mock run for the demo.
-    # ------------------------------------------------------------------ #
-    def _run_compliance(self, q: dict):
-        from ..frameworks.compliance import ComplianceEngine, run_audit, framework_keys
-        fw = q.get("frameworks")
-        frameworks = [f for f in fw.split(",") if f] if fw else None
-        if frameworks:
-            bad = [f for f in frameworks if f not in set(framework_keys())]
-            if bad:
-                raise _NotFound(f"Unknown framework(s): {bad}")
-
-        store = self.store
-        if not store.list():
-            # empty store, nothing scanned yet; run a mock audit so the page is not blank.
-            return run_audit(self.p, mock=True, profile="auto", frameworks=frameworks), True
-        result = self._load(q.get("scan_id"))       # selected scan, else latest
-        rep = ComplianceEngine().evaluate(
-            cis_results=[], findings=result.findings, frameworks=frameworks,
-            scan_id=result.scan_id, cluster=result.cluster_name,
-            generated_at=result.generated_at, profile=result.mode)
-        return rep, False
-
-    _CIS_NOTE = ("<div class='cf-note' style='border-left-color:var(--high)'>Derived from "
-                 "the findings of scan <b>{sid}</b>. A requirement fails when a finding maps "
-                 "to one of its CIS controls. CIS <b>pass</b> states are not shown here "
-                 "(nothing re-ran the 130-control benchmark against this saved scan); run "
-                 "<code>k8smatrixwarden compliance</code> for the full CIS-backed audit.</div>")
-
-    def _compliance(self, q: dict) -> Response:
-        from ..frameworks import compliance_report as cr
-        report, is_mock = self._run_compliance(q)
-        fmt = (q.get("format") or "html").lower()
-        if fmt == "json":
-            return _json(report.as_dict())
-        if fmt == "pdf":
-            try:
-                return Response(200, "application/pdf", cr.to_pdf(report))
-            except RuntimeError as exc:
-                return _json({"error": str(exc)}, 400)
-        note = "" if is_mock else self._CIS_NOTE.format(sid=_esc(report.scan_id or "N/A"))
-        body = (pages._topbar("compliance")
-                + cr.to_html(report, standalone=False).replace("</h1>", "</h1>" + note, 1))
-        return _html(pages.layout("K8sMatrixWarden · Compliance Audit", body))
-
-    def _api_compliance(self, q: dict) -> Response:
-        return _json(self._run_compliance(q)[0].as_dict())
-
-    # ------------------------------------------------------------------ #
-    # Federation blast radius, correlates the newest saved scan of each cluster in the
-    # store. Populate it by scanning each cluster (its own context) via /api/scan.
-    # ------------------------------------------------------------------ #
-    def _build_federation(self):
-        from ..core.federation import build_federation, latest_per_cluster
-        return build_federation(latest_per_cluster(self.store))
-
-    def _federation(self) -> Response:
-        from ..core import federation_report as fr
-        body = pages._topbar("federation") + fr.to_html(self._build_federation(),
-                                                         standalone=False)
-        return _html(pages.layout("K8sMatrixWarden · Federation Blast Radius", body))
-
-    def _api_federation(self) -> Response:
-        return _json(self._build_federation().as_dict())
 
     def _api_scan(self, body: bytes) -> Response:
         if not self.allow_scan:
@@ -707,7 +1073,8 @@ class WebApp:
             try:
                 collector = self.p.make_collector(
                     mock=mock, fixture=data.get("fixture"),
-                    kubeconfig=kubeconfig, context=data.get("context"))
+                    kubeconfig=kubeconfig, context=data.get("context"),
+                    **({"grype": True} if data.get("grype") and not mock else {}))
             except RuntimeError as exc:
                 return _json({"error": str(exc)}, 400)
 
@@ -736,8 +1103,7 @@ class WebApp:
                       "scope": result.request.scope.describe(),
                       "evidence_ok": result.evidence_ok,
                       "warnings": scan_warning_lines(result),
-                      "report_url": f"/report/{result.scan_id}",
-                      "matrix_url": f"/report/{result.scan_id}/matrix"})
+                      })
 
     def _resolve_kubeconfig(self, data: dict) -> tuple[Optional[str], Optional[str]]:
         """Return (kubeconfig_path, temp_path_to_clean_up).

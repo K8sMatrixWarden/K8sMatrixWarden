@@ -1,0 +1,72 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- NET-01: NodePort Service  [expects: net-nodeport-service]
+apiVersion: v1
+kind: Service
+metadata:
+  name: net-nodeport
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: NodePort
+  selector:
+    app: wl-privileged
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 31080
+---
+# ---- NET-02: LoadBalancer with no source ranges  [expects: net-lb-no-source-range]
+apiVersion: v1
+kind: Service
+metadata:
+  name: net-lb-open
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: LoadBalancer
+  selector:
+    app: wl-latest-tag
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# ---- NET-03: Kubernetes dashboard exposed  [expects: net-dashboard-exposed, net-nodeport-service]
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubernetes-dashboard
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: NodePort
+  selector:
+    app: kubernetes-dashboard
+  ports:
+  - port: 8443
+    targetPort: 8443
+    nodePort: 30443
+---
+# ---- NET-04: Ingress without TLS  [expects: net-ingress-no-tls]
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: net-ingress-plain
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  rules:
+  - host: plain.dvka.example
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: net-lb-open
+            port:
+              number: 8080

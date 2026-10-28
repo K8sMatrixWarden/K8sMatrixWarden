@@ -8,15 +8,14 @@ Evaluation method per control (`ev`), chosen so whatever the K8s API can prove i
 from the API, and only genuinely node-local reads are delegated:
 
   native    , mapped domain-shard rule(s): rule fired ⇒ FAIL, else PASS.
-  builtin   , purpose-built evaluator in cis.py.
   component , control-plane / kubelet PROCESS FLAG, read from the ComponentConfig evidence
                (built live by parsing kube-system static-pod specs + kubelet config, §mitigation
                Layer 1/2). Each carries a `check = (component, flag, op, value)` predicate.
   kube-bench, node FILE permission/ownership read; requires on-node access → kube-bench JSON.
   manual    , CIS-designated manual review.
 
-Mitigation split (see §5.9.2): 25 native + 2 builtin + 38 component = 65 evaluated from the
-API; 31 kube-bench (true node-file reads); 34 manual.
+Mitigation split (see §5.9.2): 30 native + 38 component = 68 evaluated from the
+API; 31 kube-bench (true node-file reads); 31 manual.
 """
 from __future__ import annotations
 
@@ -78,7 +77,7 @@ CIS_1_8: list[CisControl] = [
     _c("1.1.20", "Kubernetes PKI certificate file permissions 600 or more restrictive", "Manual", "kube-bench"),
     _c("1.1.21", "Kubernetes PKI key file permissions 600", "Manual", "kube-bench"),
     # ── 1.2 API Server ──
-    _c("1.2.1", "--anonymous-auth argument is set to false", "Manual", "native", "apiserver-anonymous-auth"),
+    _c("1.2.1", "--anonymous-auth argument is set to false", "Manual", "manual"),
     _comp("1.2.2", "--token-auth-file parameter is not set", "Automated", "apiServer", "token-auth-file", "unset"),
     _comp("1.2.3", "--DenyServiceExternalIPs is set", "Manual", "apiServer", "enable-admission-plugins", "admission_has", "DenyServiceExternalIPs"),
     _comp("1.2.4", "--kubelet-client-certificate and --kubelet-client-key set", "Automated", "apiServer", "kubelet-client-certificate", "set"),
@@ -94,7 +93,7 @@ CIS_1_8: list[CisControl] = [
     _comp("1.2.14", "Admission plugin NamespaceLifecycle is set", "Automated", "apiServer", "disable-admission-plugins", "admission_not", "NamespaceLifecycle"),
     _comp("1.2.15", "Admission plugin NodeRestriction is set", "Automated", "apiServer", "enable-admission-plugins", "admission_has", "NodeRestriction"),
     _comp("1.2.16", "--profiling argument is set to false", "Automated", "apiServer", "profiling", "eq", "false"),
-    _c("1.2.17", "--audit-log-path argument is set", "Automated", "native", "apiserver-audit-logging"),
+    _c("1.2.17", "--audit-log-path argument is set", "Automated", "manual"),
     _comp("1.2.18", "--audit-log-maxage set to 30 or as appropriate", "Automated", "apiServer", "audit-log-maxage", "set"),
     _comp("1.2.19", "--audit-log-maxbackup set to 10 or as appropriate", "Automated", "apiServer", "audit-log-maxbackup", "set"),
     _comp("1.2.20", "--audit-log-maxsize set to 100 or as appropriate", "Automated", "apiServer", "audit-log-maxsize", "set"),
@@ -105,7 +104,7 @@ CIS_1_8: list[CisControl] = [
     _comp("1.2.25", "--tls-cert-file and --tls-private-key-file set", "Automated", "apiServer", "tls-cert-file", "set"),
     _comp("1.2.26", "--client-ca-file argument set", "Automated", "apiServer", "client-ca-file", "set"),
     _comp("1.2.27", "--etcd-cafile argument set", "Automated", "apiServer", "etcd-cafile", "set"),
-    _c("1.2.28", "--encryption-provider-config argument set", "Manual", "native", "etcd-encryption-missing"),
+    _c("1.2.28", "--encryption-provider-config argument set", "Manual", "manual"),
     _c("1.2.29", "Encryption providers appropriately configured", "Manual", "manual"),
     _c("1.2.30", "API Server uses only strong cryptographic ciphers", "Manual", "manual"),
     # ── 1.3 Controller Manager ──
@@ -121,7 +120,7 @@ CIS_1_8: list[CisControl] = [
     _comp("1.4.2", "--bind-address argument set to 127.0.0.1", "Automated", "scheduler", "bind-address", "eq", "127.0.0.1"),
     # ── 2 etcd ──
     _comp("2.1", "--cert-file and --key-file arguments set", "Automated", "etcd", "cert-file", "set"),
-    _c("2.2", "--client-cert-auth argument set to true", "Automated", "native", "etcd-client-cert-auth"),
+    _c("2.2", "--client-cert-auth argument set to true", "Automated", "manual"),
     _comp("2.3", "--auto-tls argument is not set to true", "Automated", "etcd", "auto-tls", "not_true"),
     _comp("2.4", "--peer-cert-file and --peer-key-file set", "Automated", "etcd", "peer-cert-file", "set"),
     _comp("2.5", "--peer-client-cert-auth argument set to true", "Automated", "etcd", "peer-client-cert-auth", "eq", "true"),
@@ -146,10 +145,10 @@ CIS_1_8: list[CisControl] = [
     _c("4.1.9", "kubelet config.yaml permissions 600 or more restrictive", "Automated", "kube-bench"),
     _c("4.1.10", "kubelet config.yaml file ownership root:root", "Automated", "kube-bench"),
     # ── 4.2 Kubelet ──
-    _c("4.2.1", "--anonymous-auth argument set to false", "Automated", "native", "kubelet-anonymous-auth"),
-    _c("4.2.2", "--authorization-mode not set to AlwaysAllow", "Automated", "native", "kubelet-authz-always-allow"),
+    _c("4.2.1", "--anonymous-auth argument set to false", "Automated", "manual"),
+    _c("4.2.2", "--authorization-mode not set to AlwaysAllow", "Automated", "manual"),
     _comp("4.2.3", "--client-ca-file argument set", "Automated", "kubelet", "client-ca-file", "set"),
-    _c("4.2.4", "--read-only-port argument set to 0", "Manual", "native", "kubelet-read-only-port"),
+    _c("4.2.4", "--read-only-port argument set to 0", "Manual", "manual"),
     _comp("4.2.5", "--streaming-connection-idle-timeout not set to 0", "Manual", "kubelet", "streaming-connection-idle-timeout", "not_zero"),
     _comp("4.2.6", "--make-iptables-util-chains set to true", "Automated", "kubelet", "make-iptables-util-chains", "eq", "true"),
     _c("4.2.7", "--hostname-override argument is not set", "Manual", "manual"),
@@ -164,18 +163,18 @@ CIS_1_8: list[CisControl] = [
     _c("5.1.2", "Minimize access to secrets", "Manual", "native", "rbac-secret-read-broad"),
     _c("5.1.3", "Minimize wildcard use in Roles and ClusterRoles", "Manual", "native",
        "rbac-wildcard-verbs", "rbac-wildcard-resources"),
-    _c("5.1.4", "Minimize access to create pods", "Manual", "manual"),
+    _c("5.1.4", "Minimize access to create pods", "Manual", "native", "rbac-create-pods"),
     _c("5.1.5", "Default service accounts are not actively used", "Manual", "manual"),
     _c("5.1.6", "Service Account Tokens only mounted where necessary", "Manual", "native",
        "workload-sa-token-automount"),
-    _c("5.1.7", "Avoid use of system:masters group", "Manual", "manual"),
+    _c("5.1.7", "Avoid use of system:masters group", "Manual", "native", "rbac-system-masters"),
     _c("5.1.8", "Limit use of Bind, Impersonate and Escalate permissions", "Manual", "native",
        "rbac-bind-escalate-verbs"),
-    _c("5.1.9", "Minimize access to create persistent volumes", "Manual", "manual"),
-    _c("5.1.10", "Minimize access to the proxy sub-resource of nodes", "Manual", "manual"),
-    _c("5.1.11", "Minimize access to the approval sub-resource of CSRs", "Manual", "manual"),
-    _c("5.1.12", "Minimize access to webhook configuration objects", "Manual", "manual"),
-    _c("5.1.13", "Minimize access to the service account token creation", "Manual", "manual"),
+    _c("5.1.9", "Minimize access to create persistent volumes", "Manual", "native", "rbac-create-pv"),
+    _c("5.1.10", "Minimize access to the proxy sub-resource of nodes", "Manual", "native", "rbac-node-proxy"),
+    _c("5.1.11", "Minimize access to the approval sub-resource of CSRs", "Manual", "native", "rbac-csr-approve"),
+    _c("5.1.12", "Minimize access to webhook configuration objects", "Manual", "native", "rbac-webhook-config-write"),
+    _c("5.1.13", "Minimize access to the service account token creation", "Manual", "native", "rbac-sa-token-create"),
     # ── 5.2 Pod Security Standards ──
     _c("5.2.1", "Cluster has at least one active policy control mechanism", "Manual", "native",
        "compliance-psa-not-restricted"),
@@ -194,11 +193,11 @@ CIS_1_8: list[CisControl] = [
        "workload-dangerous-caps"),
     _c("5.2.9", "Minimize the admission of containers with added capabilities", "Manual", "native",
        "workload-caps-not-dropped", "workload-dangerous-caps"),
-    _c("5.2.10", "Minimize the admission of containers with capabilities assigned", "Manual", "manual"),
-    _c("5.2.11", "Minimize the admission of Windows HostProcess containers", "Manual", "manual"),
+    _c("5.2.10", "Minimize the admission of containers with capabilities assigned", "Manual", "native", "workload-caps-not-dropped"),
+    _c("5.2.11", "Minimize the admission of Windows HostProcess containers", "Manual", "native", "workload-windows-hostprocess"),
     _c("5.2.12", "Minimize the admission of HostPath volumes", "Manual", "native",
        "workload-hostpath-root", "workload-hostpath-writable"),
-    _c("5.2.13", "Minimize the admission of containers which use HostPorts", "Manual", "builtin"),
+    _c("5.2.13", "Minimize the admission of containers which use HostPorts", "Manual", "native", "workload-host-port"),
     # ── 5.3 Network Policies and CNI ──
     _c("5.3.1", "CNI in use supports NetworkPolicies", "Manual", "manual"),
     _c("5.3.2", "All Namespaces have NetworkPolicies defined", "Manual", "native", "net-no-networkpolicy"),
@@ -212,8 +211,8 @@ CIS_1_8: list[CisControl] = [
     _c("5.7.1", "Create administrative boundaries between resources using namespaces", "Manual", "manual"),
     _c("5.7.2", "Ensure seccomp profile is set to docker/default in Pod definitions", "Manual", "native",
        "workload-no-seccomp"),
-    _c("5.7.3", "Apply SecurityContext to your Pods and Containers", "Manual", "manual"),
-    _c("5.7.4", "The default namespace should not be used", "Manual", "builtin"),
+    _c("5.7.3", "Apply SecurityContext to your Pods and Containers", "Manual", "native", "workload-no-security-context"),
+    _c("5.7.4", "The default namespace should not be used", "Manual", "native", "workload-default-namespace"),
 ]
 
 BENCHMARK_VERSION = "cis-1.8"

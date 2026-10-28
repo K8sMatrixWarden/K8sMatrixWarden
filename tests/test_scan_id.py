@@ -274,22 +274,8 @@ def test_the_dashboard_history_lists_every_rapid_scan_once():
     assert set(listed) == {r.scan_id for r in results}
 
 
-def test_the_mcp_report_listing_shows_every_rapid_scan():
-    from k8smatrixwarden.mcp.server import build_tools
-    store, results = _rapid(4)
-    listed = build_tools()["list_reports"](reports_dir=store.dir)
-    ids = [entry["scan_id"] for entry in listed]
-    assert set(ids) == {r.scan_id for r in results}
 
 
-def test_a_report_can_be_downloaded_for_each_rapid_scan():
-    from k8smatrixwarden.mcp.server import build_tools
-    store, results = _rapid(3)
-    download = build_tools()["download_report"]
-    for result in results:
-        out = download(scan_id=result.scan_id, reports_dir=store.dir, format="markdown")
-        assert out["scan_id"] == result.scan_id
-        assert out["content"]
 
 
 if __name__ == "__main__":

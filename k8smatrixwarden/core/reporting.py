@@ -14,10 +14,6 @@ Mapping (with reference links), Impact, and Validation/reproduction steps.
   json     , full structured data + a summary block + the same per-finding context
   sarif    , SARIF 2.1 with security-severity, tags, rich help.markdown, fingerprints
   html     , self-contained, responsive, dark/light card report with the same sections
-  pdf      , a print/share-ready audit document (title page, executive summary,
-              coverage, full per-finding write-ups); requires the optional `pdf` extra
-              (`pip install -e ".[pdf]"`), see core/pdf_report.py. Returns `bytes`, not
-              `str`, the only format that does; callers must branch on this.
 
 Tag-based filtering stays first-class because tags are finding metadata (§18.2).
 """
@@ -69,33 +65,14 @@ class ReportingEngine:
         self.registry = registry
 
     def render(self, result: ScanResult, fmt: str = "terminal"):
-        """Render in the requested format. Every format returns `str` EXCEPT `pdf`,
-        which returns raw `bytes`, callers must check the format and write/handle it
-        accordingly (binary file mode, base64-encode for a JSON/text transport, etc.)."""
+        """Render in the requested format (always `str`)."""
         fmt = (fmt or "terminal").lower()
-        if fmt == "pdf":
-            return self.pdf(result)
-        if fmt in ("xlsx", "excel"):
-            return self.xlsx(result)
         return {
             "terminal": self.terminal, "text": self.text,
             "markdown": self.markdown, "md": self.markdown,
             "json": self.json, "sarif": self.sarif, "html": self.html,
+            "brief": self.brief,
         }.get(fmt, self.terminal)(result)
-
-    # ================================================================== #
-    # PDF (requires the optional `pdf` extra, fpdf2)
-    # ================================================================== #
-    def pdf(self, result: ScanResult) -> bytes:
-        from .pdf_report import render_pdf
-        return render_pdf(result)
-
-    # ================================================================== #
-    # XLSX (requires the optional `excel` extra, openpyxl)
-    # ================================================================== #
-    def xlsx(self, result: ScanResult) -> bytes:
-        from .excel_report import render_xlsx
-        return render_xlsx(result)
 
     # ================================================================== #
     # TERMINAL (rich)
@@ -185,6 +162,40 @@ class ReportingEngine:
     # ================================================================== #
     # TEXT (plain, zero-dep)
     # ================================================================== #
+    def brief(self, result: ScanResult, top: int = 7) -> str:
+        """What an engineer wants at the end of a run: how bad, what to fix first and how,
+        and what to do next. Plain text so it reads the same in a terminal and a CI log."""
+        from .remediation import fix_for
+        by_id = {f.resource_finding_id: f for f in result.findings}
+        issues = sorted(result.workload_issues, key=lambda i: -i.get("score", 0))
+        r, c = result.risk, result.counts
+        out = [f"{r.rating_emoji} Risk {r.cluster_risk}/10 ({r.rating})  ·  "
+               f"{len(issues)} issue(s) to fix  ·  {c.get('CRITICAL', 0)} critical, {c.get('HIGH', 0)} high, "
+               f"{c.get('MEDIUM', 0)} medium  ·  {result.cluster_name}"]
+        if not result.evidence_ok:
+            out.append("⚠ Nothing could be read, so this is not a clean result. See the warnings above.")
+        elif not issues:
+            out.append("✔ No open issues.")
+        else:
+            out.append(f"\nFix these first (ranked by severity and whether an attacker can reach them):")
+        for n, i in enumerate(issues[:top], 1):
+            f = by_id.get((i.get("resource_finding_ids") or [""])[0])
+            tags = (getattr(f, "exploitable_by", None) or []) if f else []
+            why = [t for t, ok in (("reachable from the Internet", "ingress" in tags),
+                                   ("its identity can reach secrets", "rbac-escalation" in tags)) if ok]
+            fix = fix_for(i["rule_id"]).get("how", "")
+            out.append(f"\n {n}. [{i['severity']}] {i['title']}  ·  score {i.get('score', 0):.1f}\n"
+                       f"    where: {i['workload']}" + (f"  ({i['resource_count']} objects)" if i.get("resource_count", 1) > 1 else "")
+                       + (f"\n    exposure: {', '.join(why)}" if why else "")
+                       + (f"\n    fix: {fix}" if fix else ""))
+        if len(issues) > top:
+            out.append(f"\n … and {len(issues) - top} more.")
+        if result.suppressed:
+            out.append(f"\n{len(result.suppressed)} finding(s) hidden as accepted risks.")
+        out.append("\nNext: `k8smatrixwarden web` to explore, `-o markdown` for a report, "
+                   "`--fail-on HIGH` to gate CI, accepted risks in .k8smatrixwarden-ignore.yaml")
+        return "\n".join(out)
+
     def text(self, result: ScanResult) -> str:
         r = result.risk
         c = result.counts

@@ -112,6 +112,31 @@ def test_runtime_evidence_stays_distinguishable_from_static():
     assert c["static_findings"][0]["rule_id"] == "workload-privileged-container"
 
 
+def test_confirmed_with_several_candidate_weaknesses_says_so_structurally_and_in_text():
+    """Regression: 'confirmed' names the RESOURCE, not which weakness on it was exploited.
+    When several findings share the resource and tactic, the verdict text and the dashboard
+    (web/pages.py's staticCandidates()) must both say there were several, not silently show
+    only the first and imply there was one."""
+    two = [_finding(),
+           Finding(rule_id="workload-sa-token-automount", title="SA token auto-mounted",
+                  severity=Severity.MEDIUM, resource=ResourceRef("Pod", "web-server-abc123", "production"),
+                  message="m", owning_shard="workload_pod_security",
+                  mitre=[MitreTag(Tactic.EXECUTION, "T1552.007", "Container API Credentials")],
+                  detection_method=DetectionMethod.STATIC_CONFIG,
+                  exploitability=Exploitability.LOCAL, blast_radius=BlastRadius.CLUSTER)]
+    c = correlate(two, _alerts(_shell()))["correlations"][0]
+    assert c["confidence"] == "confirmed"
+    assert c["static_count"] == 2
+    assert len(c["static_findings"]) == 2
+    assert "2 weaknesses" in c["verdict"] and "does not say which" in c["verdict"]
+
+
+def test_confirmed_with_exactly_one_candidate_stays_the_simple_unhedged_text():
+    c = correlate([_finding()], _alerts(_shell()))["correlations"][0]
+    assert c["static_count"] == 1
+    assert "weaknesses on this resource" not in c["verdict"]
+
+
 # --------------------------------------------------------------------------- #
 # Drift: runtime contradicting a declared posture.
 # --------------------------------------------------------------------------- #

@@ -73,7 +73,8 @@ def test_explanation_reports_reachability_structurally():
 def test_scoring_section_is_reproducible():
     out = explain_finding(_finding())["scoring"]
     product = (out["severity"]["weight"] * out["exploitability"]["weight"]
-               * out["blast_radius"]["weight"] * out["path_multiplier"]["weight"])
+               * out["blast_radius"]["weight"] * out["path_multiplier"]["weight"]
+               * out.get("reachability_multiplier", {}).get("weight", 1.0))
     assert round(product, 3) == out["score"]
 
 
@@ -159,14 +160,3 @@ def test_rule_metadata_reaches_the_explanation():
     assert out["rule"]["shard"] == "workload_pod_security"
 
 
-def test_explanation_works_on_a_real_scan_through_mcp():
-    import tempfile
-    from k8smatrixwarden.mcp.server import build_tools
-    d = tempfile.mkdtemp()
-    tools = build_tools()
-    tools["run_scan"](mock=True, reports_dir=d, save=True)
-    out = tools["explain_finding"](reports_dir=d, limit=2)
-    assert out["matched"] > 0
-    assert _REQUIRED_KEYS <= set(out["explanations"][0])
-    missing = tools["explain_finding"](reports_dir=d, rule_id="nope")
-    assert "error" in missing

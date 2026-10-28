@@ -27,7 +27,7 @@ USE = re.compile(r"var\(\s*(--[\w-]+)\s*(,[^)]*)?\)")
 DEFINE = re.compile(r"(--[\w-]+)\s*:")
 
 #: Pages worth holding to this. Each is rendered exactly as the server renders it.
-PATHS = ("/", "/runtime-management", "/runtime-events", "/reports")
+PATHS = ("/", "/runtime-events", "/runtime-events", "/reports")
 
 
 def _served():

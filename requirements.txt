@@ -4,14 +4,11 @@
 # Live cluster scanning (otherwise --mock is used):
 # kubernetes>=28.0
 
+# Scan YAML / Helm charts before deploy (scan --manifests, check):
+# pyyaml>=6
+
 # Prettier terminal tables:
 # rich>=13.0
-
-# MCP protocol server (`k8smatrixwarden mcp`):
-# mcp>=1.0
-
-# PDF report export (`k8smatrixwarden scan -o pdf`):
-# fpdf2>=2.7
 
 # Tests (a stdlib runner is bundled at tests/run_tests.py; pytest is optional):
 # pytest>=7.0

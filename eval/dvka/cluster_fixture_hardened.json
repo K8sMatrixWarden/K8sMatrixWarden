@@ -1,0 +1,1528 @@
+{
+ "namespaces": [
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "default",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "restricted"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "dvka-secure",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "restricted"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "logging",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "restricted"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-system"
+   }
+  }
+ ],
+ "networkpolicies": [
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "default-deny-all",
+    "namespace": "default"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Ingress",
+     "Egress"
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "default-deny-all",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Ingress",
+     "Egress"
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "default-deny-all",
+    "namespace": "logging"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Ingress",
+     "Egress"
+    ]
+   }
+  }
+ ],
+ "serviceaccounts": [
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "reader-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "pair-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "neg-api-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "default"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "logging"
+   }
+  }
+ ],
+ "roles": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "name": "dvka-pod-reader",
+    "namespace": "dvka-secure"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  }
+ ],
+ "rolebindings": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "name": "dvka-pod-reader-binding",
+    "namespace": "dvka-secure"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "dvka-pod-reader"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "reader-sa",
+     "namespace": "dvka-secure"
+    }
+   ]
+  }
+ ],
+ "services": [
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "neg-clusterip",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "selector": {
+     "app": "neg-api"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "neg-lb-restricted",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "selector": {
+     "app": "neg-api"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ],
+    "loadBalancerSourceRanges": [
+     "203.0.113.0/24"
+    ]
+   }
+  }
+ ],
+ "ingresses": [
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "Ingress",
+   "metadata": {
+    "name": "neg-ingress-tls",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "tls": [
+     {
+      "hosts": [
+       "secure.dvka.example"
+      ],
+      "secretName": "tls"
+     }
+    ],
+    "rules": [
+     {
+      "host": "secure.dvka.example",
+      "http": {
+       "paths": [
+        {
+         "path": "/",
+         "pathType": "Prefix",
+         "backend": {
+          "service": {
+           "name": "neg-clusterip",
+           "port": {
+            "number": 8080
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "secrets": [
+  {
+   "apiVersion": "v1",
+   "kind": "Secret",
+   "metadata": {
+    "name": "db-credentials",
+    "namespace": "dvka-secure"
+   },
+   "type": "Opaque",
+   "stringData": {
+    "password": "placeholder-not-a-real-secret"
+   }
+  }
+ ],
+ "deployments": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-secret-as-file",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-secret-as-file"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-secret-as-file"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "s",
+          "mountPath": "/etc/app/secrets",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "s",
+        "secret": {
+         "secretName": "db-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-pair-a",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-pair-b",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-api",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-api"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-api"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "neg-api-sa"
+     }
+    }
+   }
+  }
+ ],
+ "replicasets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-secret-as-file-stswg62hkm",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-secret-as-file",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-secret-as-file"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-secret-as-file"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "s",
+          "mountPath": "/etc/app/secrets",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "s",
+        "secret": {
+         "secretName": "db-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-pair-a-4nj56zdndb",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-pair-a",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-pair-b-s5ll7qdxqt",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-pair-b",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-api-ktxknd2qlw",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-api",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-api"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-api"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "neg-api-sa"
+     }
+    }
+   }
+  }
+ ],
+ "pods": [
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-secret-as-file-stswg62hkm-58tvn",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-secret-as-file-stswg62hkm",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "s",
+        "mountPath": "/etc/app/secrets",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "s",
+      "secret": {
+       "secretName": "db-credentials"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.3",
+    "podIPs": [
+     {
+      "ip": "10.244.0.3"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-pair-a-4nj56zdndb-f87f5",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-pair-a-4nj56zdndb",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "pair-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.4",
+    "podIPs": [
+     {
+      "ip": "10.244.0.4"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-pair-b-s5ll7qdxqt-6n9v6",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-pair-b-s5ll7qdxqt",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "pair-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.5",
+    "podIPs": [
+     {
+      "ip": "10.244.0.5"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "fluent-bit-tl5q9",
+    "namespace": "logging",
+    "labels": {
+     "app": "fluent-bit"
+    },
+    "ownerReferences": [
+     {
+      "kind": "DaemonSet",
+      "name": "fluent-bit",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.6",
+    "podIPs": [
+     {
+      "ip": "10.244.0.6"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-api-ktxknd2qlw-pm9rc",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-api-ktxknd2qlw",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "neg-api-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.7",
+    "podIPs": [
+     {
+      "ip": "10.244.0.7"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  }
+ ],
+ "configmaps": [
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "neg-app-config",
+    "namespace": "dvka-secure"
+   },
+   "data": {
+    "log_level": "info",
+    "region": "eu-west-1"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "fp-model-config",
+    "namespace": "dvka-secure"
+   },
+   "data": {
+    "max_tokens": "256"
+   }
+  }
+ ],
+ "daemonsets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "DaemonSet",
+   "metadata": {
+    "name": "fluent-bit",
+    "namespace": "logging",
+    "labels": {
+     "app": "fluent-bit"
+    }
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "fluent-bit"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "fluent-bit"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  }
+ ],
+ "clusterroles": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "cluster-admin",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "*"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "admin",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "create",
+      "update",
+      "delete"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "edit",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "create",
+      "update"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "view",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  }
+ ],
+ "endpointslices": [
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "neg-clusterip-mqs4k",
+    "namespace": "dvka-secure",
+    "labels": {
+     "kubernetes.io/service-name": "neg-clusterip"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.7"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "neg-api-ktxknd2qlw-pm9rc",
+      "namespace": "dvka-secure"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "neg-lb-restricted-4lhb5",
+    "namespace": "dvka-secure",
+    "labels": {
+     "kubernetes.io/service-name": "neg-lb-restricted"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.7"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "neg-api-ktxknd2qlw-pm9rc",
+      "namespace": "dvka-secure"
+     }
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "control-1",
+    "labels": {
+     "kubernetes.io/hostname": "control-1",
+     "node-role.kubernetes.io/control-plane": ""
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "worker-1",
+    "labels": {
+     "kubernetes.io/hostname": "worker-1"
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "worker-2",
+    "labels": {
+     "kubernetes.io/hostname": "worker-2"
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  }
+ ],
+ "componentconfig": [
+  {
+   "kind": "ComponentConfig",
+   "metadata": {
+    "name": "control-plane"
+   },
+   "spec": {
+    "version": "v1.29.4",
+    "apiServer": {
+     "anonymousAuth": false,
+     "insecurePort": 0,
+     "auditLogPath": "/var/log/audit.log",
+     "encryptionProvider": "/etc/kubernetes/enc.yaml",
+     "flags": {
+      "anonymous-auth": "false",
+      "audit-log-path": "/var/log/audit.log",
+      "audit-policy-file": "/etc/kubernetes/audit.yaml",
+      "audit-log-maxage": "30",
+      "audit-log-maxbackup": "10",
+      "audit-log-maxsize": "100",
+      "authorization-mode": "Node,RBAC",
+      "encryption-provider-config": "/etc/kubernetes/enc.yaml"
+     }
+    }
+   }
+  }
+ ],
+ "statefulsets": [],
+ "jobs": [],
+ "cronjobs": [],
+ "clusterrolebindings": [],
+ "_meta": {
+  "cluster": "dvka-lab",
+  "profile": "hardened",
+  "note": "generated by eval/dvka/build.py; do not edit"
+ }
+}

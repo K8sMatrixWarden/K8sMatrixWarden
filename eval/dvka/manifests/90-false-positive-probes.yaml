@@ -1,0 +1,12 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- FP-SEC: ConfigMap key containing the word 'token' that is not a credential  [expects: nothing]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fp-model-config
+  namespace: dvka-secure
+  labels:
+    app.kubernetes.io/part-of: dvka
+data:
+  max_tokens: '256'

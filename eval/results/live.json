@@ -1,0 +1,209 @@
+{
+ "mode": "live (minikube)",
+ "cluster": "minikube",
+ "resources": 969,
+ "findings": 969,
+ "scan_seconds": 21.757467583054677,
+ "peak_mb": 0.0,
+ "detection": {
+  "outside_lab_findings": 94,
+  "expected": 111,
+  "found": 112,
+  "tp": 111,
+  "fn": [],
+  "fp": [
+   {
+    "rule": "sec-configmap-credentials",
+    "namespace": "dvka-secure",
+    "name": "fp-model-config",
+    "class": "probe",
+    "ref": "FP-SEC",
+    "shard": "secrets"
+   }
+  ],
+  "recall": 1.0,
+  "precision": 0.9910714285714286,
+  "by_category": {
+   "AP": {
+    "detected": 3,
+    "expected": 3,
+    "recall": 1.0
+   },
+   "AS": {
+    "detected": 1,
+    "expected": 1,
+    "recall": 1.0
+   },
+   "GAP": {
+    "detected": 1,
+    "expected": 1,
+    "recall": 1.0
+   },
+   "NET": {
+    "detected": 5,
+    "expected": 5,
+    "recall": 1.0
+   },
+   "NS": {
+    "detected": 8,
+    "expected": 8,
+    "recall": 1.0
+   },
+   "PRIO": {
+    "detected": 4,
+    "expected": 4,
+    "recall": 1.0
+   },
+   "RB": {
+    "detected": 34,
+    "expected": 34,
+    "recall": 1.0
+   },
+   "SEC": {
+    "detected": 4,
+    "expected": 4,
+    "recall": 1.0
+   },
+   "WL": {
+    "detected": 51,
+    "expected": 51,
+    "recall": 1.0
+   }
+  },
+  "by_shard": {
+   "attack_surface": {
+    "correct": 1,
+    "reported": 1,
+    "precision": 1.0
+   },
+   "compliance": {
+    "correct": 3,
+    "reported": 3,
+    "precision": 1.0
+   },
+   "network_security": {
+    "correct": 12,
+    "reported": 12,
+    "precision": 1.0
+   },
+   "rbac_identity": {
+    "correct": 34,
+    "reported": 34,
+    "precision": 1.0
+   },
+   "secrets": {
+    "correct": 4,
+    "reported": 5,
+    "precision": 0.8
+   },
+   "workload_pod_security": {
+    "correct": 57,
+    "reported": 57,
+    "precision": 1.0
+   }
+  },
+  "gaps": [
+   {
+    "id": "NS-03",
+    "title": "Egress policy that allows everything (metadata API still open)",
+    "detected": false,
+    "reason": "net-metadata-api-open only checks that an Egress-type policy exists, not that it excludes the metadata address",
+    "would_detect_with": "evaluate egress rules with netpol.py against 169.254.169.254/32"
+   },
+   {
+    "id": "GAP-RB",
+    "title": "Namespaced Role that can read Secrets",
+    "detected": false,
+    "reason": "rbac-secret-read-broad only inspects ClusterRoles by design",
+    "would_detect_with": "extend the rule to Roles and report namespace-scoped blast radius"
+   },
+   {
+    "id": "GAP-SEC1",
+    "title": "Plaintext credentials stored in a Secret object",
+    "detected": false,
+    "reason": "the scanner does not read Secret contents (least privilege)",
+    "would_detect_with": "secret scanning at commit time (gitleaks) or an admission policy"
+   },
+   {
+    "id": "GAP-SEC2",
+    "title": "Long-lived ServiceAccount token stored as a Secret",
+    "detected": false,
+    "reason": "no rule inspects Secret type or token age",
+    "would_detect_with": "list Secrets by type (metadata only) and flag service-account-token"
+   },
+   {
+    "id": "GAP-IMG2",
+    "title": "Image pulled from an untrusted public registry",
+    "detected": false,
+    "reason": "no registry allow-list or signature check",
+    "would_detect_with": "admission policy (Kyverno/Gatekeeper) + cosign verification"
+   },
+   {
+    "id": "GAP-WL2",
+    "title": "CronJob that downloads and runs a script",
+    "detected": false,
+    "reason": "no static rule inspects commands; the dedicated rule was removed in the scope reduction",
+    "would_detect_with": "Falco at runtime"
+   },
+   {
+    "id": "GAP-ADM",
+    "title": "Mutating webhook that fails open and injects a sidecar",
+    "detected": false,
+    "reason": "the admission-control rules were removed in the scope reduction",
+    "would_detect_with": "restore the admission rules (evidence is still collected)"
+   },
+   {
+    "id": "GAP-OPS",
+    "title": "No ResourceQuota, LimitRange or PodDisruptionBudget",
+    "detected": false,
+    "reason": "the scanner now READS these kinds but has no rule on them",
+    "would_detect_with": "rules over ResourceQuota / LimitRange / PodDisruptionBudget"
+   }
+  ],
+  "negatives": {
+   "total": 7,
+   "clean": 6,
+   "flagged": [
+    "FP-SEC"
+   ]
+  }
+ },
+ "attack_path": {
+  "found": true,
+  "internet_reachable": true,
+  "chain": [
+   "Internet",
+   "Service",
+   "Deployment",
+   "ServiceAccount",
+   "ClusterRoleBinding",
+   "ClusterRole",
+   "Capability"
+  ],
+  "ends_at": "read-secrets",
+  "ok": true
+ },
+ "priority": {
+  "higher_workload": "ap-frontend",
+  "higher_score": 65.625,
+  "lower_workload": "prio-isolated",
+  "lower_score": 46.875,
+  "ok": true
+ },
+ "image_priority": {
+  "higher_score": 52.5,
+  "lower_score": 37.5,
+  "ok": true
+ },
+ "hardened": {
+  "findings": 0,
+  "rules": []
+ },
+ "warnings": [
+  "ImageVulnerability: could not scan registry.untrusted.invalid/team/app:2.0: grype failed"
+ ],
+ "coverage": {
+  "coverage_pct": 100.0,
+  "unread_kinds": []
+ }
+}

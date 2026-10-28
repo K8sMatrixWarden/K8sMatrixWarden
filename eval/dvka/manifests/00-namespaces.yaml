@@ -1,0 +1,71 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- NS-01: Namespace with no Pod Security enforcement, no NetworkPolicy  [expects: compliance-psa-not-restricted, net-no-networkpolicy, net-metadata-api-open]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+# ---- NS-02: Namespace enforcing only 'baseline', ingress-only NetworkPolicy  [expects: compliance-psa-not-restricted, net-metadata-api-open]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dvka-baseline
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: dvka-baseline
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+# ---- NS-03: Egress policy that allows everything (metadata API still open)  [documented gap]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dvka-egress-open
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-allow-all
+  namespace: dvka-egress-open
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  - Ingress
+  egress:
+  - {}
+  ingress:
+  - {}
+---
+# ---- NS-04: The built-in 'default' namespace, left as every cluster ships it  [expects: compliance-psa-not-restricted, net-no-networkpolicy, net-metadata-api-open]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+---
+# ---- NEG-NS: Hardened namespace: PSA restricted + default-deny in both directions  [expects: nothing]
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dvka-secure
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    app.kubernetes.io/part-of: dvka

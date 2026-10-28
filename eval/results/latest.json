@@ -1,0 +1,257 @@
+{
+ "resources": 201,
+ "findings": 221,
+ "scan_seconds": 0.177910124999471,
+ "peak_mb": 8.058234,
+ "detection": {
+  "outside_lab_findings": 0,
+  "expected": 115,
+  "found": 116,
+  "tp": 115,
+  "fn": [],
+  "fp": [
+   {
+    "rule": "sec-configmap-credentials",
+    "namespace": "dvka-secure",
+    "name": "fp-model-config",
+    "class": "probe",
+    "ref": "FP-SEC",
+    "shard": "secrets"
+   }
+  ],
+  "recall": 1.0,
+  "precision": 0.9913793103448276,
+  "by_category": {
+   "AP": {
+    "detected": 3,
+    "expected": 3,
+    "recall": 1.0
+   },
+   "AS": {
+    "detected": 1,
+    "expected": 1,
+    "recall": 1.0
+   },
+   "CP": {
+    "detected": 4,
+    "expected": 4,
+    "recall": 1.0
+   },
+   "NET": {
+    "detected": 5,
+    "expected": 5,
+    "recall": 1.0
+   },
+   "NS": {
+    "detected": 8,
+    "expected": 8,
+    "recall": 1.0
+   },
+   "PRIO": {
+    "detected": 3,
+    "expected": 3,
+    "recall": 1.0
+   },
+   "RB": {
+    "detected": 34,
+    "expected": 34,
+    "recall": 1.0
+   },
+   "SEC": {
+    "detected": 5,
+    "expected": 5,
+    "recall": 1.0
+   },
+   "WL": {
+    "detected": 52,
+    "expected": 52,
+    "recall": 1.0
+   }
+  },
+  "by_shard": {
+   "attack_surface": {
+    "correct": 1,
+    "reported": 1,
+    "precision": 1.0
+   },
+   "compliance": {
+    "correct": 3,
+    "reported": 3,
+    "precision": 1.0
+   },
+   "log_analysis": {
+    "correct": 4,
+    "reported": 4,
+    "precision": 1.0
+   },
+   "network_security": {
+    "correct": 12,
+    "reported": 12,
+    "precision": 1.0
+   },
+   "rbac_identity": {
+    "correct": 34,
+    "reported": 34,
+    "precision": 1.0
+   },
+   "secrets": {
+    "correct": 5,
+    "reported": 6,
+    "precision": 0.8333333333333334
+   },
+   "workload_pod_security": {
+    "correct": 56,
+    "reported": 56,
+    "precision": 1.0
+   }
+  },
+  "gaps": [
+   {
+    "id": "NS-03",
+    "title": "Egress policy that allows everything (metadata API still open)",
+    "detected": false,
+    "reason": "net-metadata-api-open only checks that an Egress-type policy exists, not that it excludes the metadata address",
+    "would_detect_with": "evaluate egress rules with netpol.py against 169.254.169.254/32"
+   },
+   {
+    "id": "GAP-RB",
+    "title": "Namespaced Role that can read Secrets",
+    "detected": false,
+    "reason": "rbac-secret-read-broad only inspects ClusterRoles by design",
+    "would_detect_with": "extend the rule to Roles and report namespace-scoped blast radius"
+   },
+   {
+    "id": "GAP-SEC1",
+    "title": "Plaintext credentials stored in a Secret object",
+    "detected": false,
+    "reason": "the scanner does not read Secret contents (least privilege)",
+    "would_detect_with": "secret scanning at commit time (gitleaks) or an admission policy"
+   },
+   {
+    "id": "GAP-SEC2",
+    "title": "Long-lived ServiceAccount token stored as a Secret",
+    "detected": false,
+    "reason": "no rule inspects Secret type or token age",
+    "would_detect_with": "list Secrets by type (metadata only) and flag service-account-token"
+   },
+   {
+    "id": "GAP-IMG1",
+    "title": "Image with known CVEs (nginx 1.14.0)",
+    "detected": false,
+    "reason": "no image/CVE scanner runs in the offline fixture",
+    "would_detect_with": "run with --live --grype (Grype on the running image digests)"
+   },
+   {
+    "id": "GAP-IMG2",
+    "title": "Image pulled from an untrusted public registry",
+    "detected": false,
+    "reason": "no registry allow-list or signature check",
+    "would_detect_with": "admission policy (Kyverno/Gatekeeper) + cosign verification"
+   },
+   {
+    "id": "GAP-WL2",
+    "title": "CronJob that downloads and runs a script",
+    "detected": false,
+    "reason": "no static rule inspects commands; the dedicated rule was removed in the scope reduction",
+    "would_detect_with": "Falco at runtime"
+   },
+   {
+    "id": "GAP-ADM",
+    "title": "Mutating webhook that fails open and injects a sidecar",
+    "detected": false,
+    "reason": "the admission-control rules were removed in the scope reduction",
+    "would_detect_with": "restore the admission rules (evidence is still collected)"
+   },
+   {
+    "id": "GAP-OPS",
+    "title": "No ResourceQuota, LimitRange or PodDisruptionBudget",
+    "detected": false,
+    "reason": "the scanner now READS these kinds but has no rule on them",
+    "would_detect_with": "rules over ResourceQuota / LimitRange / PodDisruptionBudget"
+   }
+  ],
+  "negatives": {
+   "total": 7,
+   "clean": 6,
+   "flagged": [
+    "FP-SEC"
+   ]
+  }
+ },
+ "attack_path": {
+  "found": true,
+  "internet_reachable": true,
+  "chain": [
+   "Internet",
+   "Service",
+   "Deployment",
+   "ServiceAccount",
+   "ClusterRoleBinding",
+   "ClusterRole",
+   "Capability"
+  ],
+  "ends_at": "read-secrets",
+  "ok": true
+ },
+ "priority": {
+  "higher_workload": "ap-frontend",
+  "higher_score": 65.625,
+  "lower_workload": "prio-isolated",
+  "lower_score": 46.875,
+  "ok": true
+ },
+ "hardened": {
+  "findings": 1,
+  "rules": [
+   "sec-configmap-credentials"
+  ]
+ },
+ "runtime": {
+  "correct": 6,
+  "total": 6,
+  "rows": [
+   {
+    "id": "RT-01",
+    "title": "Shell in the privileged frontend",
+    "expected": "confirmed",
+    "got": "confirmed",
+    "ok": true
+   },
+   {
+    "id": "RT-02",
+    "title": "Read /etc/shadow in a pod with an auto-mounted token",
+    "expected": "confirmed",
+    "got": "confirmed",
+    "ok": true
+   },
+   {
+    "id": "RT-03",
+    "title": "Shell in a pod the scan has never seen",
+    "expected": "corroborated",
+    "got": "corroborated",
+    "ok": true
+   },
+   {
+    "id": "RT-04",
+    "title": "Shell in a cluster whose scan found nothing",
+    "expected": "runtime-only",
+    "got": "runtime-only",
+    "ok": true
+   },
+   {
+    "id": "RT-06",
+    "title": "Shell in a clean namespace of a cluster with other findings",
+    "expected": "corroborated",
+    "got": "corroborated",
+    "ok": true
+   },
+   {
+    "id": "RT-05",
+    "title": "Pod name that only shares a prefix with a flaw",
+    "expected": "corroborated",
+    "got": "corroborated",
+    "ok": true
+   }
+  ]
+ }
+}

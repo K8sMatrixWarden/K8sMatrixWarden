@@ -1,0 +1,41 @@
+name: K8sMatrixWarden
+description: Check Kubernetes manifests and Helm charts for security problems before they are deployed.
+inputs:
+  path:
+    description: Files or folders to check (space separated).
+    default: "."
+  fail-on:
+    description: Fail the job on findings at this level or worse (LOW, MEDIUM, HIGH, CRITICAL). Empty never fails.
+    default: HIGH
+  baseline:
+    description: JSON report of the base branch; with it only NEW findings can fail the job.
+    default: ""
+  sarif-file:
+    description: Where to write SARIF for GitHub code scanning.
+    default: k8smatrixwarden.sarif
+  comment-file:
+    description: Where to write a Markdown summary for a pull-request comment.
+    default: k8smatrixwarden-comment.md
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install
+      shell: bash
+      run: pip install --quiet "${{ github.action_path }}[manifests]"
+    - name: Check
+      shell: bash
+      run: |
+        set +e
+        args=(${{ inputs.path }})
+        base=()
+        [ -n "${{ inputs.baseline }}" ] && base=(--baseline "${{ inputs.baseline }}")
+        gate=()
+        [ -n "${{ inputs.fail-on }}" ] && gate=(--fail-on "${{ inputs.fail-on }}")
+        k8smatrixwarden check "${args[@]}" -o sarif --output-file "${{ inputs.sarif-file }}" \
+          --comment-file "${{ inputs.comment-file }}" "${base[@]}" "${gate[@]}" > /dev/null
+        code=$?
+        k8smatrixwarden check "${args[@]}" "${base[@]}"   # readable summary in the job log
+        exit $code

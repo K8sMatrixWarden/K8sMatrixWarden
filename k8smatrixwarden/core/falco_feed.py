@@ -104,8 +104,27 @@ def window_text(seconds) -> str:
 QUIET = "quiet"
 PLAIN_TEXT = "plain-text"
 ACTIVE = "active"
+NOT_INSTALLED = "not-installed"
 
-_SEVERITY = {ACTIVE: "ok", QUIET: "info", PLAIN_TEXT: "warning"}
+_SEVERITY = {ACTIVE: "ok", QUIET: "info", PLAIN_TEXT: "warning", NOT_INSTALLED: "warning"}
+
+
+def not_installed_diagnosis(namespace: str = "falco") -> dict:
+    """No Falco pod was found at all, the single most common state for a cluster that has
+    never had Falco deployed. Distinct from `feed_diagnosis`'s cases, which both assume
+    Falco is running: this one is "nothing to read from", not "read it and it was empty".
+    The single source of this sentence; the collector's flat warning reuses it verbatim so
+    the two never drift apart."""
+    return {
+        "state": NOT_INSTALLED,
+        "severity": _SEVERITY[NOT_INSTALLED],
+        "message": (f"No Falco pod found in ns/{namespace}. Falco is not deployed, or is "
+                    f"running in a different namespace."),
+        "remediation": (f"helm install falco falcosecurity/falco -n {namespace} "
+                        f"--create-namespace  (or try the Runtime tab's sample events "
+                        f"instead, no Falco required)"),
+        "window": None,
+    }
 
 
 def feed_diagnosis(text_alerts: int, since_seconds: int,

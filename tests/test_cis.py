@@ -10,13 +10,12 @@ from k8smatrixwarden.bootstrap import build_platform
 from k8smatrixwarden.core.evidence import build_component_config
 from k8smatrixwarden.frameworks.cis import FAIL, NA, NEEDS_NODE, PASS, CISBenchmarkEngine
 from k8smatrixwarden.frameworks.cis_catalog import CIS_1_8, catalog_summary
-from k8smatrixwarden.frameworks.kube_bench_adapter import parse_kube_bench_json
 
 
 def _report(kb=None, profile="self-managed"):
     p = build_platform()
     return CISBenchmarkEngine(p).evaluate(p.make_collector(mock=True),
-                                          kube_bench_results=kb, profile=profile)
+                                          profile=profile)
 
 
 def test_catalog_has_exactly_130_controls():
@@ -26,13 +25,13 @@ def test_catalog_has_exactly_130_controls():
 
 
 def test_eval_split_after_mitigation():
-    # 25 native + 2 builtin + 38 component = 65 API-evaluated; 31 file; 34 manual.
+    # 30 native + 38 component = 68 API-evaluated; 31 file; 31 manual.
     ev = catalog_summary()["by_eval"]
-    assert ev["native"] == 25
-    assert ev["builtin"] == 2
+    assert ev["native"] == 30
+    assert ev.get("builtin", 0) == 0
     assert ev["component"] == 38
     assert ev["kube-bench"] == 31
-    assert ev["manual"] == 34
+    assert ev["manual"] == 31
 
 
 def test_no_duplicate_control_ids():
@@ -82,25 +81,6 @@ def test_managed_profile_marks_control_plane_na():
     assert report.by_section["5"][NA] == 0
 
 
-def test_kube_bench_json_resolves_file_controls():
-    before = {r.control.id: r.status for r in _report().results}
-    assert before["1.1.1"] == NEEDS_NODE       # file control, node-only
-    assert before["4.1.1"] == NEEDS_NODE
-
-    kb_doc = {"Controls": [{"tests": [{"results": [
-        {"test_number": "1.1.1", "status": "PASS"},
-        {"test_number": "4.1.1", "status": "FAIL"},
-    ]}]}]}
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        json.dump(kb_doc, fh)
-        path = fh.name
-    kb = parse_kube_bench_json(path)
-    os.unlink(path)
-    assert kb == {"1.1.1": "PASS", "4.1.1": "FAIL"}
-
-    after = {r.control.id: r.status for r in _report(kb=kb).results}
-    assert after["1.1.1"] == PASS
-    assert after["4.1.1"] == FAIL
 
 
 def test_live_component_config_parses_static_pod_flags():

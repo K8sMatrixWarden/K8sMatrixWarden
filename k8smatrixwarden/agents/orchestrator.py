@@ -215,5 +215,6 @@ class Orchestrator:
         return "\n".join(lines)
 
     def run(self, request: ScanRequest, collector: EvidenceCollector,
-            mode_label: str = "mock", name: str = "") -> ScanResult:
-        return self.scanner.scan(request, collector, mode_label=mode_label, name=name)
+            mode_label: str = "mock", name: str = "", suppressions=None) -> ScanResult:
+        return self.scanner.scan(request, collector, mode_label=mode_label, name=name,
+                                 suppressions=suppressions)

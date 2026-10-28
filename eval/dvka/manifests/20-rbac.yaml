@@ -1,0 +1,316 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- RB-01: Role with wildcard verbs  [expects: rbac-wildcard-verbs, rbac-create-pods]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-wildcard-verbs
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - '*'
+---
+# ---- RB-02: Role with wildcard resources  [expects: rbac-wildcard-resources, rbac-secret-read-broad, rbac-node-proxy]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-wildcard-resources
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - '*'
+  verbs:
+  - get
+---
+# ---- RB-03: God-mode role (*, *, *)  [expects: rbac-wildcard-verbs, rbac-wildcard-resources, rbac-secret-read-broad, rbac-can-delete-events, rbac-coredns-configmap-write, rbac-create-pods, rbac-create-pv, rbac-csr-approve, rbac-node-proxy, rbac-sa-token-create, rbac-webhook-config-write]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-god-mode
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+# ---- RB-04: ClusterRole can read every Secret  [expects: rbac-secret-read-broad]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-secret-reader
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+---
+# ---- RB-05: bind / escalate / impersonate  [expects: rbac-bind-escalate-verbs]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-escalator
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - rbac.authorization.k8s.io
+  - ''
+  resources:
+  - clusterroles
+  - users
+  verbs:
+  - bind
+  - escalate
+  - impersonate
+---
+# ---- RB-06: Role can delete events (cover tracks)  [expects: rbac-can-delete-events]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-event-cleaner
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - delete
+---
+# ---- RB-07: Role can rewrite ConfigMaps (CoreDNS poisoning)  [expects: rbac-coredns-configmap-write]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-configmap-writer
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - patch
+  - update
+---
+# ---- RB-08: cluster-admin bound to the default ServiceAccount  [expects: rbac-cluster-admin-default-sa]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dvka-default-sa-admin
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: dvka-vuln
+---
+# ---- RB-09: cluster-admin bound to a named user  [expects: rbac-cluster-admin-user-binding]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dvka-alice-admin
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: User
+  name: alice@corp.example
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---- RB-10: cluster-admin bound to system:authenticated  [expects: rbac-broad-subject-admin]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dvka-everyone-admin
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---- RB-11: cluster-admin bound to system:anonymous  [expects: rbac-broad-subject-admin]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dvka-anonymous-admin
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: User
+  name: system:anonymous
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---- RB-12: edit granted to every ServiceAccount in a namespace  [expects: rbac-broad-subject-admin]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dvka-sa-edit
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+- kind: Group
+  name: system:serviceaccounts:dvka-vuln
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---- RB-13: Namespaced Role with wildcard verbs  [expects: rbac-wildcard-verbs, rbac-create-pods]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dvka-ns-wildcard
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - '*'
+---
+# ---- RB-14: Role can create pods  [expects: rbac-create-pods]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-pod-creator
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - create
+---
+# ---- RB-15: system:masters group bound  [expects: rbac-system-masters]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dvka-masters
+  labels:
+    app.kubernetes.io/part-of: dvka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+- kind: Group
+  name: system:masters
+  apiGroup: rbac.authorization.k8s.io
+---
+# ---- RB-16: Role can create PersistentVolumes  [expects: rbac-create-pv]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-pv-creator
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - persistentvolumes
+  verbs:
+  - create
+---
+# ---- RB-17: Role can use nodes/proxy  [expects: rbac-node-proxy]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-node-proxy
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - nodes/proxy
+  verbs:
+  - get
+---
+# ---- RB-18: Role can approve CSRs  [expects: rbac-csr-approve]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-csr-approver
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests/approval
+  verbs:
+  - update
+---
+# ---- RB-19: Role can edit admission webhooks  [expects: rbac-webhook-config-write]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-webhook-editor
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  verbs:
+  - update
+  - patch
+---
+# ---- RB-20: Role can mint ServiceAccount tokens  [expects: rbac-sa-token-create]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dvka-token-minter
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create

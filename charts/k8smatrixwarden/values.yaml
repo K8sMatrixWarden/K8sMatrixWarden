@@ -1,0 +1,29 @@
+image:
+  repository: ghcr.io/YOUR-ORG/k8smatrixwarden     # build with the repo Dockerfile and push it
+  tag: ""                  # empty = the chart appVersion; pin a digest in production
+  pullPolicy: IfNotPresent
+
+# How often the scanner container re-checks the cluster.
+scan:
+  intervalMinutes: 360
+  grype: false             # also scan running images for CVEs (the image must be built WITH_GRYPE=1)
+  extraArgs: []            # e.g. ["--namespace", "prod"]
+
+# Reports live here. Without persistence they last as long as the pod.
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: ""
+
+# Reading Secrets is NOT needed for the default rules, so it is off. Turn it on only if you
+# want the scanner to read Secret metadata (the API returns values too to anyone who can list).
+rbac:
+  readSecrets: false
+
+service:
+  type: ClusterIP          # the dashboard has no login; reach it with `kubectl port-forward`
+  port: 8765
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {cpu: "1", memory: 1Gi}

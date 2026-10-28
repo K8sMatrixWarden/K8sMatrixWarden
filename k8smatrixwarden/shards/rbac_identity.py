@@ -248,6 +248,30 @@ def _coredns_write(rule, ev, scope):
             break
 
 
+def _grants(message, verbs, resources):
+    """A rule factory: flag any non-built-in role that grants one of `verbs` on one of
+    `resources`. A `*` in the role counts, because it really does grant the verb."""
+    def _check(rule, ev, scope):
+        for cr in _roles(ev):
+            for r in _rule_grants(cr.get("rules", []), verbs=verbs, resources=resources):
+                yield rule.finding(ref(cr), message, blast_radius=_blast(cr), evidence={"rule": r})
+                break
+    return _check
+
+
+def _system_masters(rule, ev, scope):
+    """CIS 5.1.7: nothing but Kubernetes' own bootstrap binding should name system:masters,
+    a group that bypasses authorization entirely."""
+    for kind in ("ClusterRoleBinding", "RoleBinding"):
+        for b in ev.get(kind, all_scopes=True):
+            if _is_builtin_role(b):
+                continue
+            if any(s.get("name") == "system:masters" for s in b.get("subjects", []) or []):
+                yield rule.finding(ref(b), f"{kind} grants access to the system:masters group, "
+                                   "which bypasses authorization checks",
+                                   blast_radius=BR.CLUSTER, exploitability=EX.ADJACENT)
+
+
 class RbacIdentityShard(DomainShard):
     name = NAME
     title = "RBAC & Identity"
@@ -303,6 +327,49 @@ class RbacIdentityShard(DomainShard):
                  self.name, ["ClusterRole", "Role"], S.HIGH, DM.RBAC, _coredns_write,
                  mitre=[M(T.LATERAL_MOVEMENT, "T1557", "Adversary-in-the-Middle")],
                  owasp="K05", evidence_needs=need),
+            Rule("rbac-create-pods", "Role can create pods", self.name,
+                 ["ClusterRole", "Role"], S.HIGH, DM.RBAC,
+                 _grants("role can create pods, and a pod can run as any ServiceAccount "
+                         "in its namespace", ["create"], ["pods"]),
+                 mitre=[M(T.EXECUTION, "T1610", "Deploy Container")],
+                 owasp="K02", cis=["5.1.4"], evidence_needs=need),
+            Rule("rbac-system-masters", "system:masters group bound", self.name,
+                 ["ClusterRoleBinding", "RoleBinding"], S.CRITICAL, DM.RBAC, _system_masters,
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],
+                 owasp="K02", cis=["5.1.7"], evidence_needs=need),
+            Rule("rbac-create-pv", "Role can create PersistentVolumes", self.name,
+                 ["ClusterRole", "Role"], S.MEDIUM, DM.RBAC,
+                 _grants("role can create PersistentVolumes, including hostPath volumes that "
+                         "expose the node filesystem", ["create"], ["persistentvolumes"]),
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1611", "Escape to Host")],
+                 owasp="K02", cis=["5.1.9"], evidence_needs=need),
+            Rule("rbac-node-proxy", "Role can use the nodes/proxy sub-resource", self.name,
+                 ["ClusterRole", "Role"], S.HIGH, DM.RBAC,
+                 _grants("role can reach the kubelet API through nodes/proxy, bypassing "
+                         "admission control and audit", ["get", "create", "update", "patch"],
+                         ["nodes/proxy"]),
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1611", "Escape to Host")],
+                 owasp="K02", cis=["5.1.10"], evidence_needs=need),
+            Rule("rbac-csr-approve", "Role can approve CertificateSigningRequests", self.name,
+                 ["ClusterRole", "Role"], S.HIGH, DM.RBAC,
+                 _grants("role can approve CertificateSigningRequests and so mint credentials "
+                         "for any identity", ["update", "patch"],
+                         ["certificatesigningrequests/approval"]),
+                 mitre=[M(T.PRIVILEGE_ESCALATION, "T1078", "Valid Accounts")],
+                 owasp="K02", cis=["5.1.11"], evidence_needs=need),
+            Rule("rbac-webhook-config-write", "Role can edit admission webhooks", self.name,
+                 ["ClusterRole", "Role"], S.HIGH, DM.RBAC,
+                 _grants("role can create or change admission webhooks, which can rewrite or "
+                         "block every request", ["create", "update", "patch", "delete"],
+                         ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]),
+                 mitre=[M(T.PERSISTENCE, "T1554", "Malicious admission controller")],
+                 owasp="K02", cis=["5.1.12"], evidence_needs=need),
+            Rule("rbac-sa-token-create", "Role can mint ServiceAccount tokens", self.name,
+                 ["ClusterRole", "Role"], S.HIGH, DM.RBAC,
+                 _grants("role can request tokens for any ServiceAccount, and so act as it",
+                         ["create"], ["serviceaccounts/token"]),
+                 mitre=[M(T.CREDENTIAL_ACCESS, "T1528", "Access container service account")],
+                 owasp="K03", cis=["5.1.13"], evidence_needs=need),
         ]
 
 

@@ -7,20 +7,18 @@ Commands:
   coverage   show MITRE tactic coverage
   report     render the last scan (alias of scan --output)
   roles      print the per-plugin scoped RBAC roles (§20/§21)
-  mcp        run the MCP server (needs the mcp SDK) or list its tools
-  doctor     validate the platform (taxonomy, aliases, duplicate rules)
 """
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 
 from ..bootstrap import build_platform
 from ..core.models import (ScanMode, ScanRequest, Scope, ScopeLevel, Selector, Severity)
 from ..core.report_store import DEFAULT_DIR as _DEFAULT_REPORTS_DIR
 from ..web.server import DEFAULT_PORT as _WEB_PORT
-from ..core.falco_lifecycle import (DEFAULT_NAMESPACE as _FALCO_NS,
-                                    DEFAULT_RELEASE as _FALCO_RELEASE)
 from ..agents.orchestrator import Orchestrator
 from ..agents.scanner import ScannerAgent
 
@@ -140,15 +138,30 @@ def cmd_scan(a) -> int:
     mode_label = "mock" if (a.mock or not a.live) else "live"
     _warn_ignored_live_flags(a)
     try:
-        collector = platform.make_collector(mock=(mode_label == "mock"),
-                                            fixture=a.fixture, kubeconfig=a.kubeconfig,
-                                            context=a.context)
+        if getattr(a, "manifests", None):
+            from ..core.manifests import MANIFEST_MODULES, ManifestEvidenceCollector
+            mode_label = "manifests"
+            collector = ManifestEvidenceCollector(a.manifests, helm=not a.no_helm,
+                                                  helm_set=a.helm_set)
+            for note in collector.skipped:
+                print(f"note: {note}", file=sys.stderr)
+            if request.selector.is_empty():
+                request.selector.modules = list(MANIFEST_MODULES)
+        else:
+            collector = platform.make_collector(mock=(mode_label == "mock"),
+                                                fixture=a.fixture, kubeconfig=a.kubeconfig,
+                                                context=a.context,
+                                                grype=getattr(a, "grype", False))
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    from ..core.suppressions import discover as _discover_suppressions
+    suppressions, supp_problems = _discover_suppressions(a.reports_dir, a.suppressions)
+    for p in supp_problems:
+        print(f"warning: {p}", file=sys.stderr)
     try:
         result = orch.run(request, collector, mode_label=mode_label,
-                          name=getattr(a, "name", None) or "")
+                          name=getattr(a, "name", None) or "", suppressions=suppressions)
     except RuntimeError as exc:
         # A clean, actionable message (e.g. cluster unreachable), not a traceback.
         print(f"error: {exc}", file=sys.stderr)
@@ -160,27 +173,12 @@ def cmd_scan(a) -> int:
     for w in getattr(collector, "warnings", []):
         print(f"warning: {w}", file=sys.stderr)
 
-    # PDF and XLSX are binary: they are written to a file rather than printed, and their
-    # optional dependency is reported as a clean error rather than a traceback.
-    if a.output in ("pdf", "xlsx"):
-        try:
-            rendered = platform.reporting.render(result, a.output)
-        except RuntimeError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
-        out_path = (a.output_file
-                    or f"k8smatrixwarden-report-{result.scan_id}.{a.output}")
-        with open(out_path, "wb") as fh:
+    rendered = platform.reporting.render(result, a.output)
+    print(rendered)
+    if a.output_file:
+        with open(a.output_file, "w", encoding="utf-8") as fh:
             fh.write(rendered)
-        label = "PDF" if a.output == "pdf" else "Excel workbook"
-        print(f"📄 {label} written to {out_path} ({len(rendered):,} bytes)")
-    else:
-        rendered = platform.reporting.render(result, a.output)
-        print(rendered)
-        if a.output_file:
-            with open(a.output_file, "w", encoding="utf-8") as fh:
-                fh.write(rendered)
-            print(f"\n[written] {a.output_file}", file=sys.stderr)
+        print(f"\n[written] {a.output_file}", file=sys.stderr)
 
     # Persist to the shared report store by default so the scan shows up in the web
     # dashboard (`k8smatrixwarden web`). Opt out with --no-save for a throwaway run.
@@ -193,10 +191,100 @@ def cmd_scan(a) -> int:
               f"download: k8smatrixwarden report download --scan-id {result.scan_id}",
               file=sys.stderr)
 
+    if result.suppressed:
+        print(f"[accepted risks] {len(result.suppressed)} finding(s) suppressed", file=sys.stderr)
+    for n in result.suppression_notes:
+        print(f"warning: {n}", file=sys.stderr)
+
+    judged = result.findings
+    if a.baseline:
+        from ..core.suppressions import new_since
+        base = _load_baseline(a.baseline, a.reports_dir)
+        if base is None:
+            print(f"error: baseline '{a.baseline}' is neither a saved scan id nor a JSON report",
+                  file=sys.stderr)
+            return 2
+        judged = new_since(result.findings, base.findings)
+        print(f"[baseline] {len(judged)} new finding(s) since {base.display_name}; "
+              f"{len(result.findings) - len(judged)} already known", file=sys.stderr)
+        for f in sorted(judged, key=lambda f: -f.severity.order)[:20]:
+            print(f"  NEW {f.severity.label:<8} {f.rule_id}  {f.resource}", file=sys.stderr)
+    if a.comment_file:
+        with open(a.comment_file, "w", encoding="utf-8") as fh:
+            fh.write(_pr_comment(result, judged, bool(a.baseline), a.fail_on))
+        print(f"[written] {a.comment_file}", file=sys.stderr)
     if a.fail_on:
         floor = Severity.parse(a.fail_on).order
-        if any(f.severity.order >= floor for f in result.findings):
+        if any(f.severity.order >= floor for f in judged):
             return 1
+    return 0
+
+
+def _pr_comment(result, judged, is_baseline: bool, fail_on) -> str:
+    """Markdown for a pull-request comment: what this change adds (or, with no baseline, the
+    top open issues), each with the one-line fix. Short on purpose; people read these."""
+    from ..core.remediation import fix_for
+    rows = sorted(judged, key=lambda f: (-f.severity.order, -f.score))[:15]
+    head = (f"### K8sMatrixWarden: {len(judged)} new finding(s) in this change" if is_baseline
+            else f"### K8sMatrixWarden: {len(judged)} open finding(s)")
+    gate = ""
+    if fail_on:
+        floor = Severity.parse(fail_on).order
+        bad = sum(1 for f in judged if f.severity.order >= floor)
+        gate = (f"\n\n**{'❌ Blocking' if bad else '✅ Passing'}**: {bad} at {fail_on} or worse.")
+    if not rows:
+        return head + gate + "\n\nNothing to fix. ✔\n"
+    body = ["| Severity | Issue | Where | Fix |", "|---|---|---|---|"]
+    for f in rows:
+        fix = fix_for(f.rule_id).get("how", "").replace("|", "/").replace("\n", " ")
+        body.append(f"| {f.severity.label} | {f.title} | `{f.resource}` | {fix} |")
+    more = f"\n\n…and {len(judged) - len(rows)} more." if len(judged) > len(rows) else ""
+    sup = f"\n\n_{len(result.suppressed)} accepted risk(s) hidden._" if result.suppressed else ""
+    return head + gate + "\n\n" + "\n".join(body) + more + sup + "\n"
+
+
+def _load_baseline(ref: str, reports_dir):
+    """A baseline is a saved scan id or a JSON report written with `-o json --output-file`."""
+    from ..core.report_store import ReportStore
+    from ..core.results import ScanResult
+    if os.path.isfile(ref):
+        try:
+            with open(ref, encoding="utf-8") as fh:
+                return ScanResult.from_dict(json.load(fh))
+        except Exception:
+            return None
+    try:
+        return ReportStore(reports_dir).resolve(ref)
+    except (OSError, ValueError):
+        return None
+
+
+def cmd_notify(a) -> int:
+    from ..core.notify import send, slack_payload
+    from ..core.report_store import ReportStore
+    store = ReportStore(a.reports_dir)
+    result = store.resolve(a.scan_id) if a.scan_id else (store.latest() if hasattr(store, "latest") else None)
+    if result is None:
+        reports = store.list(limit=1)
+        result = store.resolve(reports[0].scan_id) if reports else None
+    if result is None:
+        print("error: no saved scan to report. Run `k8smatrixwarden check --save` first.", file=sys.stderr)
+        return 2
+    payload = slack_payload(result, a.min_severity, a.dashboard_url or "")
+    if a.dry_run:
+        print(payload["text"])
+        return 0
+    url = a.webhook_url or os.environ.get("K8SMW_SLACK_WEBHOOK", "")
+    if not url:
+        print("error: give --webhook-url or set K8SMW_SLACK_WEBHOOK (use --dry-run to preview)",
+              file=sys.stderr)
+        return 2
+    try:
+        status = send(url, payload)
+    except Exception as exc:
+        print(f"error: could not post: {exc}", file=sys.stderr)
+        return 2
+    print(f"posted ({status})")
     return 0
 
 
@@ -248,98 +336,10 @@ def cmd_roles(a) -> int:
     return 0
 
 
-def cmd_helm(a) -> int:
-    """Helm lifecycle: status, install, remove.
-
-    Calls core/helm_lifecycle, the same service the MCP tools and the dashboard use.
-    `install` and `remove` write to this machine and honour the same write gate as the
-    Falco lifecycle; `status` is read-only.
-    """
-    import json as _json
-    from ..core import helm_lifecycle as helm
-
-    out = {"status": helm.status, "install": helm.install,
-           "remove": helm.remove}[a.helm_cmd]()
-    if getattr(a, "output", "text") == "json":
-        print(_json.dumps(out, indent=2))
-    else:
-        print(f"Helm: {out.get('status')}"
-              + (f"  ({out['source']})" if out.get("source") else ""))
-        for key in ("version", "path", "message", "note", "reason", "error"):
-            if out.get(key):
-                print(f"  {key}: {out[key]}")
-    return 1 if out.get("status") in ("error",) else 0
-
-
-def cmd_falco(a) -> int:
-    """Falco lifecycle: deploy, status, remove.
-
-    Every subcommand calls core/falco_lifecycle, the same service the MCP tools and the
-    dashboard use. Deploy and remove change the cluster and do nothing unless
-    K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1 is set; without it they print the commands they
-    WOULD run, so the operator can run them by hand and see exactly what was intended.
-    """
-    import json as _json
-    from ..core import falco_lifecycle as falco
-
-    if a.falco_cmd == "status":
-        out = falco.status(namespace=a.namespace, release=a.release)
-    elif a.falco_cmd == "deploy":
-        out = falco.deploy(a.webhook_url, namespace=a.namespace, release=a.release,
-                           timeout=a.timeout)
-    else:
-        out = falco.remove(namespace=a.namespace, release=a.release, timeout=a.timeout)
-
-    if getattr(a, "output", "text") == "json":
-        print(_json.dumps(out, indent=2))
-    else:
-        state = out.get("state") or out.get("status")
-        print(f"Falco  {a.release} in ns/{a.namespace}: {state}")
-        for key in ("message", "note", "error"):
-            if out.get(key):
-                print(f"  {key}: {out[key]}")
-        for step in out.get("steps", []):
-            print(f"  {step}")
-        for command in out.get("commands", []):
-            print(f"  $ {command}")
-        for step in out.get("next_steps", []):
-            print(f"  next: {step}")
-    # A refused write is not a failure of the command: the tool did exactly what it
-    # promised. A real failure is.
-    return 1 if out.get("status") in ("failed", "error") else 0
-
-
-def cmd_doctor(a) -> int:
-    """Full platform health check (§19): shards, configuration, rules, taxonomy, MCP,
-    report formats, runtime catalog, optional LLM, optional dependencies, and the
-    read-only safety invariants. Exits 1 only on a FAIL, a missing OPTIONAL capability is
-    reported as NOT CONFIGURED and never fails the command."""
-    from .. import doctor as doc
-    platform = build_platform(a.config)
-    sections = doc.run_checks(platform, probe_llm=a.probe)
-    if a.output == "json":
-        import json as _json
-        print(_json.dumps(doc.summarize(sections), indent=2))
-    else:
-        print(doc.render_text(sections, verbose=a.verbose))
-    return 0 if doc.summarize(sections)["ok"] else 1
-
-
-def cmd_chat(a) -> int:
-    from ..bootstrap import build_platform
-    from .chat import run_chat
-    platform = build_platform(a.config)
-    _warn_ignored_live_flags(a)
-    mock = not a.live
-    return run_chat(platform, mock=mock, fixture=a.fixture, kubeconfig=a.kubeconfig,
-                    context=a.context)
-
-
 def cmd_cis(a) -> int:
     import json as _json
     from ..bootstrap import build_platform
     from ..frameworks.cis import CISBenchmarkEngine, render_markdown, render_text
-    from ..frameworks.kube_bench_adapter import maybe_load
 
     platform = build_platform(a.config)
     engine = CISBenchmarkEngine(platform)
@@ -352,8 +352,7 @@ def cmd_cis(a) -> int:
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    kb = maybe_load(a.kube_bench_json)
-    report = engine.evaluate(collector, kube_bench_results=kb, profile=a.profile)
+    report = engine.evaluate(collector, profile=a.profile)
 
     if a.output == "json":
         out = _json.dumps(report.as_dict(), indent=2)
@@ -370,91 +369,6 @@ def cmd_cis(a) -> int:
 
     if a.fail_on_fail and report.counts["FAIL"] > 0:
         return 1
-    return 0
-
-
-def cmd_compliance(a) -> int:
-    """Map cluster posture onto governance frameworks (PCI DSS / SOC 2 / ISO 27001 /
-    NIST 800-53) and emit an auditor-facing report."""
-    from ..bootstrap import build_platform
-    from ..frameworks.compliance import run_audit, framework_keys
-    from ..frameworks import compliance_report as cr
-
-    frameworks = None
-    if a.frameworks:
-        frameworks = [f for f in a.frameworks.split(",") if f]
-        bad = [f for f in frameworks if f not in set(framework_keys())]
-        if bad:
-            print(f"error: unknown framework(s): {bad}. Valid: {framework_keys()}",
-                  file=sys.stderr)
-            return 2
-
-    mode_label = "mock" if (a.mock or not a.live) else "live"
-    _warn_ignored_live_flags(a)
-    try:
-        report = run_audit(build_platform(a.config), mock=(mode_label == "mock"),
-                           fixture=a.fixture, kubeconfig=a.kubeconfig, context=a.context,
-                           profile=a.profile, frameworks=frameworks,
-                           kube_bench_json=a.kube_bench_json)
-    except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-
-    fmt = (a.output or "markdown").lower()
-    binary = fmt == "pdf"
-    if fmt == "json":
-        import json as _json
-        out = _json.dumps(report.as_dict(), indent=2)
-    elif fmt == "html":
-        out = cr.to_html(report)
-    elif fmt == "pdf":
-        try:
-            out = cr.to_pdf(report)
-        except RuntimeError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
-    else:
-        out = cr.to_markdown(report)
-
-    if a.output_file:
-        with open(a.output_file, "wb" if binary else "w",
-                  **({} if binary else {"encoding": "utf-8"})) as fh:
-            fh.write(out)
-        print(f"[written] {a.output_file}", file=sys.stderr)
-    elif binary:
-        print("error: pdf output requires --output-file", file=sys.stderr)
-        return 2
-    else:
-        print(out)
-
-    total_fail = sum(f.counts["FAIL"] for f in report.frameworks)
-    if a.fail_on_fail and total_fail > 0:
-        return 1
-    return 0
-
-
-def cmd_federation(a) -> int:
-    """Cross-cluster blast radius from the newest saved scan of each cluster in the store."""
-    from ..core.federation import build_federation, latest_per_cluster
-    from ..core import federation_report as fr
-    from ..core.report_store import ReportStore
-
-    store = ReportStore(a.reports_dir) if a.reports_dir else ReportStore()
-    rep = build_federation(latest_per_cluster(store))
-    fmt = (a.output or "markdown").lower()
-    if fmt == "json":
-        import json as _json
-        out = _json.dumps(rep.as_dict(), indent=2)
-    elif fmt == "html":
-        out = fr.to_html(rep)
-    else:
-        out = fr.to_markdown(rep)
-    if a.output_file:
-        with open(a.output_file, "w", encoding="utf-8") as fh:
-            fh.write(out)
-        print(f"[written] {a.output_file}", file=sys.stderr)
-    else:
-        print(out)
     return 0
 
 
@@ -543,16 +457,7 @@ def cmd_report(a) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    if a.format in ("pdf", "xlsx"):
-        if not a.output:
-            print(f"error: --output PATH is required for --format {a.format} "
-                  "(binary content can't be printed to the terminal)", file=sys.stderr)
-            return 2
-        with open(a.output, "wb") as fh:
-            fh.write(rendered)
-        print(f"📄 Downloaded {result.scan_id} as {a.format} → {a.output} "
-              f"({len(rendered):,} bytes)")
-    elif a.output:
+    if a.output:
         with open(a.output, "w", encoding="utf-8") as fh:
             fh.write(rendered)
         print(f"📄 Downloaded {result.scan_id} as {a.format} → {a.output} "
@@ -617,6 +522,48 @@ def cmd_matrix(a) -> int:
     return 0
 
 
+def cmd_topology(a) -> int:
+    """Print the network topology of a scan (new, or a stored one)."""
+    import json as _json
+    platform = build_platform(a.config)
+    if a.scan_id:
+        from ..core.report_store import ReportStore
+        try:
+            result = ReportStore(a.reports_dir).resolve(a.scan_id)
+        except FileNotFoundError:
+            result = None
+        if result is None:
+            print(f"error: no stored report '{a.scan_id}'", file=sys.stderr)
+            return 2
+    else:
+        request = ScanRequest(scope=_build_scope(a), selector=_build_selector(a),
+                              mode=ScanMode.SYNC)
+        mode_label = "mock" if (a.mock or not a.live) else "live"
+        _warn_ignored_live_flags(a)
+        try:
+            collector = platform.make_collector(mock=(mode_label == "mock"),
+                                                fixture=a.fixture, kubeconfig=a.kubeconfig,
+                                                context=a.context)
+            result = Orchestrator(platform).run(request, collector, mode_label=mode_label)
+        except Exception as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    topo = result.topology
+    if a.output == "json":
+        print(_json.dumps(topo, indent=2))
+        return 0
+    s = topo.get("summary", {})
+    print(f"{s.get('workloads', 0)} workloads · {s.get('services', 0)} services · "
+          f"{s.get('ingresses', 0)} ingresses · {s.get('edges', 0)} edges")
+    print("internet-exposed:", ", ".join(s.get("internet_exposed", [])) or "none")
+    print("open (no ingress policy):", ", ".join(s.get("open_workloads", [])) or "none")
+    for n in topo.get("notes", []):
+        print("note:", n)
+    for e in topo.get("edges", []):
+        print(f"  {e['from']} -[{e['kind']}]-> {e['to']}   ({e['evidence']})")
+    return 0
+
+
 def cmd_web(a) -> int:
     """Launch the Security Dashboard web interface (§3.1, §19)."""
     from ..web.server import serve
@@ -628,16 +575,6 @@ def cmd_web(a) -> int:
         print(f"error: could not start web server on {a.host}:{a.port}, {exc}",
               file=sys.stderr)
         return 2
-    return 0
-
-
-def cmd_mcp(a) -> int:
-    from ..mcp import server
-    if a.list_tools:
-        tools = server.build_tools(a.config)
-        print("MCP tools:", ", ".join(tools.keys()))
-        return 0
-    server.serve(a.config)
     return 0
 
 
@@ -654,15 +591,27 @@ def build_parser() -> argparse.ArgumentParser:
     _add_scope_args(s)
     _add_selector_args(s)
     s.add_argument("--output", "-o", default="terminal",
-                   choices=["terminal", "text", "markdown", "json", "sarif", "html",
-                            "pdf", "xlsx"])
-    s.add_argument("--output-file", help="for -o pdf, defaults to "
-                   "k8smatrixwarden-report-<scan_id>.pdf if omitted")
+                   choices=["terminal", "text", "markdown", "json", "sarif", "html", "brief"])
+    s.add_argument("--output-file", help="also write the report here")
     s.add_argument("--mock", action="store_true", help="use the bundled mock cluster")
     s.add_argument("--live", action="store_true", help="scan the live cluster")
+    s.add_argument("--manifests", nargs="+", metavar="PATH",
+                   help="scan YAML/JSON files, folders or Helm charts instead of a cluster (for CI)")
+    s.add_argument("--no-helm", action="store_true", help="with --manifests, do not render Helm charts")
+    s.add_argument("--helm-set", action="append", default=[], metavar="KEY=VALUE",
+                   help="with --manifests, a value passed to `helm template --set`")
     s.add_argument("--fixture", help="path to a custom mock cluster JSON")
     s.add_argument("--kubeconfig", help="path to a kubeconfig file (default: ~/.kube/config)")
     s.add_argument("--context", help="kubeconfig context to use (default: current-context)")
+    s.add_argument("--grype", action="store_true",
+                   help="with --live, scan the running images for known CVEs using Grype")
+    s.add_argument("--suppressions", action="append", default=[], metavar="FILE",
+                   help="accepted-risk file (YAML/JSON); .k8smatrixwarden-ignore.yaml in the "
+                        "current folder and the dashboard's own list are always used too")
+    s.add_argument("--baseline", metavar="SCAN_ID_OR_JSON",
+                   help="a previous scan; with --fail-on, only findings new since it can fail the run")
+    s.add_argument("--comment-file", metavar="FILE",
+                   help="write a short Markdown summary (new findings with fixes) for a PR comment")
     s.add_argument("--dry-run", action="store_true",
                    help="resolve the selector and show the rule set without scanning")
     s.add_argument("--yes", "-y", action="store_true", help="skip confirmation")
@@ -686,6 +635,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="how far back to read Falco logs, e.g. 30m / 1h / 2h (default: 1h)")
     s.set_defaults(func=cmd_scan)
 
+    nt = sub.add_parser("notify", help="post the latest scan summary to Slack (or a compatible webhook)")
+    nt.add_argument("--webhook-url", help="https URL (or set K8SMW_SLACK_WEBHOOK)")
+    nt.add_argument("--scan-id", help="default: the most recent saved scan")
+    nt.add_argument("--min-severity", default="HIGH", choices=["MEDIUM", "HIGH", "CRITICAL"])
+    nt.add_argument("--dashboard-url", help="link to include, e.g. http://dashboard.internal:8765")
+    nt.add_argument("--dry-run", action="store_true", help="print the message instead of sending it")
+    nt.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
+    nt.set_defaults(func=cmd_notify)
+
     r = sub.add_parser("rules", help="list the rule registry")
     r.add_argument("--module")
     r.add_argument("--tactic")
@@ -705,30 +663,12 @@ def build_parser() -> argparse.ArgumentParser:
     ro.add_argument("--output-file")
     ro.set_defaults(func=cmd_roles)
 
-    d = sub.add_parser("doctor", help="platform health & consistency check")
-    d.add_argument("--probe", action="store_true",
-                   help="also make one tiny live call to the configured LLM to verify "
-                        "credentials and model name (no network without this)")
-    d.add_argument("--verbose", "-v", action="store_true",
-                   help="list the items behind every check, not just failures")
-    d.add_argument("--output", "-o", default="text", choices=["text", "json"])
-    d.set_defaults(func=cmd_doctor)
-
-    ch = sub.add_parser("chat", help="interactive conversational security assistant")
-    ch.add_argument("--live", action="store_true", help="scan the live cluster")
-    ch.add_argument("--fixture", help="custom mock cluster JSON")
-    ch.add_argument("--kubeconfig")
-    ch.add_argument("--context", help="kubeconfig context to use")
-    ch.set_defaults(func=cmd_chat)
-
     ci = sub.add_parser("cis", help="run the full CIS Kubernetes Benchmark v1.8 (130 controls)")
     ci.add_argument("--mock", action="store_true")
     ci.add_argument("--live", action="store_true")
     ci.add_argument("--fixture")
     ci.add_argument("--kubeconfig")
     ci.add_argument("--context", help="kubeconfig context to use")
-    ci.add_argument("--kube-bench-json", help="kube-bench --json output to resolve "
-                    "node file-permission controls")
     ci.add_argument("--profile", default="self-managed",
                     choices=["self-managed", "eks", "gke", "aks"],
                     help="managed profiles mark provider-owned control-plane controls N/A")
@@ -741,36 +681,6 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit 1 if any control FAILs (CI mode)")
     ci.set_defaults(func=cmd_cis)
 
-    co = sub.add_parser("compliance",
-                        help="audit against PCI DSS / SOC 2 / ISO 27001 / NIST 800-53")
-    co.add_argument("--mock", action="store_true")
-    co.add_argument("--live", action="store_true")
-    co.add_argument("--fixture")
-    co.add_argument("--kubeconfig")
-    co.add_argument("--context", help="kubeconfig context to use")
-    co.add_argument("--kube-bench-json", help="kube-bench --json output to resolve "
-                    "node file-permission controls")
-    co.add_argument("--profile", default="auto",
-                    choices=["auto", "self-managed", "eks", "gke", "aks"],
-                    help="CIS profile driving the underlying benchmark (auto-detects)")
-    co.add_argument("--frameworks", help="comma-separated subset, e.g. "
-                    "'PCI-DSS-4.0,SOC2,ISO-27001-2022,NIST-800-53-r5' (default: all)")
-    co.add_argument("--output", "-o", default="markdown",
-                    choices=["markdown", "json", "html", "pdf"])
-    co.add_argument("--output-file", help="write here (required for pdf)")
-    co.add_argument("--fail-on-fail", action="store_true",
-                    help="exit 1 if any requirement FAILs (CI mode)")
-    co.set_defaults(func=cmd_compliance)
-
-    fed = sub.add_parser("federation",
-                         help="cross-cluster blast radius from saved per-cluster scans")
-    fed.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR,
-                     help=f"report store to correlate (default: {_DEFAULT_REPORTS_DIR})")
-    fed.add_argument("--output", "-o", default="markdown",
-                     choices=["markdown", "json", "html"])
-    fed.add_argument("--output-file")
-    fed.set_defaults(func=cmd_federation)
-
     po = sub.add_parser("posture",
                         help="what changed since the previous scan of the same cluster")
     po.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
@@ -778,7 +688,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--output", "-o", default="text", choices=["text", "json"])
     po.set_defaults(func=cmd_posture)
 
-    fmts = ["terminal", "text", "markdown", "json", "sarif", "html", "pdf", "xlsx"]
+    fmts = ["terminal", "text", "markdown", "json", "sarif", "html", "brief"]
     rp = sub.add_parser("report", help="list / download stored scan reports")
     rpsub = rp.add_subparsers(dest="report_cmd", required=True)
     rl = rpsub.add_parser("list", help="list stored reports")
@@ -793,43 +703,18 @@ def build_parser() -> argparse.ArgumentParser:
     rd.add_argument("--output", "-o", help="output filename (default: print to stdout)")
     rd.set_defaults(func=cmd_report)
 
-    he = sub.add_parser("helm",
-                        help="install / inspect / remove the K8sMatrixWarden-managed Helm")
-    hesub = he.add_subparsers(dest="helm_cmd", required=True)
-    for name, helptext in (
-            ("status", "where Helm is, who owns it, and whether it works"),
-            ("install", "install a pinned, checksum-verified Helm (needs the write gate)"),
-            ("remove", "remove ONLY the K8sMatrixWarden-managed Helm (needs the gate)")):
-        hp = hesub.add_parser(name, help=helptext)
-        hp.add_argument("--output", "-o", default="text", choices=["text", "json"])
-        hp.set_defaults(func=cmd_helm)
-
-    fa = sub.add_parser("falco",
-                        help="deploy / inspect / remove Falco (runtime event source)")
-    fasub = fa.add_subparsers(dest="falco_cmd", required=True)
-    for name, helptext in (("status", "is Falco installed and healthy?"),
-                           ("deploy", "install Falco + falcosidekick (needs the write gate)"),
-                           ("remove", "uninstall the Falco helm release (needs the write gate)")):
-        # NOT `p`: this function's own top-level parser is named `p`, and shadowing it
-        # here made build_parser() return this subparser instead of the real CLI.
-        fp = fasub.add_parser(name, help=helptext)
-        fp.add_argument("--namespace", default=_FALCO_NS,
-                        help=f"namespace (default: {_FALCO_NS})")
-        fp.add_argument("--release", default=_FALCO_RELEASE,
-                        help=f"helm release name (default: {_FALCO_RELEASE})")
-        fp.add_argument("--output", "-o", default="text", choices=["text", "json"])
-        if name == "deploy":
-            fp.add_argument("--webhook-url", required=True,
-                            help="where Falco should POST events, e.g. "
-                                 "http://host.docker.internal:8080/api/runtime")
-            fp.add_argument("--timeout", type=int, default=300)
-        if name == "remove":
-            fp.add_argument("--timeout", type=int, default=180)
-        fp.set_defaults(func=cmd_falco)
-
-    m = sub.add_parser("mcp", help="run the MCP server (or --list-tools)")
-    m.add_argument("--list-tools", action="store_true")
-    m.set_defaults(func=cmd_mcp)
+    tp = sub.add_parser("topology", help="print the network topology (who can reach whom)")
+    _add_scope_args(tp)
+    _add_selector_args(tp)
+    tp.add_argument("--scan-id", help="use a saved report instead of scanning")
+    tp.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
+    tp.add_argument("--mock", action="store_true")
+    tp.add_argument("--live", action="store_true")
+    tp.add_argument("--fixture")
+    tp.add_argument("--kubeconfig")
+    tp.add_argument("--context")
+    tp.add_argument("--output", "-o", default="text", choices=["text", "json"])
+    tp.set_defaults(func=cmd_topology)
 
     w = sub.add_parser("web", help="launch the Security Dashboard web interface")
     w.add_argument("--host", default="127.0.0.1")
@@ -876,8 +761,63 @@ def _force_utf8() -> None:
             pass
 
 
+CHECK_HELP = """usage: k8smatrixwarden check [PATH ...] [options]
+
+The everyday command. With no PATH it checks the cluster your kubectl points at; with files,
+folders or Helm charts it checks those before they are deployed. Prints what to fix first.
+
+  PATH ...            YAML/JSON files, folders or Helm charts to check (no cluster needed)
+  --context NAME      kubeconfig context (default: the current one)
+  -n, --namespace NS  only this namespace
+  --grype             also scan running images for CVEs (needs the grype program)
+  --fail-on LEVEL     exit 1 if any open finding is LEVEL or worse (LOW MEDIUM HIGH CRITICAL)
+  --baseline REF      with --fail-on, only findings new since this scan id / JSON report count
+  --suppressions F    accepted-risk file (also reads .k8smatrixwarden-ignore.yaml)
+  --name TEXT         name this scan
+  --save              keep the result so `k8smatrixwarden web` shows it
+  -o, --output FMT    brief (default), markdown, json, sarif, html, text
+"""
+
+
+def _check_to_scan(argv: list) -> list:
+    """`check` is `scan` with sensible defaults: brief output, a real target, nothing saved
+    unless asked (a CI run should not fill a disk)."""
+    p = argparse.ArgumentParser(prog="k8smatrixwarden check", add_help=False)
+    p.add_argument("paths", nargs="*")
+    p.add_argument("--context")
+    p.add_argument("--namespace", "-n")
+    p.add_argument("--grype", action="store_true")
+    p.add_argument("--fail-on")
+    p.add_argument("--baseline")
+    p.add_argument("--suppressions", action="append", default=[])
+    p.add_argument("--name")
+    p.add_argument("--save", action="store_true")
+    p.add_argument("--output", "-o", default="brief")
+    p.add_argument("--reports-dir", default=_DEFAULT_REPORTS_DIR)
+    a, extra = p.parse_known_args(argv)
+    out = ["scan", "-y", "-o", a.output, "--reports-dir", a.reports_dir] + extra
+    out += ["--manifests"] + a.paths if a.paths else ["--live"]
+    for flag, val in (("--context", a.context), ("--namespace", a.namespace),
+                      ("--fail-on", a.fail_on), ("--baseline", a.baseline), ("--name", a.name)):
+        if val:
+            out += [flag, val]
+    for s in a.suppressions:
+        out += ["--suppressions", s]
+    if a.grype and not a.paths:
+        out += ["--grype"]
+    if not a.save:
+        out += ["--no-save"]
+    return out
+
+
 def main(argv=None) -> int:
     _force_utf8()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["check"]:
+        if {"-h", "--help"} & set(argv[1:]):
+            print(CHECK_HELP)
+            return 0
+        argv = _check_to_scan(argv[1:])
     args = build_parser().parse_args(argv)
     return args.func(args)
 

@@ -33,7 +33,17 @@ _DOMAINS = {
     "MutatingWebhookConfiguration": "Admission control",
     "ValidatingWebhookConfiguration": "Admission control",
     "CloudIAM": "Cloud IAM", "Namespace": "Cluster inventory",
+    "EndpointSlice": "Extended discovery", "Event": "Extended discovery",
+    "PersistentVolume": "Extended discovery", "PersistentVolumeClaim": "Extended discovery",
+    "StorageClass": "Extended discovery", "ResourceQuota": "Extended discovery",
+    "LimitRange": "Extended discovery", "PodDisruptionBudget": "Extended discovery",
+    "APIService": "Extended discovery", "CustomResourceDefinition": "Extended discovery",
+    "ImageVulnerability": "Extended discovery",
 }
+
+#: Read for context only. Shown per kind and per domain, but excluded from the headline
+#: coverage / confidence, so an RBAC-denied optional read cannot make a scan look unsure.
+OPTIONAL_KINDS = frozenset(k for k, d in _DOMAINS.items() if d == "Extended discovery")
 
 #: Fallback weight per status, used only when the collector recorded no estimate of its
 #: own. `ok` and `skipped` are exact. `partial` without an estimate is the one genuinely
@@ -92,9 +102,10 @@ def build_coverage(collector) -> dict:
         entry["coverage_basis"] = _basis(info)
         kinds[kind] = entry
 
-    earned = sum(i["estimated_coverage"] for i in kinds.values())
-    coverage_pct = _pct(earned, len(kinds))
-    basis = _aggregate_basis(i["coverage_basis"] for i in kinds.values())
+    core = [i for k, i in kinds.items() if k not in OPTIONAL_KINDS] or list(kinds.values())
+    earned = sum(i["estimated_coverage"] for i in core)
+    coverage_pct = _pct(earned, len(core))
+    basis = _aggregate_basis(i["coverage_basis"] for i in core)
 
     domains: dict[str, dict] = {}
     for kind, info in kinds.items():

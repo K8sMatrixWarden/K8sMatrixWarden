@@ -30,7 +30,7 @@ _SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 def _pages():
     """Every HTML surface, rendered the way the server renders it."""
     app = WebApp(build_platform(), reports_dir=tempfile.mkdtemp())
-    for path in ("/", "/runtime-management", "/runtime-events", "/reports"):
+    for path in ("/", "/runtime-events", "/runtime-events", "/reports"):
         response = app.route("GET", path)
         if response.status == 200:
             yield path, response.text

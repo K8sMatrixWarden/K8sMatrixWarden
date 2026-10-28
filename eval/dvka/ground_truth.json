@@ -1,0 +1,2336 @@
+{
+ "lab": "dvka-lab",
+ "now": "2026-10-15T10:00:00Z",
+ "entries": [
+  {
+   "id": "NS-01",
+   "category": "NS",
+   "title": "Namespace with no Pod Security enforcement, no NetworkPolicy",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "dvka-vuln"
+   },
+   "expect": [
+    "compliance-psa-not-restricted",
+    "net-no-networkpolicy",
+    "net-metadata-api-open"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610 / T1552.005",
+   "cis": "5.2.1, 5.3.2",
+   "why": "No PSA label means nothing stops a privileged pod; no policy means a flat network and the cloud metadata API is reachable.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NS-02",
+   "category": "NS",
+   "title": "Namespace enforcing only 'baseline', ingress-only NetworkPolicy",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "dvka-baseline"
+   },
+   "expect": [
+    "compliance-psa-not-restricted",
+    "net-metadata-api-open"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.005",
+   "cis": "5.2.1",
+   "why": "baseline is weaker than restricted; with no egress policy pods can reach 169.254.169.254.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NS-03",
+   "category": "NS",
+   "title": "Egress policy that allows everything (metadata API still open)",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "dvka-egress-open"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1552.005",
+   "cis": "",
+   "why": "An Egress-type policy with a single empty rule admits every destination, including 169.254.169.254. The scanner treats ANY egress policy as blocking the metadata API.",
+   "gap": true,
+   "gap_reason": "net-metadata-api-open only checks that an Egress-type policy exists, not that it excludes the metadata address",
+   "would_detect_with": "evaluate egress rules with netpol.py against 169.254.169.254/32",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NS-04",
+   "category": "NS",
+   "title": "The built-in 'default' namespace, left as every cluster ships it",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "default"
+   },
+   "expect": [
+    "compliance-psa-not-restricted",
+    "net-no-networkpolicy",
+    "net-metadata-api-open"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.1, 5.3.2",
+   "why": "Every cluster has one; teams deploy into it by accident.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-NS2",
+   "category": "NEG",
+   "title": "The 'default' namespace hardened",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "default"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "hardened-only",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-NS",
+   "category": "NEG",
+   "title": "Hardened namespace: PSA restricted + default-deny in both directions",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "dvka-secure"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "Everything a namespace should have.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-01",
+   "category": "WL",
+   "title": "Privileged container",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-privileged"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610",
+   "cis": "5.2.2",
+   "why": "Kubernetes requires allowPrivilegeEscalation=true for a privileged container, so the second rule is a genuine consequence.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-02",
+   "category": "WL",
+   "title": "hostPID shared",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-host-pid"
+   },
+   "expect": [
+    "workload-host-pid"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610",
+   "cis": "5.2.3",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-03",
+   "category": "WL",
+   "title": "hostNetwork shared (DaemonSet)",
+   "resource": {
+    "kind": "DaemonSet",
+    "namespace": "dvka-vuln",
+    "name": "wl-host-network"
+   },
+   "expect": [
+    "workload-host-network"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610 / T1046",
+   "cis": "5.2.5",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-04",
+   "category": "WL",
+   "title": "hostIPC shared (StatefulSet)",
+   "resource": {
+    "kind": "StatefulSet",
+    "namespace": "dvka-vuln",
+    "name": "wl-host-ipc"
+   },
+   "expect": [
+    "workload-host-ipc"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.4",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-05",
+   "category": "WL",
+   "title": "hostPath /etc mounted",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-hostpath-etc"
+   },
+   "expect": [
+    "workload-hostpath-root"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1611",
+   "cis": "5.2.12",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-06",
+   "category": "WL",
+   "title": "hostPath / (node root) mounted",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-hostpath-root"
+   },
+   "expect": [
+    "workload-hostpath-root"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1611",
+   "cis": "5.2.12",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-07",
+   "category": "WL",
+   "title": "Writable hostPath mount",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-hostpath-writable"
+   },
+   "expect": [
+    "workload-hostpath-writable"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.12",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-08",
+   "category": "WL",
+   "title": "Docker socket mounted",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-docker-socket"
+   },
+   "expect": [
+    "workload-docker-socket",
+    "workload-hostpath-writable"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1611",
+   "cis": "",
+   "why": "The socket is itself a hostPath, so the writable-hostPath rule also applies.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-09",
+   "category": "WL",
+   "title": "Dangerous capability SYS_ADMIN added",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-cap-sys-admin"
+   },
+   "expect": [
+    "workload-dangerous-caps"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.8",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-10",
+   "category": "WL",
+   "title": "Capabilities not dropped",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-caps-not-dropped"
+   },
+   "expect": [
+    "workload-caps-not-dropped"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.9",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-11",
+   "category": "WL",
+   "title": "allowPrivilegeEscalation true",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-allow-privesc"
+   },
+   "expect": [
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1548",
+   "cis": "5.2.6",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-12",
+   "category": "WL",
+   "title": "Runs as root (UID 0)",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-run-as-root"
+   },
+   "expect": [
+    "workload-run-as-root"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.7",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-13",
+   "category": "WL",
+   "title": "Writable root filesystem",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-writable-rootfs"
+   },
+   "expect": [
+    "workload-writable-root-fs"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1610",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-14",
+   "category": "WL",
+   "title": "No seccomp profile",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-no-seccomp"
+   },
+   "expect": [
+    "workload-no-seccomp"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1610",
+   "cis": "5.7.2",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-15",
+   "category": "WL",
+   "title": "No resource limits",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-no-limits"
+   },
+   "expect": [
+    "workload-missing-limits"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1499",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-16",
+   "category": "WL",
+   "title": "Service-account token auto-mounted",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-sa-automount"
+   },
+   "expect": [
+    "workload-sa-token-automount"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1528",
+   "cis": "5.1.6",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-17",
+   "category": "WL",
+   "title": "Image tagged :latest",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-latest-tag"
+   },
+   "expect": [
+    "workload-latest-tag"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1525",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-18",
+   "category": "WL",
+   "title": "Image with no tag at all",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-untagged-image"
+   },
+   "expect": [
+    "workload-latest-tag"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1525",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-19",
+   "category": "WL",
+   "title": "SSH server inside the container",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-sshd"
+   },
+   "expect": [
+    "workload-sshd-present"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-20",
+   "category": "WL",
+   "title": "Bare privileged Pod (no controller)",
+   "resource": {
+    "kind": "Pod",
+    "namespace": "dvka-vuln",
+    "name": "wl-bare-privileged-pod"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610",
+   "cis": "5.2.2",
+   "why": "Same as WL-01 on a standalone Pod.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-21",
+   "category": "WL",
+   "title": "Privileged container in a CronJob (persistence)",
+   "resource": {
+    "kind": "CronJob",
+    "namespace": "dvka-vuln",
+    "name": "wl-cronjob-privileged"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1053.003",
+   "cis": "5.2.2",
+   "why": "The pod template sits three levels down in a CronJob.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-22",
+   "category": "WL",
+   "title": "hostNetwork in a Job",
+   "resource": {
+    "kind": "Job",
+    "namespace": "dvka-vuln",
+    "name": "wl-job-host-network"
+   },
+   "expect": [
+    "workload-host-network"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.2.5",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-23",
+   "category": "WL",
+   "title": "Privileged INIT container",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-init-privileged"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610",
+   "cis": "5.2.2",
+   "why": "An init container is as much a host-escape primitive as a long-running one.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-24",
+   "category": "WL",
+   "title": "Kitchen sink: everything wrong at once",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-kitchen-sink"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation",
+    "workload-host-pid",
+    "workload-host-network",
+    "workload-host-ipc",
+    "workload-docker-socket",
+    "workload-hostpath-writable",
+    "workload-run-as-root",
+    "workload-latest-tag",
+    "workload-missing-limits",
+    "workload-caps-not-dropped",
+    "workload-writable-root-fs",
+    "workload-no-seccomp",
+    "workload-sa-token-automount"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610 / T1611",
+   "cis": "5.2.x",
+   "why": "Every flaw above in one pod.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-25",
+   "category": "WL",
+   "title": "hostPort",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-host-port"
+   },
+   "expect": [
+    "workload-host-port"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1610",
+   "cis": "5.2.13",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-26",
+   "category": "WL",
+   "title": "shareProcessNamespace",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-share-process"
+   },
+   "expect": [
+    "workload-share-process-ns"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1610",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-27",
+   "category": "WL",
+   "title": "No securityContext at all",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-no-security-context"
+   },
+   "expect": [
+    "workload-no-security-context",
+    "workload-run-as-root",
+    "workload-allow-priv-escalation",
+    "workload-writable-root-fs",
+    "workload-caps-not-dropped",
+    "workload-no-seccomp"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1610",
+   "cis": "5.7.3",
+   "why": "With no securityContext the runtime defaults apply, so the other hardening rules are true consequences.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-28",
+   "category": "WL",
+   "title": "Windows HostProcess container (fixture only)",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "wl-host-process"
+   },
+   "expect": [
+    "workload-windows-hostprocess"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1611",
+   "cis": "5.2.11",
+   "why": "A Linux cluster rejects this pod, so it is fixture only.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "WL-29",
+   "category": "WL",
+   "title": "Workload in the default namespace",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "default",
+    "name": "wl-default-ns"
+   },
+   "expect": [
+    "workload-default-namespace"
+   ],
+   "severity": "LOW",
+   "mitre": "T1610",
+   "cis": "5.7.4",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-01",
+   "category": "RB",
+   "title": "Role with wildcard verbs",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-wildcard-verbs"
+   },
+   "expect": [
+    "rbac-wildcard-verbs",
+    "rbac-create-pods"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.3",
+   "why": "* on pods includes create, so the pod-creation rule is a true consequence.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-02",
+   "category": "RB",
+   "title": "Role with wildcard resources",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-wildcard-resources"
+   },
+   "expect": [
+    "rbac-wildcard-resources",
+    "rbac-secret-read-broad",
+    "rbac-node-proxy"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.3",
+   "why": "get on every resource includes get on Secrets and on nodes/proxy, so those rules are true consequences.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-03",
+   "category": "RB",
+   "title": "God-mode role (*, *, *)",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-god-mode"
+   },
+   "expect": [
+    "rbac-wildcard-verbs",
+    "rbac-wildcard-resources",
+    "rbac-secret-read-broad",
+    "rbac-can-delete-events",
+    "rbac-coredns-configmap-write",
+    "rbac-create-pods",
+    "rbac-create-pv",
+    "rbac-csr-approve",
+    "rbac-node-proxy",
+    "rbac-sa-token-create",
+    "rbac-webhook-config-write"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.3",
+   "why": "(*, *, *) grants every verb on every resource, so each specific rule is a true consequence.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-04",
+   "category": "RB",
+   "title": "ClusterRole can read every Secret",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-secret-reader"
+   },
+   "expect": [
+    "rbac-secret-read-broad"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.007",
+   "cis": "5.1.2",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-05",
+   "category": "RB",
+   "title": "bind / escalate / impersonate",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-escalator"
+   },
+   "expect": [
+    "rbac-bind-escalate-verbs"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.8",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-06",
+   "category": "RB",
+   "title": "Role can delete events (cover tracks)",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-event-cleaner"
+   },
+   "expect": [
+    "rbac-can-delete-events"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1070",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-07",
+   "category": "RB",
+   "title": "Role can rewrite ConfigMaps (CoreDNS poisoning)",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-configmap-writer"
+   },
+   "expect": [
+    "rbac-coredns-configmap-write"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1565",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-08",
+   "category": "RB",
+   "title": "cluster-admin bound to the default ServiceAccount",
+   "resource": {
+    "kind": "ClusterRoleBinding",
+    "namespace": null,
+    "name": "dvka-default-sa-admin"
+   },
+   "expect": [
+    "rbac-cluster-admin-default-sa"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078.004",
+   "cis": "5.1.1",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-09",
+   "category": "RB",
+   "title": "cluster-admin bound to a named user",
+   "resource": {
+    "kind": "ClusterRoleBinding",
+    "namespace": null,
+    "name": "dvka-alice-admin"
+   },
+   "expect": [
+    "rbac-cluster-admin-user-binding"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1078",
+   "cis": "5.1.1",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-10",
+   "category": "RB",
+   "title": "cluster-admin bound to system:authenticated",
+   "resource": {
+    "kind": "ClusterRoleBinding",
+    "namespace": null,
+    "name": "dvka-everyone-admin"
+   },
+   "expect": [
+    "rbac-broad-subject-admin"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.1",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-11",
+   "category": "RB",
+   "title": "cluster-admin bound to system:anonymous",
+   "resource": {
+    "kind": "ClusterRoleBinding",
+    "namespace": null,
+    "name": "dvka-anonymous-admin"
+   },
+   "expect": [
+    "rbac-broad-subject-admin"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.1",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-12",
+   "category": "RB",
+   "title": "edit granted to every ServiceAccount in a namespace",
+   "resource": {
+    "kind": "RoleBinding",
+    "namespace": "dvka-vuln",
+    "name": "dvka-sa-edit"
+   },
+   "expect": [
+    "rbac-broad-subject-admin"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1078",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-13",
+   "category": "RB",
+   "title": "Namespaced Role with wildcard verbs",
+   "resource": {
+    "kind": "Role",
+    "namespace": "dvka-vuln",
+    "name": "dvka-ns-wildcard"
+   },
+   "expect": [
+    "rbac-wildcard-verbs",
+    "rbac-create-pods"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.3",
+   "why": "* on pods includes create.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-14",
+   "category": "RB",
+   "title": "Role can create pods",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-pod-creator"
+   },
+   "expect": [
+    "rbac-create-pods"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1610",
+   "cis": "5.1.4",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-15",
+   "category": "RB",
+   "title": "system:masters group bound",
+   "resource": {
+    "kind": "ClusterRoleBinding",
+    "namespace": null,
+    "name": "dvka-masters"
+   },
+   "expect": [
+    "rbac-system-masters"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1078",
+   "cis": "5.1.7",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-16",
+   "category": "RB",
+   "title": "Role can create PersistentVolumes",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-pv-creator"
+   },
+   "expect": [
+    "rbac-create-pv"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1611",
+   "cis": "5.1.9",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-17",
+   "category": "RB",
+   "title": "Role can use nodes/proxy",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-node-proxy"
+   },
+   "expect": [
+    "rbac-node-proxy"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1611",
+   "cis": "5.1.10",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-18",
+   "category": "RB",
+   "title": "Role can approve CSRs",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-csr-approver"
+   },
+   "expect": [
+    "rbac-csr-approve"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1078",
+   "cis": "5.1.11",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-19",
+   "category": "RB",
+   "title": "Role can edit admission webhooks",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-webhook-editor"
+   },
+   "expect": [
+    "rbac-webhook-config-write"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1554",
+   "cis": "5.1.12",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "RB-20",
+   "category": "RB",
+   "title": "Role can mint ServiceAccount tokens",
+   "resource": {
+    "kind": "ClusterRole",
+    "namespace": null,
+    "name": "dvka-token-minter"
+   },
+   "expect": [
+    "rbac-sa-token-create"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1528",
+   "cis": "5.1.13",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-RB",
+   "category": "NEG",
+   "title": "Least-privilege Role bound to one ServiceAccount",
+   "resource": {
+    "kind": "Role",
+    "namespace": "dvka-secure",
+    "name": "dvka-pod-reader"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-RB",
+   "category": "GAP",
+   "title": "Namespaced Role that can read Secrets",
+   "resource": {
+    "kind": "Role",
+    "namespace": "dvka-vuln",
+    "name": "dvka-ns-secret-reader"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1552.007",
+   "cis": "",
+   "why": "Reading Secrets in a namespace is a credential-theft primitive.",
+   "gap": true,
+   "gap_reason": "rbac-secret-read-broad only inspects ClusterRoles by design",
+   "would_detect_with": "extend the rule to Roles and report namespace-scoped blast radius",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NET-01",
+   "category": "NET",
+   "title": "NodePort Service",
+   "resource": {
+    "kind": "Service",
+    "namespace": "dvka-vuln",
+    "name": "net-nodeport"
+   },
+   "expect": [
+    "net-nodeport-service"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1190",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NET-02",
+   "category": "NET",
+   "title": "LoadBalancer with no source ranges",
+   "resource": {
+    "kind": "Service",
+    "namespace": "dvka-vuln",
+    "name": "net-lb-open"
+   },
+   "expect": [
+    "net-lb-no-source-range"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1190",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NET-03",
+   "category": "NET",
+   "title": "Kubernetes dashboard exposed",
+   "resource": {
+    "kind": "Service",
+    "namespace": "dvka-vuln",
+    "name": "kubernetes-dashboard"
+   },
+   "expect": [
+    "net-dashboard-exposed",
+    "net-nodeport-service"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1133",
+   "cis": "",
+   "why": "An exposed dashboard is also a NodePort Service.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NET-04",
+   "category": "NET",
+   "title": "Ingress without TLS",
+   "resource": {
+    "kind": "Ingress",
+    "namespace": "dvka-vuln",
+    "name": "net-ingress-plain"
+   },
+   "expect": [
+    "net-ingress-no-tls"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1190",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-NET",
+   "category": "NEG",
+   "title": "ClusterIP Service, LoadBalancer with source ranges, Ingress with TLS",
+   "resource": {
+    "kind": "Service",
+    "namespace": "dvka-secure",
+    "name": "neg-lb-restricted"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "SEC-01",
+   "category": "SEC",
+   "title": "Secret injected through an environment variable",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "sec-env-secret"
+   },
+   "expect": [
+    "sec-env-var-secrets"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.001",
+   "cis": "5.4.1",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "SEC-02",
+   "category": "SEC",
+   "title": "ConfigMap holding a password",
+   "resource": {
+    "kind": "ConfigMap",
+    "namespace": "dvka-vuln",
+    "name": "sec-cm-password"
+   },
+   "expect": [
+    "sec-configmap-credentials"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.001",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "SEC-03",
+   "category": "SEC",
+   "title": "ConfigMap holding an API key in a value",
+   "resource": {
+    "kind": "ConfigMap",
+    "namespace": "dvka-vuln",
+    "name": "sec-cm-apikey"
+   },
+   "expect": [
+    "sec-configmap-credentials"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.001",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "SEC-04",
+   "category": "SEC",
+   "title": "Cloud credentials file mounted into the pod",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "sec-cloud-creds"
+   },
+   "expect": [
+    "sec-mounted-cloud-creds"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1552.005",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "SEC-05",
+   "category": "SEC",
+   "title": "etcd encryption at rest not enabled",
+   "resource": {
+    "kind": "ControlPlane",
+    "namespace": null,
+    "name": "etcd"
+   },
+   "expect": [
+    "sec-etcd-not-encrypted"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1552.007",
+   "cis": "1.2.28",
+   "why": "The API server runs without --encryption-provider-config.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-SEC",
+   "category": "NEG",
+   "title": "Secret consumed as a read-only file; benign ConfigMap",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-secure",
+    "name": "neg-secret-as-file"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "FP-SEC",
+   "category": "FP",
+   "title": "ConfigMap key containing the word 'token' that is not a credential",
+   "resource": {
+    "kind": "ConfigMap",
+    "namespace": "dvka-secure",
+    "name": "fp-model-config"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "'max_tokens' is an LLM sampling limit. A keyword rule matches 'token'.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": true,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-SEC1",
+   "category": "GAP",
+   "title": "Plaintext credentials stored in a Secret object",
+   "resource": {
+    "kind": "Secret",
+    "namespace": "dvka-vuln",
+    "name": "db-credentials"
+   },
+   "expect": [],
+   "severity": "MEDIUM",
+   "mitre": "T1552.007",
+   "cis": "",
+   "why": "Secret values are never read by the scanner, on purpose.",
+   "gap": true,
+   "gap_reason": "the scanner does not read Secret contents (least privilege)",
+   "would_detect_with": "secret scanning at commit time (gitleaks) or an admission policy",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-SEC2",
+   "category": "GAP",
+   "title": "Long-lived ServiceAccount token stored as a Secret",
+   "resource": {
+    "kind": "Secret",
+    "namespace": "dvka-vuln",
+    "name": "legacy-sa-token"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1528",
+   "cis": "",
+   "why": "A non-expiring token that never rotates.",
+   "gap": true,
+   "gap_reason": "no rule inspects Secret type or token age",
+   "would_detect_with": "list Secrets by type (metadata only) and flag service-account-token",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "AS-01",
+   "category": "AS",
+   "title": "One ServiceAccount reused by 3 workloads across 2 namespaces",
+   "resource": {
+    "kind": "ServiceAccount",
+    "namespace": null,
+    "name": "shared-sa"
+   },
+   "expect": [
+    "as-sa-fanout"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1078.004",
+   "cis": "",
+   "why": "A compromise of any one inherits the identity of all.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-AS",
+   "category": "NEG",
+   "title": "A ServiceAccount used by only two workloads",
+   "resource": {
+    "kind": "ServiceAccount",
+    "namespace": null,
+    "name": "pair-sa"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  },
+  {
+   "id": "CP-01",
+   "category": "CP",
+   "title": "API server has no audit policy",
+   "resource": {
+    "kind": "ControlPlane",
+    "namespace": null,
+    "name": "apiServer"
+   },
+   "expect": [
+    "log-audit-policy-missing"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1562.008",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "CP-02",
+   "category": "CP",
+   "title": "Audit logs kept 7 days",
+   "resource": {
+    "kind": "ControlPlane",
+    "namespace": null,
+    "name": "apiServer"
+   },
+   "expect": [
+    "log-audit-retention-short"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1562.008",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "CP-03",
+   "category": "CP",
+   "title": "Audit log rotation too aggressive",
+   "resource": {
+    "kind": "ControlPlane",
+    "namespace": null,
+    "name": "apiServer"
+   },
+   "expect": [
+    "log-audit-rotation-weak"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1562.008",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "CP-04",
+   "category": "CP",
+   "title": "No in-cluster log collector",
+   "resource": {
+    "kind": "Cluster",
+    "namespace": null,
+    "name": "log-pipeline"
+   },
+   "expect": [
+    "log-no-collector"
+   ],
+   "severity": "MEDIUM",
+   "mitre": "T1070",
+   "cis": "",
+   "why": "Logs exist only on the node; clearing them leaves no copy.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "NEG-CP",
+   "category": "NEG",
+   "title": "Healthy control plane flags and a log collector",
+   "resource": {
+    "kind": "ControlPlane",
+    "namespace": null,
+    "name": "apiServer"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": true,
+   "profile": "hardened-only",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-IMG1",
+   "category": "GAP",
+   "title": "Image with known CVEs (nginx 1.14.0)",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "gap-cve-image"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1190",
+   "cis": "",
+   "why": "A pinned tag that is nonetheless years out of date.",
+   "gap": true,
+   "gap_reason": "no image/CVE scanner runs in the offline fixture",
+   "would_detect_with": "run with --live --grype (Grype on the running image digests)",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": [
+    "workload-image-vulnerabilities"
+   ]
+  },
+  {
+   "id": "GAP-IMG2",
+   "category": "GAP",
+   "title": "Image pulled from an untrusted public registry",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "gap-untrusted-registry"
+   },
+   "expect": [],
+   "severity": "MEDIUM",
+   "mitre": "T1525",
+   "cis": "",
+   "why": "Not from the organisation's registry, not signed, no digest.",
+   "gap": true,
+   "gap_reason": "no registry allow-list or signature check",
+   "would_detect_with": "admission policy (Kyverno/Gatekeeper) + cosign verification",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-WL2",
+   "category": "GAP",
+   "title": "CronJob that downloads and runs a script",
+   "resource": {
+    "kind": "CronJob",
+    "namespace": "dvka-vuln",
+    "name": "gap-cron-curl-sh"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1053.003",
+   "cis": "",
+   "why": "Classic persistence. Statically it is just a command line.",
+   "gap": true,
+   "gap_reason": "no static rule inspects commands; the dedicated rule was removed in the scope reduction",
+   "would_detect_with": "Falco at runtime",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-ADM",
+   "category": "GAP",
+   "title": "Mutating webhook that fails open and injects a sidecar",
+   "resource": {
+    "kind": "MutatingWebhookConfiguration",
+    "namespace": null,
+    "name": "dvka-sidecar-injector"
+   },
+   "expect": [],
+   "severity": "HIGH",
+   "mitre": "T1554",
+   "cis": "",
+   "why": "An external webhook that can rewrite every pod, and fails open.",
+   "gap": true,
+   "gap_reason": "the admission-control rules were removed in the scope reduction",
+   "would_detect_with": "restore the admission rules (evidence is still collected)",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "GAP-OPS",
+   "category": "GAP",
+   "title": "No ResourceQuota, LimitRange or PodDisruptionBudget",
+   "resource": {
+    "kind": "Namespace",
+    "namespace": null,
+    "name": "dvka-vuln"
+   },
+   "expect": [],
+   "severity": "LOW",
+   "mitre": "T1499",
+   "cis": "",
+   "why": "A single tenant can exhaust the node, and a drain can take the app down.",
+   "gap": true,
+   "gap_reason": "the scanner now READS these kinds but has no rule on them",
+   "would_detect_with": "rules over ResourceQuota / LimitRange / PodDisruptionBudget",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "AP-01",
+   "category": "AP",
+   "title": "Internet -> Service -> privileged Pod -> ServiceAccount -> Secrets",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "ap-frontend"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation",
+    "net-lb-no-source-range"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1190 -> T1610 -> T1552.007",
+   "cis": "",
+   "why": "The slide's scenario: reachable from the Internet, runs privileged, and its identity can read every Secret.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "PRIO-01",
+   "category": "PRIO",
+   "title": "Same flaw, but not reachable: isolated privileged workload",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "prio-isolated"
+   },
+   "expect": [
+    "workload-privileged-container",
+    "workload-allow-priv-escalation"
+   ],
+   "severity": "CRITICAL",
+   "mitre": "T1610",
+   "cis": "",
+   "why": "Identical to ap-frontend minus the exposure and the identity. It must rank BELOW it.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": []
+  },
+  {
+   "id": "PRIO-02",
+   "category": "PRIO",
+   "title": "Same vulnerable image as GAP-IMG1, but Internet-exposed",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-vuln",
+    "name": "prio-vuln-exposed"
+   },
+   "expect": [
+    "net-lb-no-source-range"
+   ],
+   "severity": "HIGH",
+   "mitre": "T1190",
+   "cis": "",
+   "why": "Identical image to the isolated gap-cve-image, behind a LoadBalancer. With --grype its CVE finding must rank ABOVE the isolated one.",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": false,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "vulnerable",
+   "grype_expect": [
+    "workload-image-vulnerabilities"
+   ]
+  },
+  {
+   "id": "NEG-WL",
+   "category": "NEG",
+   "title": "A fully hardened workload (every pod-security control on)",
+   "resource": {
+    "kind": "Deployment",
+    "namespace": "dvka-secure",
+    "name": "neg-api"
+   },
+   "expect": [],
+   "severity": "",
+   "mitre": "",
+   "cis": "",
+   "why": "",
+   "gap": false,
+   "gap_reason": "",
+   "would_detect_with": "",
+   "negative": true,
+   "fp_probe": false,
+   "fixture_only": false,
+   "profile": "both",
+   "grype_expect": []
+  }
+ ],
+ "runtime": [
+  {
+   "id": "RT-01",
+   "title": "Shell in the privileged frontend",
+   "expect": "confirmed",
+   "against": "vulnerable",
+   "why": "names a pod of ap-frontend, which has Execution-tagged findings",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Terminal shell in container",
+    "namespace": "dvka-vuln",
+    "pod": "ap-frontend-7d9c8b6f5-x2k4p",
+    "proc": "sh",
+    "tags": [
+     "T1059",
+     "mitre_execution"
+    ]
+   }
+  },
+  {
+   "id": "RT-02",
+   "title": "Read /etc/shadow in a pod with an auto-mounted token",
+   "expect": "confirmed",
+   "against": "vulnerable",
+   "why": "names a pod of wl-sa-automount (Credential Access)",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Read sensitive file untrusted",
+    "namespace": "dvka-vuln",
+    "pod": "wl-sa-automount-6b8f7c9d4-q7w2z",
+    "file": "/etc/shadow",
+    "proc": "cat",
+    "tags": [
+     "T1555",
+     "mitre_credential_access"
+    ]
+   }
+  },
+  {
+   "id": "RT-03",
+   "title": "Shell in a pod the scan has never seen",
+   "expect": "corroborated",
+   "against": "vulnerable",
+   "why": "same namespace and tactic as real findings, but no resource-level link",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Terminal shell in container",
+    "namespace": "dvka-vuln",
+    "pod": "dvka-ghost-5f4d3c2b1-abcde",
+    "proc": "bash",
+    "tags": [
+     "T1059",
+     "mitre_execution"
+    ]
+   }
+  },
+  {
+   "id": "RT-04",
+   "title": "Shell in a cluster whose scan found nothing",
+   "expect": "runtime-only",
+   "against": "hardened",
+   "why": "the hardened cluster has no static finding of any tactic, so nothing can match",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Terminal shell in container",
+    "namespace": "dvka-secure",
+    "pod": "neg-pair-a-6c5b4a3d2-zxcvb",
+    "proc": "sh",
+    "tags": [
+     "T1059",
+     "mitre_execution"
+    ]
+   }
+  },
+  {
+   "id": "RT-06",
+   "title": "Shell in a clean namespace of a cluster with other findings",
+   "expect": "corroborated",
+   "against": "vulnerable",
+   "why": "documented behaviour: same tactic elsewhere in the cluster is corroborated, not runtime-only (core/correlation.py). Whether that is too generous is a design question.",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Terminal shell in container",
+    "namespace": "dvka-secure",
+    "pod": "neg-pair-a-6c5b4a3d2-zxcvb",
+    "proc": "sh",
+    "tags": [
+     "T1059",
+     "mitre_execution"
+    ]
+   }
+  },
+  {
+   "id": "RT-05",
+   "title": "Pod name that only shares a prefix with a flaw",
+   "expect": "corroborated",
+   "against": "vulnerable",
+   "why": "'wl-sa-automount-extra' is a different workload than 'wl-sa-automount'",
+   "event": {
+    "source": "falco",
+    "priority": "Warning",
+    "time": "2026-10-15T09:55:00Z",
+    "container_id": "0123456789ab",
+    "rule": "Read sensitive file untrusted",
+    "namespace": "dvka-vuln",
+    "pod": "wl-sa-automount-extra-6b8f7c9d4-q7w2z",
+    "file": "/etc/shadow",
+    "proc": "cat",
+    "tags": [
+     "T1555",
+     "mitre_credential_access"
+    ]
+   }
+  }
+ ],
+ "attack_path": {
+  "workload": "ap-frontend",
+  "namespace": "dvka-vuln",
+  "service_account": "ap-frontend-sa",
+  "service": "ap-frontend"
+ },
+ "prioritisation": {
+  "higher": "ap-frontend",
+  "lower": "prio-isolated",
+  "namespace": "dvka-vuln"
+ }
+}

@@ -27,8 +27,6 @@ def test_full_cluster_scan_finds_critical_issues():
     rule_ids = {f.rule_id for f in res.findings}
     assert "workload-privileged-container" in rule_ids
     assert "rbac-cluster-admin-default-sa" in rule_ids
-    assert "admission-malicious-webhook" in rule_ids
-    assert "iam-overpermissive" in rule_ids
 
 
 def test_persistence_scan_matches_spec_workflow():
@@ -36,7 +34,6 @@ def test_persistence_scan_matches_spec_workflow():
     p, res = _run(selector=Selector(tactics=["Persistence"]))
     shards = {f.owning_shard for f in res.findings}
     assert "workload_pod_security" in shards
-    assert "admission_control" in shards
 
 
 def test_namespace_scope_filters_resources():

@@ -1,0 +1,77 @@
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "k8smw.name" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources: {requests: {storage: {{ .Values.persistence.size }}}}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "k8smw.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "k8smw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "k8smw.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "k8smw.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "k8smw.name" . }}
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ include "k8smw.name" . }}}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - {name: home, emptyDir: {}}
+      containers:
+        # The dashboard. Reads saved reports; its Tasks view can start a scan too.
+        - name: dashboard
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [web, --host, 0.0.0.0, --port, "{{ .Values.service.port }}", --reports-dir, /data]
+          ports: [{name: http, containerPort: {{ .Values.service.port }}}]
+          env: [{name: HOME, value: /home/scanner}]
+          volumeMounts: [{name: data, mountPath: /data}, {name: home, mountPath: /home/scanner}]
+          readinessProbe: {httpGet: {path: /health, port: http}}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        # The scheduled scanner: same image, same volume, runs `check` on a timer.
+        - name: scanner
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [sh, -c]
+          args:
+            - |
+              while true; do
+                k8smatrixwarden check --save --reports-dir /data -o brief {{ if .Values.scan.grype }}--grype{{ end }} {{ join " " .Values.scan.extraArgs }} || true
+                sleep {{ mul .Values.scan.intervalMinutes 60 }}
+              done
+          env: [{name: HOME, value: /home/scanner}]
+          volumeMounts: [{name: data, mountPath: /data}, {name: home, mountPath: /home/scanner}]
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8smw.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "k8smw.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "k8smw.labels" . | nindent 4 }}
+  ports: [{name: http, port: {{ .Values.service.port }}, targetPort: http}]

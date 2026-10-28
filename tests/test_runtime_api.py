@@ -359,33 +359,6 @@ def test_an_old_report_without_provenance_still_renders():
 # =========================================================================== #
 # The page
 # =========================================================================== #
-def test_the_runtime_page_renders_and_is_linked_from_the_navigation():
-    """The event feed now lives at /runtime-events; /runtime became the operations page
-    that manages the providers. Both are reachable and both are in the navigation."""
-    app, _store = _app_with()
-    events = app.route("GET", "/runtime-events")
-    assert events.status == 200
-    assert "f-source" in events.text, "the feed lost its filters"
-    assert "rt-q" in events.text
-    # Lifecycle controls belong on the operations page, not on the feed.
-    assert "fa-deploy" not in events.text and "he-install" not in events.text
-
-    ops = app.route("GET", "/runtime-management")
-    assert ops.status == 200
-    assert "fa-deploy" in ops.text and "he-install" in ops.text
-
-    for page in (events.text, ops.text):
-        assert "href='/runtime-management'" in page
-        assert "href='/runtime-events'" in page
-        assert "Runtime Management" in page and "Runtime Events" in page
-
-    # Both pages were reachable at other addresses before the split and the rename. Those
-    # still resolve to the same content, so an open tab or a bookmark does not 404 over a
-    # naming change, and the navigation only ever advertises the canonical pair.
-    legacy_ops = app.route("GET", "/runtime")
-    assert legacy_ops.status == 200 and "he-install" in legacy_ops.text
-    legacy_feed = app.route("GET", "/runtime/events")
-    assert legacy_feed.status == 200 and "f-source" in legacy_feed.text
 
 def test_the_dashboard_navigation_offers_the_runtime_page():
     app, _ = _app_with(_runtime_block([_correlation()]))

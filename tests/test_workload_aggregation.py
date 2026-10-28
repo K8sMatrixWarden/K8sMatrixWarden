@@ -481,11 +481,6 @@ def test_the_dashboard_api_publishes_both_and_keeps_every_finding():
     assert len(body["findings"]) == len(result.findings), "resource view is untouched"
 
 
-def test_the_mcp_scan_tool_publishes_both():
-    from k8smatrixwarden.mcp.server import build_tools
-    out = build_tools()["run_scan"](mock=True, save=False, max_findings=5)
-    assert out["summary"]["resource_findings"] >= out["summary"]["workload_issues"]
-    assert out["summary"]["workload_issues"] > 0
 
 
 def test_a_report_saved_before_aggregation_still_reports_both():

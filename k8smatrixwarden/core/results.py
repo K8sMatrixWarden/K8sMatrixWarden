@@ -147,6 +147,10 @@ class ScanResult:
     #: worst-wins exposure split) for the dashboard scope bar. Empty for scans saved before
     #: this existed, so the bar simply doesn't render on old reports. See reachability.inventory.
     inventory: dict = field(default_factory=dict)
+    #: Network topology graph (core/topology.py): nodes, edges, summary. Empty on old scans.
+    topology: dict = field(default_factory=dict)
+    #: Secret-free inventory of what the cluster holds (core/cluster_inventory.py). Empty on old scans.
+    cluster_inventory: dict = field(default_factory=dict)
     #: Evidence coverage + assessment confidence (core/coverage.py): what fraction of the
     #: requested evidence was actually readable, per kind and per domain. Separate from the
     #: risk score on purpose, "how bad is it" and "how much did we see" are different
@@ -159,6 +163,10 @@ class ScanResult:
     #: old report simply shows the resource count on its own.
     workload_issues: list = field(default_factory=list)
     aggregation: dict = field(default_factory=dict)
+    #: Findings an accepted-risk suppression removed before scoring, each with its reason, and
+    #: notes about suppressions that expired or match nothing (core/suppressions.py).
+    suppressed: list = field(default_factory=list)
+    suppression_notes: list = field(default_factory=list)
 
     def __post_init__(self):
         if not self.scan_id:
@@ -208,6 +216,10 @@ class ScanResult:
             **({"runtime": self.runtime} if self.runtime else {}),
             **({"inventory": self.inventory} if self.inventory else {}),
             **({"coverage": self.coverage} if self.coverage else {}),
+            **({"topology": self.topology} if self.topology else {}),
+            **({"cluster_inventory": self.cluster_inventory} if self.cluster_inventory else {}),
+            **({"suppressed": self.suppressed} if self.suppressed else {}),
+            **({"suppression_notes": self.suppression_notes} if self.suppression_notes else {}),
         }
 
     @classmethod
@@ -244,7 +256,11 @@ class ScanResult:
             evidence_ok=bool(d.get("evidence_ok", True)),
             runtime=d.get("runtime") or None,
             inventory=d.get("inventory", {}) or {},
-            coverage=d.get("coverage", {}) or {})
+            coverage=d.get("coverage", {}) or {},
+            topology=d.get("topology", {}) or {},
+            cluster_inventory=d.get("cluster_inventory", {}) or {},
+            suppressed=list(d.get("suppressed", []) or []),
+            suppression_notes=list(d.get("suppression_notes", []) or []))
 
 
 _RATING_EMOJI = {"Excellent": "🟢", "Good": "🟢", "Fair": "🟡", "Poor": "🟠",

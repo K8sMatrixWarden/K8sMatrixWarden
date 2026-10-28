@@ -1,0 +1,144 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- AS-01: One ServiceAccount reused by 3 workloads across 2 namespaces  [expects: as-sa-fanout]
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shared-sa
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shared-sa
+  namespace: dvka-baseline
+  labels:
+    app.kubernetes.io/part-of: dvka
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: as-fanout-a
+  namespace: dvka-vuln
+  labels:
+    app: as-fanout-a
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: as-fanout-a
+  template:
+    metadata:
+      labels:
+        app: as-fanout-a
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: shared-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: as-fanout-b
+  namespace: dvka-vuln
+  labels:
+    app: as-fanout-b
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: as-fanout-b
+  template:
+    metadata:
+      labels:
+        app: as-fanout-b
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: shared-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: as-fanout-c
+  namespace: dvka-baseline
+  labels:
+    app: as-fanout-c
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: as-fanout-c
+  template:
+    metadata:
+      labels:
+        app: as-fanout-c
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      serviceAccountName: shared-sa

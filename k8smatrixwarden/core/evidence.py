@@ -45,9 +45,28 @@ KIND_ALIASES = {
     "ClusterRoleBinding": "clusterrolebindings",
     "MutatingWebhookConfiguration": "mutatingwebhookconfigurations",
     "ValidatingWebhookConfiguration": "validatingwebhookconfigurations",
+    "EndpointSlice": "endpointslices",
+    "Event": "events",
+    "PersistentVolume": "persistentvolumes",
+    "PersistentVolumeClaim": "persistentvolumeclaims",
+    "StorageClass": "storageclasses",
+    "ResourceQuota": "resourcequotas",
+    "LimitRange": "limitranges",
+    "PodDisruptionBudget": "poddisruptionbudgets",
+    "APIService": "apiservices",
+    "CustomResourceDefinition": "customresourcedefinitions",
     "ComponentConfig": "componentconfig",    # synthetic: control-plane flags
     "CloudIAM": "cloudiam",                   # synthetic: cloud identity bindings
+    "ImageVulnerability": "imagevulnerability",  # synthetic: Grype results per running image
 }
+
+
+#: Best-effort discovery beyond what the rules need: the scanner reads these so reports and
+#: the attack path see the whole cluster. A kind the scanner's RBAC cannot read is recorded
+#: as skipped but never lowers the coverage score (see core/coverage.OPTIONAL_KINDS).
+EXTENDED_KINDS = ("EndpointSlice", "Secret", "Event", "PersistentVolume", "PersistentVolumeClaim",
+                  "StorageClass", "ResourceQuota", "LimitRange", "PodDisruptionBudget",
+                  "APIService", "CustomResourceDefinition")
 
 
 class Evidence:
@@ -427,8 +446,11 @@ class LiveEvidenceCollector(EvidenceCollector):
     #: being filled in with a plausible-looking number.
     _page_remaining = None
 
-    def __init__(self, kubeconfig: Optional[str] = None, context: Optional[str] = None):
+    def __init__(self, kubeconfig: Optional[str] = None, context: Optional[str] = None,
+                 image_scanner=None):
         super().__init__()
+        #: A core.image_scan.GrypeRunner, or None when image scanning was not asked for.
+        self.image_scanner = image_scanner
         try:
             from kubernetes import client, config  # type: ignore
         except ImportError as exc:  # pragma: no cover
@@ -497,7 +519,7 @@ class LiveEvidenceCollector(EvidenceCollector):
         recorded as a warning and returns whatever was read, never aborting the scan."""
         from .falco_feed import (ACTIVE, counts_text_alerts,
                                  feed_diagnosis, no_events_reason,
-                                 parse_falco_log)
+                                 not_installed_diagnosis, parse_falco_log)
 
         core = self._client.CoreV1Api(self._api)
         items = []
@@ -515,9 +537,12 @@ class LiveEvidenceCollector(EvidenceCollector):
             if items:
                 break
         if not items:
-            self.warnings.append(
-                f"Falco feed: no Falco pods in ns/{namespace}, install Falco to see live "
-                f"correlation (the deploy_falco tool prints the helm commands)")
+            # Structured state, not just a line in `warnings`: the UI's fallback for "no
+            # feed_state at all" used to be a generic "could not be read" message, which
+            # is actively misleading for the single most common case, no Falco deployed.
+            diag = not_installed_diagnosis(namespace)
+            self.runtime_feed_state = diag
+            self.warnings.append(f"Falco feed: {diag['message']} {diag['remediation']}")
             return []
 
         events: list[dict] = []
@@ -547,6 +572,24 @@ class LiveEvidenceCollector(EvidenceCollector):
                                        "remediation": None,
                                        "window": None}
         return events
+
+    def falco_logs(self, namespace: str = "falco", since_seconds: int = 86400, tail_lines: int = 4000) -> dict:
+        """The raw Falco container logs, per pod, for health and tuning. Read-only; {} when none."""
+        core = self._client.CoreV1Api(self._api)
+        for selector in self._FALCO_SELECTORS:
+            try:
+                items = getattr(core.list_namespaced_pod(namespace, label_selector=selector,
+                                                         _request_timeout=self._REQUEST_TIMEOUT), "items", []) or []
+            except Exception:
+                return {}
+            if items:
+                out = {}
+                for pod in items:
+                    log = self._read_falco_pod_log(core, pod.metadata.name, namespace, since_seconds, tail_lines)
+                    if log is not None:
+                        out[pod.metadata.name] = log
+                return out
+        return {}
 
     def _read_falco_pod_log(self, core, name: str, namespace: str,
                             since_seconds: int, tail_lines: int):
@@ -659,8 +702,12 @@ class LiveEvidenceCollector(EvidenceCollector):
             p = f"{path}{sep}limit={self._PAGE_LIMIT}"
             if cont:
                 p += f"&continue={cont}"
+            # Secrets are listed as metadata only: the API server never sends their data, so the
+            # scanner holds no secret value even transiently.
+            headers = ({"Accept": "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1"}
+                       if path.endswith("/secrets") else None)
             resp = self._api.call_api(
-                p, "GET", auth_settings=["BearerToken"],
+                p, "GET", auth_settings=["BearerToken"], header_params=headers,
                 _preload_content=False, _request_timeout=self._REQUEST_TIMEOUT,
             )
             raw = resp[0] if isinstance(resp, tuple) else resp
@@ -707,6 +754,17 @@ class LiveEvidenceCollector(EvidenceCollector):
         "rolebindings": "/apis/rbac.authorization.k8s.io/v1/rolebindings",
         "clusterroles": "/apis/rbac.authorization.k8s.io/v1/clusterroles",
         "clusterrolebindings": "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings",
+        "endpointslices": "/apis/discovery.k8s.io/v1/endpointslices",
+        "events": "/apis/events.k8s.io/v1/events",
+        "persistentvolumes": "/api/v1/persistentvolumes",
+        "persistentvolumeclaims": "/api/v1/persistentvolumeclaims",
+        "storageclasses": "/apis/storage.k8s.io/v1/storageclasses",
+        "resourcequotas": "/api/v1/resourcequotas",
+        "limitranges": "/api/v1/limitranges",
+        "poddisruptionbudgets": "/apis/policy/v1/poddisruptionbudgets",
+        "apiservices": "/apis/apiregistration.k8s.io/v1/apiservices",
+        "customresourcedefinitions":
+            "/apis/apiextensions.k8s.io/v1/customresourcedefinitions",
         "mutatingwebhookconfigurations":
             "/apis/admissionregistration.k8s.io/v1/mutatingwebhookconfigurations",
         "validatingwebhookconfigurations":
@@ -714,6 +772,8 @@ class LiveEvidenceCollector(EvidenceCollector):
     }
 
     def _fetch(self, kind: str, bucket: str) -> list[dict]:
+        if bucket == "imagevulnerability":
+            return self._image_vulnerabilities()
         if bucket == "componentconfig":
             # Mitigation Layer 1/2: build ComponentConfig from kube-system static-pod specs.
             return self._build_component_config()
@@ -766,6 +826,26 @@ class LiveEvidenceCollector(EvidenceCollector):
         self.fetched_ok = True
         for it in items:
             it.setdefault("kind", kind)
+        return items
+
+    def _image_vulnerabilities(self) -> list[dict]:
+        """Grype results for the images the pods are running (see core/image_scan.py)."""
+        scanner = self.image_scanner
+        if scanner is None or not scanner.available():
+            reason = ("grype is not installed" if scanner else
+                      "image scanning not enabled (use --grype)")
+            self._record("ImageVulnerability", "skipped", 0, reason)
+            return []
+        if "pods" not in self._cache:
+            self._cache["pods"] = self._fetch("Pod", "pods")
+        from .image_scan import build_image_evidence
+        items, warnings = build_image_evidence(self._cache["pods"], scanner)
+        self.warnings.extend(warnings)
+        failed = sum(1 for i in items if "error" in i["spec"])
+        if failed:
+            self._record("ImageVulnerability", "partial", len(items),
+                         f"{failed} of {len(items)} images could not be scanned",
+                         estimated=1 - failed / len(items), basis="measured")
         return items
 
     def _build_component_config(self) -> list[dict]:

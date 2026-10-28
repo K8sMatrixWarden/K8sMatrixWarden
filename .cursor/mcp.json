@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "k8smatrixwarden": {
-      "command": "python",
-      "args": ["-m", "k8smatrixwarden", "mcp"]
-    }
-  }
-}

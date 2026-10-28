@@ -1,0 +1,1206 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- WL-01: Privileged container  [expects: workload-privileged-container, workload-allow-priv-escalation]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-privileged
+  namespace: dvka-vuln
+  labels:
+    app: wl-privileged
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-privileged
+  template:
+    metadata:
+      labels:
+        app: wl-privileged
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-02: hostPID shared  [expects: workload-host-pid]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-host-pid
+  namespace: dvka-vuln
+  labels:
+    app: wl-host-pid
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-host-pid
+  template:
+    metadata:
+      labels:
+        app: wl-host-pid
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      hostPID: true
+---
+# ---- WL-03: hostNetwork shared (DaemonSet)  [expects: workload-host-network]
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: wl-host-network
+  namespace: dvka-vuln
+  labels:
+    app: wl-host-network
+    app.kubernetes.io/part-of: dvka
+spec:
+  selector:
+    matchLabels:
+      app: wl-host-network
+  template:
+    metadata:
+      labels:
+        app: wl-host-network
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      hostNetwork: true
+---
+# ---- WL-04: hostIPC shared (StatefulSet)  [expects: workload-host-ipc]
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wl-host-ipc
+  namespace: dvka-vuln
+  labels:
+    app: wl-host-ipc
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  serviceName: wl-host-ipc
+  selector:
+    matchLabels:
+      app: wl-host-ipc
+  template:
+    metadata:
+      labels:
+        app: wl-host-ipc
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      hostIPC: true
+---
+# ---- WL-05: hostPath /etc mounted  [expects: workload-hostpath-root]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-hostpath-etc
+  namespace: dvka-vuln
+  labels:
+    app: wl-hostpath-etc
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-hostpath-etc
+  template:
+    metadata:
+      labels:
+        app: wl-hostpath-etc
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: h
+          mountPath: /host-etc
+      volumes:
+      - name: h
+        hostPath:
+          path: /etc
+---
+# ---- WL-06: hostPath / (node root) mounted  [expects: workload-hostpath-root]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-hostpath-root
+  namespace: dvka-vuln
+  labels:
+    app: wl-hostpath-root
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-hostpath-root
+  template:
+    metadata:
+      labels:
+        app: wl-hostpath-root
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: h
+          mountPath: /host
+      volumes:
+      - name: h
+        hostPath:
+          path: /
+---
+# ---- WL-07: Writable hostPath mount  [expects: workload-hostpath-writable]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-hostpath-writable
+  namespace: dvka-vuln
+  labels:
+    app: wl-hostpath-writable
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-hostpath-writable
+  template:
+    metadata:
+      labels:
+        app: wl-hostpath-writable
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: h
+          mountPath: /data
+      volumes:
+      - name: h
+        hostPath:
+          path: /var/log/dvka
+---
+# ---- WL-08: Docker socket mounted  [expects: workload-docker-socket, workload-hostpath-writable]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-docker-socket
+  namespace: dvka-vuln
+  labels:
+    app: wl-docker-socket
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-docker-socket
+  template:
+    metadata:
+      labels:
+        app: wl-docker-socket
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        volumeMounts:
+        - name: d
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: d
+        hostPath:
+          path: /var/run/docker.sock
+---
+# ---- WL-09: Dangerous capability SYS_ADMIN added  [expects: workload-dangerous-caps]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-cap-sys-admin
+  namespace: dvka-vuln
+  labels:
+    app: wl-cap-sys-admin
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-cap-sys-admin
+  template:
+    metadata:
+      labels:
+        app: wl-cap-sys-admin
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - SYS_ADMIN
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-10: Capabilities not dropped  [expects: workload-caps-not-dropped]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-caps-not-dropped
+  namespace: dvka-vuln
+  labels:
+    app: wl-caps-not-dropped
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-caps-not-dropped
+  template:
+    metadata:
+      labels:
+        app: wl-caps-not-dropped
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {}
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-11: allowPrivilegeEscalation true  [expects: workload-allow-priv-escalation]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-allow-privesc
+  namespace: dvka-vuln
+  labels:
+    app: wl-allow-privesc
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-allow-privesc
+  template:
+    metadata:
+      labels:
+        app: wl-allow-privesc
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-12: Runs as root (UID 0)  [expects: workload-run-as-root]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-run-as-root
+  namespace: dvka-vuln
+  labels:
+    app: wl-run-as-root
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-run-as-root
+  template:
+    metadata:
+      labels:
+        app: wl-run-as-root
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          runAsUser: 0
+          runAsNonRoot: false
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-13: Writable root filesystem  [expects: workload-writable-root-fs]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-writable-rootfs
+  namespace: dvka-vuln
+  labels:
+    app: wl-writable-rootfs
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-writable-rootfs
+  template:
+    metadata:
+      labels:
+        app: wl-writable-rootfs
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-14: No seccomp profile  [expects: workload-no-seccomp]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-no-seccomp
+  namespace: dvka-vuln
+  labels:
+    app: wl-no-seccomp
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-no-seccomp
+  template:
+    metadata:
+      labels:
+        app: wl-no-seccomp
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-15: No resource limits  [expects: workload-missing-limits]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-no-limits
+  namespace: dvka-vuln
+  labels:
+    app: wl-no-limits
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-no-limits
+  template:
+    metadata:
+      labels:
+        app: wl-no-limits
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+# ---- WL-16: Service-account token auto-mounted  [expects: workload-sa-token-automount]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-sa-automount
+  namespace: dvka-vuln
+  labels:
+    app: wl-sa-automount
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-sa-automount
+  template:
+    metadata:
+      labels:
+        app: wl-sa-automount
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-17: Image tagged :latest  [expects: workload-latest-tag]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-latest-tag
+  namespace: dvka-vuln
+  labels:
+    app: wl-latest-tag
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-latest-tag
+  template:
+    metadata:
+      labels:
+        app: wl-latest-tag
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-18: Image with no tag at all  [expects: workload-latest-tag]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-untagged-image
+  namespace: dvka-vuln
+  labels:
+    app: wl-untagged-image
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-untagged-image
+  template:
+    metadata:
+      labels:
+        app: wl-untagged-image
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-19: SSH server inside the container  [expects: workload-sshd-present]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-sshd
+  namespace: dvka-vuln
+  labels:
+    app: wl-sshd
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-sshd
+  template:
+    metadata:
+      labels:
+        app: wl-sshd
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        command:
+        - /usr/sbin/sshd
+        - -D
+---
+# ---- WL-20: Bare privileged Pod (no controller)  [expects: workload-privileged-container, workload-allow-priv-escalation]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: wl-bare-privileged-pod
+  namespace: dvka-vuln
+  labels:
+    app: wl-bare-privileged-pod
+    app.kubernetes.io/part-of: dvka
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: app
+    image: registry.k8s.io/pause:3.9
+    securityContext:
+      allowPrivilegeEscalation: true
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+      privileged: true
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+---
+# ---- WL-21: Privileged container in a CronJob (persistence)  [expects: workload-privileged-container, workload-allow-priv-escalation]
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wl-cronjob-privileged
+  namespace: dvka-vuln
+  labels:
+    app: wl-cronjob-privileged
+    app.kubernetes.io/part-of: dvka
+spec:
+  schedule: '*/10 * * * *'
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: wl-cronjob-privileged
+        spec:
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: app
+            image: registry.k8s.io/pause:3.9
+            securityContext:
+              allowPrivilegeEscalation: true
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+              privileged: true
+            resources:
+              limits:
+                cpu: 250m
+                memory: 128Mi
+              requests:
+                cpu: 50m
+                memory: 64Mi
+          restartPolicy: Never
+---
+# ---- WL-22: hostNetwork in a Job  [expects: workload-host-network]
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wl-job-host-network
+  namespace: dvka-vuln
+  labels:
+    app: wl-job-host-network
+    app.kubernetes.io/part-of: dvka
+spec:
+  template:
+    metadata:
+      labels:
+        app: wl-job-host-network
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      hostNetwork: true
+      restartPolicy: Never
+---
+# ---- WL-23: Privileged INIT container  [expects: workload-privileged-container, workload-allow-priv-escalation]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-init-privileged
+  namespace: dvka-vuln
+  labels:
+    app: wl-init-privileged
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-init-privileged
+  template:
+    metadata:
+      labels:
+        app: wl-init-privileged
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      initContainers:
+      - name: init
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          privileged: true
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-24: Kitchen sink: everything wrong at once  [expects: workload-privileged-container, workload-allow-priv-escalation, workload-host-pid, workload-host-network, workload-host-ipc, workload-docker-socket, workload-hostpath-writable, workload-run-as-root, workload-latest-tag, workload-missing-limits, workload-caps-not-dropped, workload-writable-root-fs, workload-no-seccomp, workload-sa-token-automount]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-kitchen-sink
+  namespace: dvka-vuln
+  labels:
+    app: wl-kitchen-sink
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-kitchen-sink
+  template:
+    metadata:
+      labels:
+        app: wl-kitchen-sink
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:latest
+        securityContext:
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: false
+          capabilities: {}
+          privileged: true
+          runAsUser: 0
+          runAsNonRoot: false
+        volumeMounts:
+        - name: d
+          mountPath: /var/run/docker.sock
+      hostPID: true
+      hostNetwork: true
+      hostIPC: true
+      volumes:
+      - name: d
+        hostPath:
+          path: /var/run/docker.sock
+---
+# ---- WL-25: hostPort  [expects: workload-host-port]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-host-port
+  namespace: dvka-vuln
+  labels:
+    app: wl-host-port
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-host-port
+  template:
+    metadata:
+      labels:
+        app: wl-host-port
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        ports:
+        - containerPort: 8080
+          hostPort: 8080
+---
+# ---- WL-26: shareProcessNamespace  [expects: workload-share-process-ns]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-share-process
+  namespace: dvka-vuln
+  labels:
+    app: wl-share-process
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-share-process
+  template:
+    metadata:
+      labels:
+        app: wl-share-process
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+      shareProcessNamespace: true
+---
+# ---- WL-27: No securityContext at all  [expects: workload-no-security-context, workload-run-as-root, workload-allow-priv-escalation, workload-writable-root-fs, workload-caps-not-dropped, workload-no-seccomp]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-no-security-context
+  namespace: dvka-vuln
+  labels:
+    app: wl-no-security-context
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-no-security-context
+  template:
+    metadata:
+      labels:
+        app: wl-no-security-context
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+# ---- WL-29: Workload in the default namespace  [expects: workload-default-namespace]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wl-default-ns
+  namespace: default
+  labels:
+    app: wl-default-ns
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wl-default-ns
+  template:
+    metadata:
+      labels:
+        app: wl-default-ns
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi

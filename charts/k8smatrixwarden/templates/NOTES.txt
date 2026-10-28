@@ -1,0 +1,6 @@
+K8sMatrixWarden is scanning every {{ .Values.scan.intervalMinutes }} minutes. The first result appears within a minute or two.
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "k8smw.name" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  open http://localhost:{{ .Values.service.port }}
+
+The dashboard has no login. Keep the Service ClusterIP, or put your own authentication in front.

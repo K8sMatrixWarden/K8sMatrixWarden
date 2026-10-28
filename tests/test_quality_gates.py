@@ -13,7 +13,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from k8smatrixwarden.bootstrap import build_platform, validate_rules
-from k8smatrixwarden.mcp.server import build_tools
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,12 +24,6 @@ def test_every_rule_passes_validation():
     assert validate_rules(build_platform().registry) == []
 
 
-def test_rule_ids_are_unique_and_stable_shaped():
-    rules = build_platform().registry.rules.all()
-    ids = [r.id for r in rules]
-    assert len(ids) == len(set(ids))
-    for rid in ids:
-        assert re.fullmatch(r"[a-z0-9]+([.\-][a-z0-9]+)*", rid), rid
 
 
 def test_duplicate_rule_ids_are_rejected_at_registration():
@@ -61,10 +54,6 @@ def test_rule_metadata_is_machine_readable_and_complete():
     json.dumps(meta)                       # must survive serialisation unchanged
 
 
-def test_get_rule_tool_returns_the_same_metadata():
-    platform = build_platform()
-    rid = platform.registry.rules.all()[0].id
-    assert build_tools()["get_rule"](rid) == platform.registry.rules.get(rid).metadata()
 
 
 def test_every_rule_belongs_to_a_discovered_shard_with_a_valid_severity():
@@ -164,42 +153,12 @@ def _identity(kind, name, rule_id="rbac-wildcard-verbs"):
                    detection_method=DetectionMethod.RBAC)
 
 
-def test_shared_custom_identity_is_a_candidate_with_a_relationship():
-    from k8smatrixwarden.core.federation import build_federation
-    rep = build_federation([
-        _cluster_result("prod", [_identity("ClusterRole", "deploy-bot")]),
-        _cluster_result("staging", [_identity("ClusterRole", "deploy-bot")])])
-    assert len(rep.shared_identities) == 1
-    shared = rep.shared_identities[0]
-    assert shared.status == "candidate"
-    assert shared.relationship == "shared-identity"
-    assert "confirm they are the same trust principal" in shared.verification
 
 
-def test_shared_configmap_is_classified_as_a_shared_resource():
-    from k8smatrixwarden.core.federation import build_federation
-    rep = build_federation([
-        _cluster_result("prod", [_identity("ConfigMap", "app-settings")]),
-        _cluster_result("staging", [_identity("ConfigMap", "app-settings")])])
-    assert rep.shared_identities[0].relationship == "shared-resource"
 
 
-def test_builtin_identities_never_create_a_cross_cluster_path():
-    from k8smatrixwarden.core.federation import build_federation
-    for name in ("cluster-admin", "default", "system:node", "kube-root-ca.crt"):
-        rep = build_federation([
-            _cluster_result("prod", [_identity("ClusterRole", name)]),
-            _cluster_result("staging", [_identity("ClusterRole", name)])])
-        assert rep.shared_identities == [], name
-        assert "independent blast radii" in rep.summary
 
 
-def test_an_identity_in_one_cluster_only_is_not_shared():
-    from k8smatrixwarden.core.federation import build_federation
-    rep = build_federation([
-        _cluster_result("prod", [_identity("ClusterRole", "only-here")]),
-        _cluster_result("staging", [_identity("ClusterRole", "different")])])
-    assert rep.shared_identities == []
 
 
 def _rt(name):
@@ -208,50 +167,10 @@ def _rt(name):
          "namespace": "default"}]}, "drift": {"drift": []}}
 
 
-def test_runtime_evidence_in_two_clusters_confirms_an_external_principal():
-    """A cloud IAM role really can be ONE principal that two clusters both assume, so
-    observing it act in both is evidence about a single identity."""
-    from k8smatrixwarden.core.federation import build_federation
-
-    rep = build_federation([
-        _cluster_result("prod", [_identity("CloudIAM", "deploy-bot")],
-                        runtime=_rt("deploy-bot")),
-        _cluster_result("staging", [_identity("CloudIAM", "deploy-bot")],
-                        runtime=_rt("deploy-bot"))])
-    shared = rep.shared_identities[0]
-    assert shared.status == "confirmed"
-    assert "runtime evidence" in shared.verification
 
 
-def test_activity_never_confirms_a_cluster_local_identity():
-    """This test used to assert the opposite, with a ServiceAccount. It was wrong in the
-    way that is easy to miss: `default/deploy-bot` in prod and `default/deploy-bot` in
-    staging are two identities that happen to share a name, and prod's token authenticates
-    to nothing in staging. Watching both be busy is two observations, not one principal.
-
-    Measured live: two clusters running the same Falco Helm chart, each with a Role named
-    `falco`, were reported as a CONFIRMED cross-cluster lateral-movement path after a file
-    was read inside each cluster's own Falco pod.
-    """
-    from k8smatrixwarden.core.federation import build_federation
-
-    for kind in ("ServiceAccount", "Role", "ClusterRole", "ClusterRoleBinding", "Secret"):
-        rep = build_federation([
-            _cluster_result("prod", [_identity(kind, "deploy-bot")],
-                            runtime=_rt("deploy-bot")),
-            _cluster_result("staging", [_identity(kind, "deploy-bot")],
-                            runtime=_rt("deploy-bot"))])
-        shared = rep.shared_identities[0]
-        assert shared.status == "candidate", (
-            f"a {kind} was confirmed as one cross-cluster principal on activity alone")
-        assert "cluster-local" in shared.verification, shared.verification
 
 
-def test_a_single_cluster_is_reported_as_such():
-    from k8smatrixwarden.core.federation import build_federation
-    rep = build_federation([_cluster_result("prod", [_identity("ClusterRole", "x")])])
-    assert rep.shared_identities == []
-    assert "add more clusters" in rep.summary
 
 
 # --------------------------------------------------------------------------- #
@@ -275,11 +194,6 @@ def test_readme_rule_and_shard_counts_match_the_registry():
     assert f"{len(platform.registry.shard_names())} domain shards" in text
 
 
-def test_readme_mcp_tool_count_matches_the_server():
-    text = _readme()
-    count = len(build_tools())
-    assert _badge("MCP%20tools", text) == str(count)
-    assert f"**{count} MCP tools**" in text
 
 
 def test_readme_test_count_matches_the_suite():
@@ -304,11 +218,6 @@ def test_readme_lists_every_shard_by_name():
         assert shard in text, f"{shard} is not documented in the README"
 
 
-def test_readme_report_formats_match_the_engine():
-    from k8smatrixwarden.mcp.server import _VALID_REPORT_FORMATS
-    text = _readme()
-    for fmt in _VALID_REPORT_FORMATS:
-        assert fmt in text, f"report format {fmt} is undocumented"
 
 
 def test_readme_documents_every_cli_subcommand():
@@ -331,11 +240,6 @@ def _html_doc() -> str:
         return fh.read()
 
 
-def test_html_doc_mcp_tool_count_matches_the_server():
-    count = len(build_tools())
-    text = _html_doc()
-    assert f"{count} tools" in text, f"HTML doc does not state the real tool count ({count})"
-    assert "36 tools" not in text, "HTML doc still claims a stale tool count"
 
 
 def _getting_started() -> str:
@@ -343,31 +247,8 @@ def _getting_started() -> str:
         return fh.read()
 
 
-def test_getting_started_never_names_a_tool_that_does_not_exist():
-    """The gap this closes. The onboarding guide had no drift gate at all, so when
-    `validate_platform` and `resolve_selector` were removed as duplicates it kept listing
-    them, and a reader following it would call tools the server does not have. A stale
-    count is a nuisance; a named tool that is gone is a broken instruction.
-
-    Identifiers are matched on the verb prefixes the real tools use, so a field name like
-    `response_status` is not mistaken for a tool that vanished."""
-    import re as _re
-    registered = set(build_tools())
-    prefixes = tuple(sorted({name.split("_", 1)[0] + "_" for name in registered}))
-    mentioned = {m for m in _re.findall(r"`([a-z][a-z0-9_]{4,})`", _getting_started())
-                 if m.startswith(prefixes)}
-    ghosts = sorted(mentioned - registered)
-    assert ghosts == [], f"GETTING-STARTED.md names tools that do not exist: {ghosts}"
 
 
-def test_getting_started_tool_count_matches_the_server():
-    count = len(build_tools())
-    text = _getting_started()
-    assert f"{count} tools" in text, \
-        f"GETTING-STARTED.md does not state the real tool count ({count})"
-    stale = re.findall(r"\b(\d{2}) tools\b", text)
-    assert set(stale) <= {str(count)}, \
-        f"GETTING-STARTED.md still claims stale tool counts: {sorted(set(stale))}"
 
 
 def test_getting_started_documents_every_cli_subcommand():
@@ -379,10 +260,6 @@ def test_getting_started_documents_every_cli_subcommand():
     assert missing == [], f"CLI commands missing from GETTING-STARTED.md: {missing}"
 
 
-def test_html_doc_names_every_mcp_tool():
-    text = _html_doc()
-    missing = [name for name in build_tools() if f"<code>{name}</code>" not in text]
-    assert missing == [], f"MCP tools missing from the HTML manual: {missing}"
 
 
 def test_html_doc_documents_every_cli_subcommand():
@@ -394,48 +271,12 @@ def test_html_doc_documents_every_cli_subcommand():
     assert missing == [], f"CLI commands missing from the HTML manual: {missing}"
 
 
-def test_both_docs_document_every_llm_provider_key():
-    from k8smatrixwarden.agents.llm_provider import _PROVIDERS
-    readme, html = _readme(), _html_doc()
-    for provider in _PROVIDERS:
-        assert provider in readme, f"provider '{provider}' is undocumented in the README"
-        assert provider in html, f"provider '{provider}' is undocumented in the HTML manual"
 
 
-def test_both_docs_document_every_llm_environment_variable():
-    """The env vars the resolver actually reads, discovered from the source rather than
-    from a hand-kept list, so a new one cannot ship undocumented."""
-    import re as _re
-    src = os.path.join(ROOT, "k8smatrixwarden", "agents", "llm_provider.py")
-    with open(src, encoding="utf-8") as fh:
-        code = fh.read()
-    suffixes = set(_re.findall(r'_env\("([A-Z_]+)"\)', code))
-    variables = {f"K8SMATRIXWARDEN_LLM_{s}" for s in suffixes}
-    # The conventional per-provider credentials the auto-detector looks at.
-    variables |= set(_re.findall(r'os\.environ\.get\("([A-Z_]+)"\)', code))
-    readme, html = _readme(), _html_doc()
-    for var in sorted(variables):
-        assert var in readme or var in html, f"{var} is documented nowhere"
 
 
-def test_html_doc_covers_the_second_pass_analysis_sections():
-    """Every analysis surface a user can reach needs a section they can find."""
-    text = _html_doc()
-    for anchor in ("evidence-coverage", "rbac-graph", "netpol", "attack-layers",
-                   "posture-history", "llm"):
-        assert f'id="{anchor}"' in text, f"HTML manual has no #{anchor} section"
-        assert f'href="#{anchor}"' in text, f"#{anchor} is not linked from the sidebar"
 
 
-def test_the_report_format_list_is_the_same_everywhere():
-    """One list of formats, three consumers (engine, MCP validation, docs). They drift the
-    moment one is edited alone."""
-    from k8smatrixwarden.core.reporting import ReportingEngine
-    from k8smatrixwarden.mcp.server import _VALID_REPORT_FORMATS
-    engine = ReportingEngine()
-    for fmt in _VALID_REPORT_FORMATS:
-        assert hasattr(engine, fmt) or fmt == "terminal", \
-            f"MCP advertises format '{fmt}' the engine cannot render"
 
 
 def test_html_doc_headline_stats_match_the_repository():
@@ -457,3 +298,12 @@ def test_html_doc_headline_stats_match_the_repository():
         f"the suite has {total}")
     shards = len(build_platform().registry.shard_names())
     assert f'stat-n">{shards}/{shards}</div><div class="stat-l">shards loaded clean' in text
+
+
+
+def test_rule_ids_are_unique_and_stable_shaped():
+    rules = build_platform().registry.rules.all()
+    ids = [r.id for r in rules]
+    assert len(ids) == len(set(ids))
+    for rid in ids:
+        assert re.fullmatch(r"[a-z0-9]+([.\-][a-z0-9]+)*", rid), rid

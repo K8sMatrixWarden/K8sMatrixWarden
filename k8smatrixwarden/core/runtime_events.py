@@ -163,6 +163,7 @@ def _from_correlation(entry: dict, cluster: str) -> dict:
         "static_findings": list(dict.fromkeys(
             f.get("rule_id") for f in (entry.get("static_findings") or [])
             if isinstance(f, dict) and f.get("rule_id")))[:5],
+        "static_count": entry.get("static_count", len(entry.get("static_findings") or [])),
     }
     record["event_id"] = _event_id(record)
     return record

@@ -5,6 +5,7 @@
     {"id": "T1078", "name": "Valid Accounts"},
     {"id": "T1078.004", "name": "Valid Accounts: Cloud Accounts"},
     {"id": "T1133", "name": "External Remote Services"},
+    {"id": "T1190", "name": "Exploit Public-Facing Application"},
     {"id": "T1525", "name": "Implant Internal Image"},
     {"id": "T1552", "name": "Unsecured Credentials"},
     {"id": "T1552.005", "name": "Unsecured Credentials: Cloud Instance Metadata API"},

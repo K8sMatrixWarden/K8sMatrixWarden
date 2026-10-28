@@ -174,18 +174,6 @@ def test_timeline_tracks_open_and_resolved_findings():
     assert raw["r2|Pod|pod-b|default"]["scope"] == scope
 
 
-def test_posture_history_tool_matches_the_module():
-    from k8smatrixwarden.mcp.server import build_tools
-    d = tempfile.mkdtemp()
-    store = ReportStore(d)
-    store.save(_result([_f("r1", "pod-a")], rules=["r1", "r2"], scan_id="s1",
-                       generated_at="2026-01-01T00:00:00+05:30"))
-    store.save(_result([_f("r1", "pod-a"), _f("r2", "pod-b")], rules=["r1", "r2"],
-                       scan_id="s2", generated_at="2026-01-02T00:00:00+05:30"))
-    out = build_tools()["posture_history"](reports_dir=d)
-    assert out["current_scan_id"] == "s2"
-    assert [f["rule_id"] for f in out["new"]] == ["r2"]
-    assert "timeline" in out
 
 
 # --------------------------------------------------------------------------- #

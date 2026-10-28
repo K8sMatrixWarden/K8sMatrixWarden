@@ -385,14 +385,6 @@ def test_the_json_report_keeps_the_structured_provenance():
     assert '"event_source": "audit"' in runtime
 
 
-def test_the_mcp_tool_reports_the_same_provenance_as_the_api():
-    from k8smatrixwarden.mcp.server import build_tools
-    out = build_tools()["evaluate_runtime_events"](
-        events=[AUDIT_CASES["rt-new-rolebinding"]])
-    alert = next(a for a in out["alerts"] if a["rule_id"] == "rt-new-rolebinding")
-    assert alert["provenance"]["event_source"] == "audit"
-    assert alert["provenance"]["provider"] == "kubernetes-audit"
-    assert alert["provenance"]["detection_source"] == "kmw"
 
 
 if __name__ == "__main__":

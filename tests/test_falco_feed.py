@@ -171,3 +171,46 @@ def test_attach_runtime_feed_never_raises_on_collector_error():
     result = _result()
     _attach_runtime_feed(result, _Boom([]), _request(), _args())  # must not raise
     assert result.runtime is None
+
+
+# --------------------------------------------------------------------------- #
+# the "no Falco pods at all" state (core/falco_feed.not_installed_diagnosis)
+# --------------------------------------------------------------------------- #
+class _EmptyPods:
+    def list_namespaced_pod(self, namespace, label_selector=None, _request_timeout=None):
+        return types.SimpleNamespace(items=[])
+
+
+class _FakeClientModule:
+    def CoreV1Api(self, _api):
+        return _EmptyPods()
+
+
+def _live_collector():
+    """A LiveEvidenceCollector built with __new__ (no real kubeconfig/cluster), its
+    CoreV1Api faked to report zero pods -- matches the __new__ pattern already used in
+    tests/test_live_resilience.py for unit-testing _fetch/collect without a real cluster."""
+    from k8smatrixwarden.core.evidence import LiveEvidenceCollector
+    coll = LiveEvidenceCollector.__new__(LiveEvidenceCollector)
+    EvidenceCollector.__init__(coll)
+    coll._client = _FakeClientModule()
+    coll._api = object()
+    return coll
+
+
+def test_no_falco_pods_sets_structured_state_not_just_a_generic_warning():
+    """Regression: `runtime_feed_state` was only ever set in two of the three exit paths
+    of collect_runtime_events. The third (no Falco pod found at all, the single most
+    common case for a cluster that has never had Falco deployed) left it at its empty
+    default, so the dashboard's fallback showed a generic "could not be read" instead of
+    the specific, already-written "install Falco" sentence sitting unused in `warnings`."""
+    from k8smatrixwarden.core.falco_feed import NOT_INSTALLED
+
+    coll = _live_collector()
+    events = coll.collect_runtime_events(namespace="falco")
+    assert events == []
+    assert coll.runtime_feed_state["state"] == NOT_INSTALLED
+    assert coll.runtime_feed_state["severity"] == "warning"
+    assert "No Falco pod found in ns/falco" in coll.runtime_feed_state["message"]
+    assert "helm install falco" in coll.runtime_feed_state["remediation"]
+    assert any("No Falco pod found" in w for w in coll.warnings)

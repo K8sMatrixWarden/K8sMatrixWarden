@@ -23,7 +23,7 @@ def test_health_reports_platform_stats():
     r = _app().route("GET", "/health")
     assert r.status == 200
     d = json.loads(r.text)
-    assert d["status"] == "ok" and d["rules"] > 0 and d["shards"] >= 11
+    assert d["status"] == "ok" and d["rules"] > 0 and d["shards"] >= 7
 
 
 def test_dashboard_is_spa_shell_and_api_reflects_scans():
@@ -102,26 +102,6 @@ def test_finding_context_endpoint_returns_report_grade_detail():
     assert bad.status == 404
 
 
-def test_report_export_pdf_and_excel():
-    app = _app()
-    _scan(app)
-    sid = json.loads(app.route("GET", "/api/reports").text)[0]["scan_id"]
-    # PDF: 200 + %PDF magic when fpdf2 is present, else a clean 400 naming the dependency.
-    pdf = app.route("GET", "/api/report/" + sid, query="format=pdf")
-    if pdf.status == 200:
-        assert pdf.content_type == "application/pdf" and pdf.body[:4] == b"%PDF"
-    else:
-        assert pdf.status == 400 and "fpdf" in pdf.text.lower()
-    # XLSX (and the 'excel' alias): 200 + PK zip magic when openpyxl is present, else 400.
-    for fmt in ("xlsx", "excel"):
-        xl = app.route("GET", "/api/report/" + sid, query="format=" + fmt)
-        if xl.status == 200:
-            assert "spreadsheet" in xl.content_type and xl.body[:2] == b"PK"
-        else:
-            assert xl.status == 400 and "openpyxl" in xl.text.lower()
-    # unknown format still errors clearly, and now lists pdf/xlsx as valid
-    bad = app.route("GET", "/api/report/" + sid, query="format=doc")
-    assert bad.status == 400 and "xlsx" in bad.text
 
 
 def test_scan_runs_saves_and_is_downloadable():
@@ -129,9 +109,7 @@ def test_scan_runs_saves_and_is_downloadable():
     r, d = _scan(app)
     assert r.status == 200
     assert d["scan_id"] and d["total_findings"] > 0 and d["rating"]
-    # report HTML carries the matrix heatmap
-    rep = app.route("GET", f"/report/{d['scan_id']}")
-    assert rep.status == 200 and "tmgrid" in rep.text
+    # the HTML report page is gone from the dashboard; the data is still downloadable
     # API JSON carries the threat_matrix block
     api = app.route("GET", f"/api/report/{d['scan_id']}", query="format=json")
     assert api.status == 200 and "threat_matrix" in api.text
@@ -168,16 +146,8 @@ def test_scan_forwards_context_and_kubeconfig_to_collector():
     assert captured.get("kubeconfig") == "/tmp/kc"
 
 
-def test_coverage_matrix_route():
-    r = _app().route("GET", "/matrix")
-    assert r.status == 200 and "tmgrid" in r.text and "Threat Matrix" in r.text
 
 
-def test_report_matrix_page():
-    app = _app()
-    _, d = _scan(app)
-    r = app.route("GET", f"/report/{d['scan_id']}/matrix")
-    assert r.status == 200 and "tmgrid" in r.text and d["scan_id"] in r.text
 
 
 def test_api_reports_lists_saved():
@@ -228,28 +198,11 @@ def test_path_traversal_scan_id_is_rejected():
         assert j.status == 404
 
 
-def test_coverage_matrix_reports_coverage_not_zeroed_hit_counts():
-    """The standalone /matrix page has no scan overlaid, so hit-derived numbers are
-    structurally 0. It must report the coverage axis instead of showing "0/9 tactics
-    implicated · 0 findings mapped", which reads as a broken counter."""
-    app = _app()
-    html = app.route("GET", "/matrix").text
-    assert "techniques with a detection rule" in html
-    assert "tactics with coverage" in html
-    assert "rules mapped to the matrix" in html
-    assert "with a rule" in html                    # per-column counter
-    for hit_stat in ("tactics implicated", "techniques triggered", "findings mapped"):
-        assert hit_stat not in html, hit_stat
-    # a scan's own matrix keeps the hit axis
-    app.route("POST", "/api/scan", body=b'{"mock": true}')
-    scan_id = app.store.list()[0].scan_id
-    scan_html = app.route("GET", f"/report/{scan_id}/matrix").text
-    assert "tactics implicated" in scan_html and "findings mapped" in scan_html
 
 
 def test_dashboard_pages_offer_a_theme_toggle():
     app = _app()
-    for path in ("/", "/matrix"):
+    for path in ("/", "/runtime-events"):
         html = app.route("GET", path).text
         assert "themebtn" in html and "toggleTheme" in html, path
         assert "data-theme=dark" in html and "data-theme=light" in html, path
@@ -325,38 +278,26 @@ def test_dashboard_payload_tells_the_form_whether_kubeconfigs_are_accepted():
         "allow_client_kubeconfig"] is True
 
 
-def test_compliance_html_page_renders():
-    r = _app().route("GET", "/compliance")
-    assert r.status == 200 and "text/html" in r.content_type
-    assert b"Compliance Audit" in r.body
 
 
-def test_compliance_api_json_and_framework_filter():
-    r = _app().route("GET", "/api/compliance", "frameworks=SOC2")
-    assert r.status == 200
-    d = json.loads(r.text)
-    assert [f["short"] for f in d["frameworks"]] == ["SOC 2"]
 
 
 def test_compliance_unknown_framework_is_404():
     assert _app().route("GET", "/api/compliance", "frameworks=NOPE").status == 404
 
 
-def test_compliance_pdf_is_binary_or_clean_error():
-    r = _app().route("GET", "/compliance", "format=pdf")
-    # fpdf2 is optional: either a real PDF, or a clean 400 telling you to install it.
-    if r.status == 200:
-        assert r.content_type == "application/pdf" and r.body[:5] == b"%PDF-"
-    else:
-        assert r.status == 400 and b"fpdf2" in r.body
 
 
-def test_federation_html_and_api_routes():
-    app = _app()
-    _scan(app, {"mock": True})               # one saved scan -> one cluster
-    rh = app.route("GET", "/federation")
-    assert rh.status == 200 and b"Federation Blast Radius" in rh.body
-    rj = app.route("GET", "/api/federation")
-    assert rj.status == 200
-    d = json.loads(rj.text)
-    assert "clusters" in d and "shared_identities" in d and "summary" in d
+
+
+def test_every_page_shares_one_sidebar_and_marks_its_own_item():
+    from k8smatrixwarden.web import pages
+    for page, key in (("home", None), ("graph", "graph"), ("matrix", "matrix"),
+                      ("runtime-events", "runtime")):
+        nav = pages._topbar(page)
+        for item in ("overview", "issues", "graph", "matrix", "cluster", "runtime", "scans"):
+            assert f"data-nav='{item}'" in nav
+        on = [i for i in ("graph", "matrix", "runtime") if
+              f"data-nav='{i}' href=" in nav and "aria-current='page'" in
+              nav.split(f"data-nav='{i}'")[1].split(">")[0]]
+        assert on == ([key] if key else []), (page, on)

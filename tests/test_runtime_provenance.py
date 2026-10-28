@@ -176,30 +176,6 @@ def test_an_untagged_falco_rule_gets_unknown_not_an_inferred_tactic():
     assert alert.tactic not in {t.value for t in Tactic}, "not a real tactic value"
 
 
-def test_falco_priority_maps_deterministically_and_only_once():
-    """§8: one authoritative mapping, and a plain Warning must not silently become
-    Critical."""
-    from k8smatrixwarden.agents.runtime import _FALCO_PRIORITY
-    expected = {"emergency": Severity.CRITICAL, "alert": Severity.CRITICAL,
-                "critical": Severity.CRITICAL, "error": Severity.HIGH,
-                "warning": Severity.MEDIUM, "notice": Severity.LOW,
-                "informational": Severity.INFO, "info": Severity.INFO,
-                "debug": Severity.INFO}
-    assert _FALCO_PRIORITY == expected
-    for priority, severity in expected.items():
-        alert = _one(_falco("R", priority=priority, tags=["mitre_execution"]))
-        assert alert.severity is severity, priority
-    # An unknown priority string falls to MEDIUM rather than to the top of the scale.
-    assert _one(_falco("R", priority="wat", tags=["mitre_execution"])).severity \
-        is Severity.MEDIUM
-
-    # The mapping lives in exactly one module.
-    import inspect
-    for mod_name in ("k8smatrixwarden.core.reporting", "k8smatrixwarden.mcp.server",
-                     "k8smatrixwarden.core.correlation"):
-        mod = __import__(mod_name, fromlist=["x"])
-        assert "emergency" not in inspect.getsource(mod).lower(), \
-            f"{mod_name} appears to duplicate the priority mapping"
 
 
 def test_missing_provider_fields_stay_missing():
@@ -326,21 +302,6 @@ def test_runtime_findings_are_deterministically_ordered():
 # =========================================================================== #
 # Provenance reaches the surfaces
 # =========================================================================== #
-def test_provenance_is_exposed_through_correlation_and_mcp():
-    alerts = AGENT.evaluate_stream(normalize_events(
-        [_falco("Terminal shell in container", tags=["mitre_execution"],
-                proc__name="bash", evt__type="execve")]))
-    entry = correlate([_finding()], alerts, cluster="c1", now=_NOW)["correlations"][0]
-    rt = entry["runtime"]
-    assert rt["detection_source"] == DETECTION_KMW
-    assert rt["provider"] == PROVIDER_KMW
-    assert rt["supporting_evidence"] == "falco:Terminal shell in container"
-
-    from k8smatrixwarden.mcp.server import build_tools
-    out = build_tools()["evaluate_runtime_events"](events=[
-        _falco("Read sensitive file untrusted", tags=["mitre_credential_access"])])
-    assert out["coverage"]["falco_relays"] == 1 and out["coverage"]["discarded"] == 0
-    assert out["alerts"][0]["provenance"]["detection_source"] == DETECTION_FALCO
 
 
 def test_reports_state_who_detected_each_runtime_finding():

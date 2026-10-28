@@ -1,0 +1,116 @@
+# DVKA: Damn Vulnerable Kubernetes Application. INTENTIONALLY INSECURE.
+# Apply only to a disposable local cluster. See eval/README.md.
+# ---- PRIO-01: Same flaw, but not reachable: isolated privileged workload  [expects: workload-privileged-container, workload-allow-priv-escalation]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prio-isolated
+  namespace: dvka-vuln
+  labels:
+    app: prio-isolated
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prio-isolated
+  template:
+    metadata:
+      labels:
+        app: prio-isolated
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: registry.k8s.io/pause:3.9
+        securityContext:
+          allowPrivilegeEscalation: true
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+        resources:
+          limits:
+            cpu: 250m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prio-isolated
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: ClusterIP
+  selector:
+    app: prio-isolated
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+# ---- PRIO-02: Same vulnerable image as GAP-IMG1, but Internet-exposed  [expects: net-lb-no-source-range]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prio-vuln-exposed
+  namespace: dvka-vuln
+  labels:
+    app: prio-vuln-exposed
+    app.kubernetes.io/part-of: dvka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prio-vuln-exposed
+  template:
+    metadata:
+      labels:
+        app: prio-vuln-exposed
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: app
+        image: nginx:1.14.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prio-vuln-exposed
+  namespace: dvka-vuln
+  labels:
+    app.kubernetes.io/part-of: dvka
+spec:
+  type: LoadBalancer
+  selector:
+    app: prio-vuln-exposed
+  ports:
+  - port: 8080
+    targetPort: 8080

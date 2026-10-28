@@ -15,7 +15,6 @@ Gives EVERY control a status so nothing is missed:
 
 Evaluation methods (see cis_catalog):
   native   , run the mapped domain-shard rules once over cluster evidence (rule fired ⇒ FAIL)
-  builtin  , purpose-built evaluator here
   component, read a control-plane / kubelet PROCESS FLAG from ComponentConfig evidence
               (Mitigation Layer 1/2: parsed from kube-system static-pod specs + kubelet config)
   kube-bench, node FILE permission read; resolved from kube-bench JSON, else NEEDS_NODE
@@ -135,14 +134,6 @@ class CISBenchmarkEngine:
                                      f"{', '.join(sorted(missing))}")
             return ControlResult(c, PASS, "no violations detected")
 
-        if c.ev == "builtin":
-            missing = self._unverifiable(c, unreadable, _BUILTIN_KINDS)
-            if missing:
-                return ControlResult(c, NOT_ASSESSED,
-                                     f"evidence unavailable: could not read "
-                                     f"{', '.join(sorted(missing))}")
-            return self._builtin(c, ev)
-
         if c.ev == "component":
             return self._component(c, cfg_flags)
 
@@ -190,21 +181,6 @@ class CISBenchmarkEngine:
         return ControlResult(c, FAIL, f"{component} --{flag}={_show(val)} (op {op} "
                              f"{value})".rstrip())
 
-    def _builtin(self, c: CisControl, ev: Evidence) -> ControlResult:
-        if c.id == "5.2.13":       # HostPorts
-            off = [str(_ref(r)) for r in _workloads(ev)
-                   for cont in Evidence.containers(r)
-                   for port in (cont.get("ports", []) or []) if port.get("hostPort")]
-            return (ControlResult(c, FAIL, "containers use hostPort", sorted(set(off))[:10])
-                    if off else ControlResult(c, PASS, "no hostPort usage"))
-        if c.id == "5.7.4":        # default namespace should not be used
-            off = [str(_ref(r)) for r in _workloads(ev)
-                   if (r.get("metadata", {}) or {}).get("namespace") == "default"]
-            return (ControlResult(c, FAIL, "workloads in default namespace",
-                                  sorted(set(off))[:10])
-                    if off else ControlResult(c, PASS, "default namespace unused"))
-        return ControlResult(c, MANUAL, "no builtin evaluator")
-
     # ------------------------------------------------------------------ #
     def _summarize(self, results, profile) -> CISReport:
         counts = Counter(r.status for r in results)
@@ -226,13 +202,6 @@ class CISBenchmarkEngine:
 
 
 # ----------------------------------------------------------------------- #
-#: Kinds the two builtin evaluators (hostPort, default-namespace usage) reason about. They
-#: read workloads directly rather than through a rule, so they have no rule to inherit
-#: evidence needs from.
-_BUILTIN_KINDS = frozenset({"Pod", "Deployment", "DaemonSet", "StatefulSet", "Job",
-                            "CronJob", "ReplicaSet"})
-
-
 def _unreadable_kinds(collector) -> set:
     """Resource kinds the collector could not read at all this run.
 
@@ -293,17 +262,6 @@ def _split(val) -> list:
 
 def _show(val) -> str:
     return "<unset>" if (val is None or val == "") else str(val)
-
-
-def _workloads(ev: Evidence):
-    for kind in ("Pod", "Deployment", "DaemonSet", "StatefulSet"):
-        yield from ev.get(kind)
-
-
-def _ref(res):
-    from ..core.models import ResourceRef
-    meta = res.get("metadata", {}) or {}
-    return ResourceRef(res.get("kind", "Pod"), meta.get("name", ""), meta.get("namespace"))
 
 
 def _map_kb(kb_status: str) -> str:

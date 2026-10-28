@@ -7,6 +7,7 @@ of the tool takes, so `k8smatrixwarden web` runs on a bare Python install.
 """
 from __future__ import annotations
 
+import gzip
 import os
 import threading
 import time
@@ -33,6 +34,14 @@ def default_port() -> int:
 DEFAULT_PORT = default_port()
 
 _MAX_BODY = 2 * 1024 * 1024  # 2 MiB cap on POST bodies
+_COMPRESSIBLE = {"application/json", "text/html", "text/plain", "application/javascript", "text/css"}
+
+
+def _quiet(fn, *a):
+    try:
+        fn(*a)
+    except Exception:
+        pass
 
 
 def make_handler(app: WebApp):
@@ -45,13 +54,21 @@ def make_handler(app: WebApp):
             length = min(int(self.headers.get("Content-Length", 0) or 0), _MAX_BODY)
             body = self.rfile.read(length) if length else b""
             resp = app.route(method, path, query, body)
+            payload = resp.body
+            gz = (len(payload) > 1024 and "gzip" in (self.headers.get("Accept-Encoding") or "")
+                  and resp.content_type.split(";")[0] in _COMPRESSIBLE)
+            if gz:
+                payload = gzip.compress(payload, compresslevel=5)
             self.send_response(resp.status)
             self.send_header("Content-Type", resp.content_type)
-            self.send_header("Content-Length", str(len(resp.body)))
+            if gz:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", str(len(payload)))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             if method != "HEAD":
-                self.wfile.write(resp.body)
+                self.wfile.write(payload)
 
         def do_GET(self):
             self._dispatch("GET")
@@ -191,6 +208,8 @@ def serve(host: str = DEFAULT_HOST, port: int = 0,
     allow_client_kubeconfig = local or allow_remote_kubeconfig
     app = WebApp(platform, reports_dir=reports_dir, allow_scan=allow_scan,
                  allow_client_kubeconfig=allow_client_kubeconfig)
+    # Build the dashboard payload now so the first page load is instant, not a 4 second wait.
+    threading.Thread(target=lambda: _quiet(app._cached_dashboard, None), daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), make_handler(app))
     url = f"http://{host}:{port}/"
     print(f"K8sMatrixWarden dashboard -> {url}")

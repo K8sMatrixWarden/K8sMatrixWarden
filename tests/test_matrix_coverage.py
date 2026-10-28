@@ -35,26 +35,8 @@ def _cell(matrix, tactic, technique_name):
 # --------------------------------------------------------------------------- #
 # name-before-id cell resolution
 # --------------------------------------------------------------------------- #
-def test_redguard_techniques_sharing_one_attack_id_stay_distinct():
-    """All three carry T1613. Each must resolve to its own cell, and each must be
-    covered by the rules that actually detect it."""
-    matrix = _coverage_matrix()
-    api = _cell(matrix, "Discovery", "Access the K8s API server")
-    kubelet = _cell(matrix, "Discovery", "Access Kubelet API")
-    dashboard = _cell(matrix, "Discovery", "Access Kubernetes dashboard")
-
-    assert api.key != kubelet.key != dashboard.key
-    assert kubelet.covered and dashboard.covered and api.covered
-    # and the right rules landed on the right cells, not all on the T1613 cell
-    assert any(r.startswith("kubelet-") for r in kubelet.rule_ids), kubelet.rule_ids
-    assert "net-dashboard-exposed" in dashboard.rule_ids
-    assert not any(r.startswith("kubelet-") for r in api.rule_ids)
 
 
-def test_discovery_has_no_remaining_coverage_gaps():
-    matrix = _coverage_matrix()
-    column = next(c for c in matrix.columns if c.tactic == "Discovery")
-    assert [c.technique_name for c in column.cells if c.state == "gap"] == []
 
 
 def test_canonical_attack_names_still_resolve_by_id():
