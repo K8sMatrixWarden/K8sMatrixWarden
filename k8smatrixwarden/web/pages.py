@@ -2550,6 +2550,8 @@ function tkForm(){
     .filter(([k])=>k!=='scan-manifests'||TK.can_use_paths);
   const f={ 'scan-live':`<label>Context <input id='tk-ctx' placeholder='current kubectl context'></label>
       <label>Namespace <input id='tk-ns' placeholder='all namespaces'></label>
+      ${TK.can_use_paths?`<label class='tk-wide'>Kubeconfig (optional) <input id='tk-kc' placeholder='path, e.g. C:\\Users\\me\\.kube\\config'></label>
+      <label class='tk-wide'>…or pick a kubeconfig file <input type='file' id='tk-kcfile'></label>`:''}
       <label class='tk-chk'><input type='checkbox' id='tk-grype'> Scan running images for CVEs (Grype, slow the first time)</label>`,
     'scan-manifests':`<label class='tk-wide'>Files or folders (one per line) <textarea id='tk-paths' rows='3' placeholder='./k8s&#10;./charts/myapp'></textarea></label>`,
     'scan-sample':`<div class='fm'>Scans the bundled, deliberately insecure demo cluster. Nothing is read from your cluster.</div>`}[tkKind];
@@ -2558,10 +2560,14 @@ function tkForm(){
       <button class='btn' type='button' id='tk-run' onclick='tkRun()' ${TK.can_run?'':'disabled'}>Run task</button></div><div id='tk-msg' class='fm' role='status'></div>`;
 }
 function tkPick(k){ tkKind=k; const b=$('#tk-form'); if(b) b.innerHTML=tkForm(); }
+function readFileText(f){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=()=>rej(r.error); r.readAsText(f); }); }
 async function tkRun(){
   const v=id=>(($('#'+id)||{}).value||'').trim(), msg=$('#tk-msg'); msg.textContent='Starting…';
   const body={kind:tkKind,name:v('tk-name')};
-  if(tkKind==='scan-live'){ body.context=v('tk-ctx'); body.namespace=v('tk-ns'); body.grype=!!($('#tk-grype')||{}).checked; }
+  if(tkKind==='scan-live'){ body.context=v('tk-ctx'); body.namespace=v('tk-ns'); body.grype=!!($('#tk-grype')||{}).checked;
+    const kcf=($('#tk-kcfile')||{}).files, kcp=v('tk-kc');
+    if(kcf&&kcf[0]){ try{ body.kubeconfig_content=await readFileText(kcf[0]); }catch(e){ msg.textContent='Could not read the selected file.'; return; } }
+    else if(kcp){ body.kubeconfig=kcp; } }
   if(tkKind==='scan-manifests') body.paths=v('tk-paths').split('\n').map(x=>x.trim()).filter(Boolean);
   const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json(); msg.textContent=r.ok?'':(d.error||'Could not start the task.'); if(r.ok){ tkLog=d.id; tkLoad(); }

@@ -53,6 +53,11 @@ def build_args(kind: str, p: dict, reports_dir: str) -> list[str]:
         if ctx and not _NAME.match(ctx):
             raise TaskError("context name has characters a kubeconfig context cannot have")
         args += ["--live"] + (["--context", ctx] if ctx else [])
+        kc = (p.get("kubeconfig") or "").strip()
+        if kc:
+            if not os.path.exists(kc):
+                raise TaskError(f"'{kc}' does not exist on the machine running the dashboard")
+            args += ["--kubeconfig", kc]
         if p.get("grype"):
             args += ["--grype"]
     elif kind == "scan-manifests":
@@ -75,6 +80,8 @@ class TaskManager:
         self._lock = threading.Lock()
         self._tasks: dict[str, dict] = {}
         self._procs: dict[str, subprocess.Popen] = {}
+        # temp kubeconfig written for a task, unlinked when the task ends or is cancelled
+        self._cleanup: dict[str, str] = {}
         self._file = os.path.join(reports_dir, "tasks.json")
         self._load()
 
@@ -100,7 +107,7 @@ class TaskManager:
             pass
 
     # -- api -------------------------------------------------------------------------------
-    def submit(self, kind: str, params: dict) -> dict:
+    def submit(self, kind: str, params: dict, cleanup: Optional[str] = None) -> dict:
         args = build_args(kind, params, self.reports_dir)
         task = {"id": uuid.uuid4().hex[:10], "kind": kind, "title": KINDS[kind],
                 "detail": self._detail(kind, params), "status": "queued", "created": time.time(),
@@ -108,6 +115,8 @@ class TaskManager:
                 "exit_code": None, "command": "k8smatrixwarden scan " + " ".join(args[6:-2])}
         with self._lock:
             self._tasks[task["id"]] = task
+            if cleanup:
+                self._cleanup[task["id"]] = cleanup
             self._save()
         threading.Thread(target=self._run, args=(task["id"], args), daemon=True).start()
         return self._public(task)
@@ -131,9 +140,20 @@ class TaskManager:
             t["finished"] = time.time()
         if proc and proc.poll() is None:
             proc.terminate()
+        self._discard(tid)
         with self._lock:
             self._save()
         return True
+
+    def _discard(self, tid: str) -> None:
+        """Unlink a task's temp kubeconfig, if any. Idempotent."""
+        with self._lock:
+            path = self._cleanup.pop(tid, None)
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     # -- internals -------------------------------------------------------------------------
     @staticmethod
@@ -189,6 +209,7 @@ class TaskManager:
         self._finish(tid, proc.returncode, "")
 
     def _finish(self, tid: str, code: Optional[int], error: str) -> None:
+        self._discard(tid)
         with self._lock:
             t = self._tasks[tid]
             self._procs.pop(tid, None)

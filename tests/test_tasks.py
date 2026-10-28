@@ -32,6 +32,15 @@ def test_arguments_are_validated_and_never_a_shell_string(tmp_path):
     assert a[0] == "scan" and "--live" in a and "--grype" in a and a[-2] == "--reports-dir"
 
 
+def test_live_scan_passes_a_kubeconfig_path_and_rejects_a_missing_one(tmp_path):
+    kc = tmp_path / "kubeconfig"
+    kc.write_text("apiVersion: v1\nkind: Config\n")
+    a = build_args("scan-live", {"kubeconfig": str(kc)}, str(tmp_path))
+    assert a[a.index("--kubeconfig") + 1] == str(kc)
+    with pytest.raises(TaskError):
+        build_args("scan-live", {"kubeconfig": str(tmp_path / "nope")}, str(tmp_path))
+
+
 def test_a_sample_scan_runs_saves_a_report_and_is_remembered(tmp_path):
     tm = TaskManager(str(tmp_path))
     t = _wait(tm, tm.submit("scan-sample", {"name": "demo"})["id"])

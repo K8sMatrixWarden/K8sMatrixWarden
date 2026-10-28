@@ -125,9 +125,22 @@ class WebApp:
             if data.get("kind") == "scan-manifests" and not self.allow_client_kubeconfig:
                 return _json({"error": "Scanning server-side paths is only allowed when the "
                                        "dashboard is bound to loopback."}, 403)
+            cleanup = None
+            if data.get("kind") == "scan-live":
+                try:
+                    kc_path, cleanup = self._resolve_kubeconfig(data)
+                except PermissionError as exc:
+                    return _json({"error": str(exc)}, 403)
+                if kc_path:
+                    data["kubeconfig"] = kc_path
             try:
-                return _json(self.tasks.submit(str(data.get("kind", "")), data), 202)
+                return _json(self.tasks.submit(str(data.get("kind", "")), data, cleanup), 202)
             except TaskError as exc:
+                if cleanup:
+                    try:
+                        os.unlink(cleanup)
+                    except OSError:
+                        pass
                 return _json({"error": str(exc)}, 400)
         return _json({"error": "Unsupported request."}, 405)
 
