@@ -237,19 +237,20 @@ class WebApp:
             # Bundles the official syft/grype into a tool-local bin. No cluster needed, so this
             # runs before the pod read below. Background, like generate: the download is slow.
             names = [n for n in ("syft", "grype") if not ti.resolve(n)]
-            need_db = bool(ti.resolve("grype")) and ti.grype_db_status().get("state") != "valid"
+            db = ti.grype_db_status()
+            # update the DB when it's missing, or when the user asked to refresh it (data.db)
+            need_db = bool(ti.resolve("grype")) and (db.get("state") != "valid" or bool(data.get("db")))
             if (names or need_db) and (st.get("install") or {}).get("state") != "running":
                 st["install"] = {"state": "running", "names": names or (["grype-db"] if need_db else [])}
 
                 def do_install():
                     res = ti.install_all(names)
                     ok = all(v.get("ok") for v in res.values())          # True when names is empty
-                    if ok and ti.resolve("grype"):          # warm grype's DB so the first report doesn't stall
+                    if ok and ti.resolve("grype"):          # warm/refresh grype's DB
                         res["grype-db"] = ti.warm_grype_db()
                     st["install"] = {"state": "done" if ok else "error", "result": res}
                 threading.Thread(target=do_install, daemon=True).start()
-            return _json({"started": names, "install": st.get("install"), "tools": store.tools(),
-                          "db": ti.grype_db_status()})
+            return _json({"started": names, "install": st.get("install"), "tools": store.tools(), "db": db})
         try:
             pods = self.p.make_collector(mock=False).collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
         except Exception as exc:                                    # no cluster is a state, not a crash

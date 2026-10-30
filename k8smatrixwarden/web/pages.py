@@ -2144,7 +2144,7 @@ async function dpLoad(){
   clearTimeout(DP.timer); if(busy&&activeTab==='deps') DP.timer=setTimeout(dpLoad,installing?3000:4000);
   if(DP.sel&&!busy&&DP.rep&&DP.rep.image&&DP.rep.image.key!==DP.sel) dpOpen(DP.sel);
 }
-async function dpInstall(){ try{ const d=await dpPost('install'); DP.install=d.install||{state:'running'}; DP.tools=d.tools||DP.tools; DP.db=d.db||DP.db; }catch(e){ DP.err=e.message; } dpRender(); clearTimeout(DP.timer); DP.timer=setTimeout(dpLoad,3000); }
+async function dpInstall(force){ try{ const d=await dpPost('install',force?{db:true}:{}); DP.install=d.install||{state:'running'}; DP.tools=d.tools||DP.tools; DP.db=d.db||DP.db; }catch(e){ DP.err=e.message; } dpRender(); clearTimeout(DP.timer); DP.timer=setTimeout(dpLoad,3000); }
 const dpWl=i=>(i.workloads||[]).slice(0,3).map(w=>esc(w.namespace+'/'+w.name)).join(', ')+((i.workloads||[]).length>3?` +${i.workloads.length-3}`:'');
 function dpChip(i){
   if(i.job&&i.job.state==='running') return `<span class='cv-st warn'>building SBOM…</span>`;
@@ -2165,20 +2165,27 @@ function dpRender(){
 function dpToolsBox(miss){
   const T=DP.tools||{}, db=DP.db||{}, ins=DP.install, running=ins&&ins.state==='running';
   const dbOk=db.state==='valid';
-  // one pill per tool: ok (ready) / warn (installing) / bad (missing)
+  const ageDays=db.built?Math.floor((Date.now()-Date.parse(db.built))/864e5):null;
+  const dbStale=dbOk&&ageDays!=null&&ageDays>7;   // match the live-scan staleness warning
+  // tool pill: ok (ready) / warn (installing) / bad (missing)
   const pill=(label,ok,note)=>{ const cls=ok?'ok':(running?'warn':'bad'), mk=ok?'✓':(running?'…':'✗');
     return `<span class='dp-tool'><b class='cv-st ${cls}'>${mk} ${ok?'Ready':(running?'Installing…':'Missing')}</b> ${label}${note?` <small>${esc(note)}</small>`:''}</span>`; };
+  // DB pill carries its own warn state for a stale-but-valid DB
+  const dbMk=running?'…':(dbOk?(dbStale?'!':'✓'):'✗'), dbCls=running?'warn':(dbOk?(dbStale?'warn':'ok'):'bad');
+  const dbTxt=running?'Updating…':(dbOk?(dbStale?ageDays+' days old':'Ready'):'Missing');
+  const dbNote=dbOk?('built '+(db.built||'').slice(0,10)):(db.state==='no-grype'?'needs grype':'');
   const strip=`<div class='dp-tools'>
     ${pill('syft',!!T.syft,'SBOM builder')}
     ${pill('grype',!!T.grype,'CVE scanner')}
-    ${pill('Vulnerability DB',dbOk,dbOk?('built '+(db.built||'').slice(0,10)):(db.state==='no-grype'?'needs grype':''))}
+    <span class='dp-tool'><b class='cv-st ${dbCls}'>${dbMk} ${dbTxt}</b> Vulnerability DB${dbNote?` <small>${esc(dbNote)}</small>`:''}</span>
   </div>`;
   const err=ins&&ins.state==='error'?Object.entries(ins.result||{}).filter(([,v])=>v&&v.error).map(([k,v])=>k+': '+v.error).join('; '):'';
-  const needs=miss.length||!dbOk;
   const foot=running?`<small class='fm'>Downloading the official binaries and the vulnerability database. First run takes a minute or two.</small>`
     : err?`<small class='fm'>${esc(err)}</small> <button class='btn' type='button' onclick='dpInstall()'>Retry</button>`
-    : needs?`<button class='btn' type='button' onclick='dpInstall()'>${miss.length?'Install '+miss.join(' & '):'Download vulnerability DB'}</button>`:'';
-  return `<div class='bd-todo ${needs&&!running?'bad':''}'><div style='flex:1'>${strip}</div>${foot}</div>`;
+    : miss.length?`<button class='btn' type='button' onclick='dpInstall()'>Install ${miss.join(' & ')}</button>`
+    : !dbOk?`<button class='btn' type='button' onclick='dpInstall()'>Download vulnerability DB</button>`
+    : `<button class='btn' type='button' onclick='dpInstall(true)'>Update DB</button>`;
+  return `<div class='bd-todo ${(miss.length||!dbOk||dbStale)&&!running?'bad':''}'><div style='flex:1'>${strip}</div>${foot}</div>`;
 }
 function dpResults(){
   const r=DP.res; if(!r.results.length) return `<div class='bd-none'>No package matches in ${r.searched} SBOM(s).${r.searched<r.images?' Build the rest to widen the search.':''}</div>`;
