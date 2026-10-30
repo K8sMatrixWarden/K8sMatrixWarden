@@ -47,6 +47,18 @@ def test_same_tag_two_digests_are_scanned_separately():
     assert imgs[OLD]["target"].endswith("@" + OLD)
 
 
+def test_local_import_digest_falls_back_to_the_tag():
+    # Docker Desktop / kind report an unrelated local-import ref; its digest is not in the
+    # image's own registry, so the target must be the pullable tag, not repo@local-digest.
+    pod = {"kind": "Pod", "metadata": {"name": "p", "namespace": "kube-system"},
+           "spec": {"containers": [{"name": "app", "image": "registry.k8s.io/kube-apiserver:v1.36.1"}]},
+           "status": {"containerStatuses": [{"name": "app", "image": "registry.k8s.io/kube-apiserver:v1.36.1",
+                                             "imageID": f"docker.io/library/import-2026-06-02@{OLD}"}]}}
+    img = next(iter(running_images([pod]).values()))
+    assert img["pinned"] is False
+    assert img["target"] == "registry.k8s.io/kube-apiserver:v1.36.1"
+
+
 def test_patched_rebuild_is_clear_and_stale_copy_is_flagged():
     items = [_item(OLD, _grype(("CVE-1", "Critical", "fixed", False))), _item(NEW, _grype())]
     found = _run(_ev(items, [_pod("old", OLD), _pod("new", NEW)]))

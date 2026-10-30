@@ -56,7 +56,12 @@ def running_images(pods: list[dict]) -> dict[str, dict]:
             if not image:
                 continue
             digest = _digest_of(image_id)
-            pinned = "@" in image_id and bool(digest)
+            # A digest is pullable only if it belongs to THIS image's repository. Docker
+            # Desktop / kind report a local import ref (docker.io/library/import-...@sha256)
+            # whose digest the real registry does not have; pulling by it fails, so fall back
+            # to the tag reference for those.
+            repo = image.split("@")[0].rsplit(":", 1)[0]
+            pinned = "@" in image_id and bool(digest) and repo and repo in image_id
             key = digest or image
             target = f"{image.split('@')[0]}@{digest}" if pinned else image
             out.setdefault(key, {"image": image, "digest": digest, "target": target,
