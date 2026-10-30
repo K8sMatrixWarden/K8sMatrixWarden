@@ -22,11 +22,11 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 from typing import Callable, Optional
 
 from .image_scan import parse_grype, running_images
+from .tool_install import resolve as _resolve_tool
 
 # Types whose files appear in /proc/<pid>/maps or /fd while the program runs.
 OBSERVABLE = {"apk", "deb", "rpm", "java-archive", "binary", "go-module", "alpm", "portage", "nix"}
@@ -95,7 +95,7 @@ class SbomStore:
         self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".cache", "k8smatrixwarden", "sbom")
 
     def tools(self) -> dict:
-        return {"syft": shutil.which(self.syft) is not None, "grype": shutil.which(self.grype) is not None}
+        return {"syft": _resolve_tool(self.syft) is not None, "grype": _resolve_tool(self.grype) is not None}
 
     def path(self, key: str) -> str:
         return os.path.join(self.cache_dir, hashlib.sha256(key.encode()).hexdigest() + ".syft.json")
@@ -108,10 +108,11 @@ class SbomStore:
         key, dest = sbom_key(img), self.path(sbom_key(img))
         if os.path.exists(dest):
             return {"ok": True, "path": dest, "cached": True}
-        if shutil.which(self.syft) is None:
-            return {"error": "syft is not installed (brew install syft), so no SBOM can be built."}
+        syft = _resolve_tool(self.syft)
+        if syft is None:
+            return {"error": "syft is not installed, so no SBOM can be built. Install it from the Dependencies tab."}
         try:
-            proc = self._run([self.syft, img["target"], "-o", "syft-json", "-q"], capture_output=True, text=True,
+            proc = self._run([syft, img["target"], "-o", "syft-json", "-q"], capture_output=True, text=True,
                              timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "syft failed").strip()[-300:]}
@@ -132,10 +133,11 @@ class SbomStore:
 
     def vulnerabilities(self, key: str) -> dict:
         """Grype over the stored SBOM: {matches, dbBuilt} or {error}."""
-        if shutil.which(self.grype) is None:
-            return {"error": "grype is not installed (brew install grype)"}
+        grype = _resolve_tool(self.grype)
+        if grype is None:
+            return {"error": "grype is not installed. Install it from the Dependencies tab."}
         try:
-            proc = self._run([self.grype, "sbom:" + self.path(key), "-o", "json", "--quiet"], capture_output=True,
+            proc = self._run([grype, "sbom:" + self.path(key), "-o", "json", "--quiet"], capture_output=True,
                              text=True, timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "grype failed").strip()[-300:]}
@@ -150,8 +152,11 @@ class SbomStore:
         if fmt == "syft-json":
             with open(self.path(key)) as fh:
                 return fh.read()
+        syft = _resolve_tool(self.syft)
+        if syft is None:
+            return None
         try:
-            proc = self._run([self.syft, "convert", self.path(key), "-o", fmt, "-q"], capture_output=True,
+            proc = self._run([syft, "convert", self.path(key), "-o", fmt, "-q"], capture_output=True,
                              text=True, timeout=120)
             return proc.stdout if proc.returncode == 0 else None
         except (OSError, subprocess.SubprocessError):

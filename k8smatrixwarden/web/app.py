@@ -213,7 +213,8 @@ class WebApp:
     def _deps_state(self) -> dict:
         if getattr(self, "_deps", None) is None:
             from ..core.dependencies import SbomStore
-            self._deps = {"store": SbomStore(), "observed": {}, "jobs": {}, "lock": threading.Lock()}
+            self._deps = {"store": SbomStore(), "observed": {}, "jobs": {}, "install": None,
+                          "lock": threading.Lock()}
         return self._deps
 
     def _api_deps(self, method: str, action: str, body: bytes) -> Response:
@@ -231,10 +232,29 @@ class WebApp:
             return _json({"error": f"Invalid JSON body: {exc}"}, 400)
         st = self._deps_state()
         store = st["store"]
+        if action == "install":
+            # Bundles the official syft/grype into a tool-local bin. No cluster needed, so this
+            # runs before the pod read below. Background, like generate: the download is slow.
+            from ..core import tool_install as ti
+            names = [n for n in ("syft", "grype") if not ti.resolve(n)]
+            if names and (st.get("install") or {}).get("state") != "running":
+                st["install"] = {"state": "running", "names": names}
+
+                def do_install():
+                    res = ti.install_all(names)
+                    st["install"] = {"state": "done" if all(v.get("ok") for v in res.values()) else "error",
+                                     "result": res}
+                threading.Thread(target=do_install, daemon=True).start()
+            return _json({"started": names, "install": st.get("install"), "tools": store.tools()})
         try:
             pods = self.p.make_collector(mock=False).collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
         except Exception as exc:                                    # no cluster is a state, not a crash
-            return _json({"error": "Could not read the cluster: " + str(exc).splitlines()[0][:160]}, 502)
+            msg = "Could not read the cluster: " + str(exc).splitlines()[0][:160]
+            # `images` still reports tool status (cluster-independent) so the tab renders and
+            # the install state is visible even with no cluster; the rest genuinely need pods.
+            if action == "images":
+                return _json({"tools": store.tools(), "images": [], "install": st.get("install"), "error": msg})
+            return _json({"error": msg}, 502)
         imgs = {i["key"]: i for i in dp.inventory(pods)}
         key = data.get("key", "")
         if action == "images":
@@ -244,7 +264,7 @@ class WebApp:
                 rows.append({"key": i["key"], "image": i["image"], "pinned": i["pinned"], "workloads": i["workloads"],
                              "pods": len(i["pods"]), "sbom": store.has(i["key"]), "job": st["jobs"].get(i["key"]),
                              "observed": bool(obs), "observedAt": obs["at"] if obs else None})
-            return _json({"tools": store.tools(), "images": rows})
+            return _json({"tools": store.tools(), "images": rows, "install": st.get("install")})
         if action == "generate":
             keys = list(imgs) if data.get("all") else [k for k in (data.get("keys") or [key]) if k in imgs]
             todo = [k for k in keys if not store.has(k) and (st["jobs"].get(k) or {}).get("state") != "running"]

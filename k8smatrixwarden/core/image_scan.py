@@ -99,7 +99,8 @@ class GrypeRunner:
                                                    "k8smatrixwarden", "grype")
 
     def available(self) -> bool:
-        return shutil.which(self.binary) is not None
+        from .tool_install import resolve
+        return resolve(self.binary) is not None
 
     def _cache_path(self, digest: str) -> str:
         return os.path.join(self.cache_dir, hashlib.sha256(digest.encode()).hexdigest() + ".json")
@@ -114,8 +115,9 @@ class GrypeRunner:
                     return json.load(fh)
             except (OSError, ValueError):
                 pass
+        from .tool_install import resolve
         try:
-            proc = self._run([self.binary, img["target"], "-o", "json", "--quiet"],
+            proc = self._run([resolve(self.binary) or self.binary, img["target"], "-o", "json", "--quiet"],
                              capture_output=True, text=True, timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "grype failed").strip()[-300:]}

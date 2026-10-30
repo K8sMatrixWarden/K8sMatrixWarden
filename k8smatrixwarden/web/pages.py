@@ -2125,18 +2125,23 @@ const NET_HELP={
   'unknown':'No NetworkPolicy evidence was collected.'};
 /* ---- runtime ---- */
 /* ---- Dependencies: what each running image contains, what is vulnerable, and what is really loaded ---- */
-let DP={imgs:null,tools:{},sel:null,rep:null,f:'fix',q:'',res:null,busy:'',err:'',timer:null,open:{}};
+let DP={imgs:null,tools:{},sel:null,rep:null,f:'fix',q:'',res:null,busy:'',err:'',timer:null,open:{},install:null,installTried:false};
 const dpPost=async(a,b)=>{ const r=await fetch('/api/deps/'+a,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}); const d=await r.json().catch(()=>({error:'Bad reply'})); if(!r.ok) throw new Error(d.error||'Failed'); return d; };
 function depsView(){ setTimeout(dpInit,0); return `<div id='dp-root'><div class='panel'><div class='bd-none'>Loading…</div></div></div>`; }
 async function dpInit(){ if(DP.imgs) return dpRender(); await dpLoad(); }
 async function dpLoad(){
-  try{ const d=await dpPost('images'); DP.imgs=d.images; DP.tools=d.tools; DP.err=''; }
+  try{ const d=await dpPost('images'); DP.imgs=d.images; DP.tools=d.tools; DP.install=d.install; DP.err=d.error||''; }
   catch(e){ DP.err=e.message; DP.imgs=DP.imgs||[]; }
+  // syft/grype ship with the tool: provision them once, automatically, the first time they're missing.
+  const missing=!DP.tools.syft||!DP.tools.grype;
+  if(missing&&!DP.installTried&&(!DP.install||DP.install.state!=='running')){ DP.installTried=true; return dpInstall(); }
   dpRender();
-  const busy=(DP.imgs||[]).some(i=>i.job&&i.job.state==='running');
-  clearTimeout(DP.timer); if(busy&&activeTab==='deps') DP.timer=setTimeout(dpLoad,4000);
+  const installing=DP.install&&DP.install.state==='running';
+  const busy=installing||(DP.imgs||[]).some(i=>i.job&&i.job.state==='running');
+  clearTimeout(DP.timer); if(busy&&activeTab==='deps') DP.timer=setTimeout(dpLoad,installing?3000:4000);
   if(DP.sel&&!busy&&DP.rep&&DP.rep.image&&DP.rep.image.key!==DP.sel) dpOpen(DP.sel);
 }
+async function dpInstall(){ try{ DP.install=(await dpPost('install')).install||{state:'running'}; }catch(e){ DP.err=e.message; } dpRender(); clearTimeout(DP.timer); DP.timer=setTimeout(dpLoad,3000); }
 const dpWl=i=>(i.workloads||[]).slice(0,3).map(w=>esc(w.namespace+'/'+w.name)).join(', ')+((i.workloads||[]).length>3?` +${i.workloads.length-3}`:'');
 function dpChip(i){
   if(i.job&&i.job.state==='running') return `<span class='cv-st warn'>building SBOM…</span>`;
@@ -2148,11 +2153,20 @@ function dpRender(){
   const miss=[!T.syft&&'syft',!T.grype&&'grype'].filter(Boolean);
   const head=`<div class='panel rt-head'><div><h2>Dependencies</h2><small class='fm'>Every image your pods run, what is inside it, which parts are vulnerable, and which parts the container really loads.</small></div>
     <div class='rt-row'><button class='btn' type='button' onclick='dpBuild(true)' ${miss.length||DP.busy?'disabled':''}>Build SBOMs for all images</button></div></div>
-    ${miss.length?`<div class='bd-todo bad'><div><b>${miss.join(' and ')} not installed</b><small>Install with: brew install ${miss.join(' ')}</small></div></div>`:''}
+    ${dpToolsBox(miss)}
     ${DP.err?`<div class='bd-todo bad'><div><b>${esc(DP.err)}</b></div></div>`:''}
     <div class='panel'><label class='rt-l'>Where does a package run?<input id='dp-q' value='${esc(DP.q)}' placeholder='log4j, openssl, curl…' onkeydown='if(event.key==="Enter")dpSearch()'><small>Searches the SBOMs already built. ${im.filter(i=>i.sbom).length} of ${im.length} images have one.</small></label>${DP.res?dpResults():''}</div>`;
   const list=im.length?im.map(i=>`<button type='button' class='bd-row ${DP.sel===i.key?'on':''}' onclick='dpOpen("${esc(i.key)}")'><span class='bd-rt'><b>${esc(i.image.split('/').pop())}</b><small>${dpWl(i)}</small></span>${dpChip(i)}</button>`).join(''):`<div class='bd-none'>No running images found. Scan a cluster first.</div>`;
   el.innerHTML=`${head}<div class='dp-grid'><aside class='panel dp-list'><div class='bd-lh'>Running images <small>${im.length}</small></div>${list}</aside><main class='panel dp-main' id='dp-main'>${dpMain()}</main></div>`;
+}
+function dpToolsBox(miss){
+  const ins=DP.install;
+  if(ins&&ins.state==='running') return `<div class='bd-todo'><div><b>Installing ${(ins.names||['syft','grype']).join(' and ')}…</b><small>Downloading the official binaries into the tool. First run takes a minute or two.</small></div></div>`;
+  if(!miss.length) return '';
+  const err=ins&&ins.state==='error'?Object.entries(ins.result||{}).filter(([,v])=>v.error).map(([k,v])=>k+': '+v.error).join('; '):'';
+  return `<div class='bd-todo bad'><div><b>${miss.join(' and ')} not installed</b>
+    <small>${err?esc(err):'syft and grype ship with the tool. Install them to build SBOMs and scan images for CVEs.'}</small></div>
+    <button class='btn' type='button' onclick='dpInstall()'>${err?'Retry install':'Install '+miss.join(' & ')}</button></div>`;
 }
 function dpResults(){
   const r=DP.res; if(!r.results.length) return `<div class='bd-none'>No package matches in ${r.searched} SBOM(s).${r.searched<r.images?' Build the rest to widen the search.':''}</div>`;
@@ -2552,7 +2566,7 @@ function tkForm(){
       <label>Namespace <input id='tk-ns' placeholder='all namespaces'></label>
       ${TK.can_use_paths?`<label class='tk-wide'>Kubeconfig (optional) <input id='tk-kc' placeholder='path, e.g. C:\\Users\\me\\.kube\\config'></label>
       <label class='tk-wide'>…or pick a kubeconfig file <input type='file' id='tk-kcfile'></label>`:''}
-      <label class='tk-chk'><input type='checkbox' id='tk-grype'> Scan running images for CVEs (Grype, slow the first time)</label>`,
+      <label class='tk-chk'><input type='checkbox' id='tk-grype' checked> Scan running images for CVEs (Grype, slow the first time)</label>`,
     'scan-manifests':`<label class='tk-wide'>Files or folders (one per line) <textarea id='tk-paths' rows='3' placeholder='./k8s&#10;./charts/myapp'></textarea></label>`,
     'scan-sample':`<div class='fm'>Scans the bundled, deliberately insecure demo cluster. Nothing is read from your cluster.</div>`}[tkKind];
   return `<div class='tk-seg' role='tablist'>${kinds.map(([k,l])=>`<button type='button' role='tab' class='${k===tkKind?'on':''}' onclick='tkPick("${k}")'>${l}</button>`).join('')}</div>
