@@ -224,6 +224,7 @@ class WebApp:
         import time
         from concurrent.futures import ThreadPoolExecutor
         from ..core import dependencies as dp
+        from ..core import tool_install as ti
         if method != "POST":
             return _json({"error": "Use POST."}, 405)
         try:
@@ -235,19 +236,20 @@ class WebApp:
         if action == "install":
             # Bundles the official syft/grype into a tool-local bin. No cluster needed, so this
             # runs before the pod read below. Background, like generate: the download is slow.
-            from ..core import tool_install as ti
             names = [n for n in ("syft", "grype") if not ti.resolve(n)]
-            if names and (st.get("install") or {}).get("state") != "running":
-                st["install"] = {"state": "running", "names": names}
+            need_db = bool(ti.resolve("grype")) and ti.grype_db_status().get("state") != "valid"
+            if (names or need_db) and (st.get("install") or {}).get("state") != "running":
+                st["install"] = {"state": "running", "names": names or (["grype-db"] if need_db else [])}
 
                 def do_install():
                     res = ti.install_all(names)
-                    ok = all(v.get("ok") for v in res.values())
-                    if ok:                                  # warm grype's DB so the first report doesn't stall
+                    ok = all(v.get("ok") for v in res.values())          # True when names is empty
+                    if ok and ti.resolve("grype"):          # warm grype's DB so the first report doesn't stall
                         res["grype-db"] = ti.warm_grype_db()
                     st["install"] = {"state": "done" if ok else "error", "result": res}
                 threading.Thread(target=do_install, daemon=True).start()
-            return _json({"started": names, "install": st.get("install"), "tools": store.tools()})
+            return _json({"started": names, "install": st.get("install"), "tools": store.tools(),
+                          "db": ti.grype_db_status()})
         try:
             pods = self.p.make_collector(mock=False).collect({"Pod"}, Scope(ScopeLevel.CLUSTER)).get("Pod")
         except Exception as exc:                                    # no cluster is a state, not a crash
@@ -255,7 +257,8 @@ class WebApp:
             # `images` still reports tool status (cluster-independent) so the tab renders and
             # the install state is visible even with no cluster; the rest genuinely need pods.
             if action == "images":
-                return _json({"tools": store.tools(), "images": [], "install": st.get("install"), "error": msg})
+                return _json({"tools": store.tools(), "images": [], "install": st.get("install"),
+                              "db": ti.grype_db_status(), "error": msg})
             return _json({"error": msg}, 502)
         imgs = {i["key"]: i for i in dp.inventory(pods)}
         key = data.get("key", "")
@@ -266,7 +269,8 @@ class WebApp:
                 rows.append({"key": i["key"], "image": i["image"], "pinned": i["pinned"], "workloads": i["workloads"],
                              "pods": len(i["pods"]), "sbom": store.has(i["key"]), "job": st["jobs"].get(i["key"]),
                              "observed": bool(obs), "observedAt": obs["at"] if obs else None})
-            return _json({"tools": store.tools(), "images": rows, "install": st.get("install")})
+            return _json({"tools": store.tools(), "images": rows, "install": st.get("install"),
+                          "db": ti.grype_db_status()})
         if action == "generate":
             keys = list(imgs) if data.get("all") else [k for k in (data.get("keys") or [key]) if k in imgs]
             todo = [k for k in keys if not store.has(k) and (st["jobs"].get(k) or {}).get("state") != "running"]

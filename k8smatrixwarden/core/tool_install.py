@@ -118,6 +118,26 @@ def install_all(names) -> dict:
     return {n: install(n) for n in names}
 
 
+def _parse_db_status(text: str, rc: int) -> dict:
+    def field(name):
+        return next((l.split(":", 1)[1].strip() for l in text.splitlines()
+                     if l.strip().lower().startswith(name)), "")
+    valid = rc == 0 and field("status:").lower() == "valid"
+    return {"state": "valid" if valid else "missing", "built": field("built:") if valid else ""}
+
+
+def grype_db_status() -> dict:
+    """Is grype's vulnerability DB present? {state: valid|missing|no-grype|error, built}."""
+    grype = resolve("grype")
+    if not grype:
+        return {"state": "no-grype", "built": ""}
+    try:
+        proc = subprocess.run([grype, "db", "status"], capture_output=True, text=True, timeout=30)
+        return _parse_db_status(proc.stdout + proc.stderr, proc.returncode)
+    except Exception as exc:
+        return {"state": "error", "built": "", "error": str(exc)[:150]}
+
+
 def warm_grype_db() -> dict:
     """Pre-download grype's vulnerability DB so the first report doesn't stall on it.
     `grype db update` is idempotent and quick when the DB is already current."""
@@ -149,6 +169,11 @@ def _demo() -> None:
     assert _verify(blob, good, "syft_1.0.0_x.tar.gz")
     assert not _verify(blob, good, "other.tar.gz")
     assert not _verify(b"tampered", good, "syft_1.0.0_x.tar.gz")
+    # db status parsing
+    ok = _parse_db_status("Schema: v6\nBuilt:     2026-10-30T06:23:28Z\nStatus:    valid\n", 0)
+    assert ok == {"state": "valid", "built": "2026-10-30T06:23:28Z"}, ok
+    bad = _parse_db_status("Built: 0001-01-01T00:00:00Z\nStatus: invalid\n", 1)
+    assert bad == {"state": "missing", "built": ""}, bad
     print("tool_install self-check OK", osn, arch, ext)
 
 

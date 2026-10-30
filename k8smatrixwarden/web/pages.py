@@ -957,6 +957,9 @@ _CV_CSS = """
 .bd-todo{display:flex;gap:.6rem;align-items:center;border:1px solid var(--bd);border-left:3px solid var(--info);border-radius:9px;padding:.55rem .7rem;margin:.4rem 0;background:var(--card)}
 .bd-todo.bad{border-left-color:var(--crit,#d1242f)}.bd-todo>div{flex:1;min-width:0}.bd-todo b{display:block;font-size:.84rem}.bd-todo small{display:block;color:var(--muted);font-size:.76rem;margin-top:.1rem}
 .bd-good{background:var(--sunken);border-radius:9px;padding:.6rem .8rem;font-weight:600;font-size:.86rem;margin:.4rem 0;color:var(--ok,#1a7f37)}
+.dp-tools{display:flex;gap:.9rem;flex-wrap:wrap;align-items:center}
+.dp-tool{display:inline-flex;gap:.35rem;align-items:center;font-size:.82rem}
+.dp-tool b,.dp-tool small{display:inline;font-size:.82rem}.dp-tool small{color:var(--muted)}
 .bd-lg{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:.7rem 0 .2rem}
 .bd-lr{border-top:1px solid var(--bd)}.bd-lt{display:flex;gap:.5rem;align-items:center;width:100%;background:none;border:0;padding:.45rem 0;cursor:pointer;color:var(--fg);text-align:left}
 .bd-lt b{flex:1;font-size:.82rem;font-weight:600}.bd-lt i{font-style:normal;color:var(--muted)}
@@ -2125,12 +2128,12 @@ const NET_HELP={
   'unknown':'No NetworkPolicy evidence was collected.'};
 /* ---- runtime ---- */
 /* ---- Dependencies: what each running image contains, what is vulnerable, and what is really loaded ---- */
-let DP={imgs:null,tools:{},sel:null,rep:null,f:'fix',q:'',res:null,busy:'',err:'',timer:null,open:{},install:null,installTried:false};
+let DP={imgs:null,tools:{},db:{},sel:null,rep:null,f:'fix',q:'',res:null,busy:'',err:'',timer:null,open:{},install:null,installTried:false};
 const dpPost=async(a,b)=>{ const r=await fetch('/api/deps/'+a,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}); const d=await r.json().catch(()=>({error:'Bad reply'})); if(!r.ok) throw new Error(d.error||'Failed'); return d; };
 function depsView(){ setTimeout(dpInit,0); return `<div id='dp-root'><div class='panel'><div class='bd-none'>Loading…</div></div></div>`; }
 async function dpInit(){ if(DP.imgs) return dpRender(); await dpLoad(); }
 async function dpLoad(){
-  try{ const d=await dpPost('images'); DP.imgs=d.images; DP.tools=d.tools; DP.install=d.install; DP.err=d.error||''; }
+  try{ const d=await dpPost('images'); DP.imgs=d.images; DP.tools=d.tools; DP.db=d.db||{}; DP.install=d.install; DP.err=d.error||''; }
   catch(e){ DP.err=e.message; DP.imgs=DP.imgs||[]; }
   // syft/grype ship with the tool: provision them once, automatically, the first time they're missing.
   const missing=!DP.tools.syft||!DP.tools.grype;
@@ -2141,7 +2144,7 @@ async function dpLoad(){
   clearTimeout(DP.timer); if(busy&&activeTab==='deps') DP.timer=setTimeout(dpLoad,installing?3000:4000);
   if(DP.sel&&!busy&&DP.rep&&DP.rep.image&&DP.rep.image.key!==DP.sel) dpOpen(DP.sel);
 }
-async function dpInstall(){ try{ DP.install=(await dpPost('install')).install||{state:'running'}; }catch(e){ DP.err=e.message; } dpRender(); clearTimeout(DP.timer); DP.timer=setTimeout(dpLoad,3000); }
+async function dpInstall(){ try{ const d=await dpPost('install'); DP.install=d.install||{state:'running'}; DP.tools=d.tools||DP.tools; DP.db=d.db||DP.db; }catch(e){ DP.err=e.message; } dpRender(); clearTimeout(DP.timer); DP.timer=setTimeout(dpLoad,3000); }
 const dpWl=i=>(i.workloads||[]).slice(0,3).map(w=>esc(w.namespace+'/'+w.name)).join(', ')+((i.workloads||[]).length>3?` +${i.workloads.length-3}`:'');
 function dpChip(i){
   if(i.job&&i.job.state==='running') return `<span class='cv-st warn'>building SBOM…</span>`;
@@ -2160,13 +2163,22 @@ function dpRender(){
   el.innerHTML=`${head}<div class='dp-grid'><aside class='panel dp-list'><div class='bd-lh'>Running images <small>${im.length}</small></div>${list}</aside><main class='panel dp-main' id='dp-main'>${dpMain()}</main></div>`;
 }
 function dpToolsBox(miss){
-  const ins=DP.install;
-  if(ins&&ins.state==='running') return `<div class='bd-todo'><div><b>Installing ${(ins.names||['syft','grype']).join(' and ')}…</b><small>Downloading the official binaries into the tool. First run takes a minute or two.</small></div></div>`;
-  if(!miss.length) return '';
-  const err=ins&&ins.state==='error'?Object.entries(ins.result||{}).filter(([,v])=>v.error).map(([k,v])=>k+': '+v.error).join('; '):'';
-  return `<div class='bd-todo bad'><div><b>${miss.join(' and ')} not installed</b>
-    <small>${err?esc(err):'syft and grype ship with the tool. Install them to build SBOMs and scan images for CVEs.'}</small></div>
-    <button class='btn' type='button' onclick='dpInstall()'>${err?'Retry install':'Install '+miss.join(' & ')}</button></div>`;
+  const T=DP.tools||{}, db=DP.db||{}, ins=DP.install, running=ins&&ins.state==='running';
+  const dbOk=db.state==='valid';
+  // one pill per tool: ok (ready) / warn (installing) / bad (missing)
+  const pill=(label,ok,note)=>{ const cls=ok?'ok':(running?'warn':'bad'), mk=ok?'✓':(running?'…':'✗');
+    return `<span class='dp-tool'><b class='cv-st ${cls}'>${mk} ${ok?'Ready':(running?'Installing…':'Missing')}</b> ${label}${note?` <small>${esc(note)}</small>`:''}</span>`; };
+  const strip=`<div class='dp-tools'>
+    ${pill('syft',!!T.syft,'SBOM builder')}
+    ${pill('grype',!!T.grype,'CVE scanner')}
+    ${pill('Vulnerability DB',dbOk,dbOk?('built '+(db.built||'').slice(0,10)):(db.state==='no-grype'?'needs grype':''))}
+  </div>`;
+  const err=ins&&ins.state==='error'?Object.entries(ins.result||{}).filter(([,v])=>v&&v.error).map(([k,v])=>k+': '+v.error).join('; '):'';
+  const needs=miss.length||!dbOk;
+  const foot=running?`<small class='fm'>Downloading the official binaries and the vulnerability database. First run takes a minute or two.</small>`
+    : err?`<small class='fm'>${esc(err)}</small> <button class='btn' type='button' onclick='dpInstall()'>Retry</button>`
+    : needs?`<button class='btn' type='button' onclick='dpInstall()'>${miss.length?'Install '+miss.join(' & '):'Download vulnerability DB'}</button>`:'';
+  return `<div class='bd-todo ${needs&&!running?'bad':''}'><div style='flex:1'>${strip}</div>${foot}</div>`;
 }
 function dpResults(){
   const r=DP.res; if(!r.results.length) return `<div class='bd-none'>No package matches in ${r.searched} SBOM(s).${r.searched<r.images?' Build the rest to widen the search.':''}</div>`;
