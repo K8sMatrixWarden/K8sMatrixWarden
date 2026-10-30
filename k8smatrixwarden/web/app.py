@@ -322,7 +322,8 @@ class WebApp:
             for pd in running:
                 try:
                     r = subprocess.run(["kubectl", "exec", "-n", pd["namespace"], pd["name"], "-c", pd["container"], "--",
-                                        "sh", "-c", dp.OBSERVE_SCRIPT], capture_output=True, text=True, timeout=30)
+                                        "sh", "-c", dp.OBSERVE_SCRIPT], capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace", timeout=30)
                     ok = r.returncode == 0 and "F /" in r.stdout
                     files |= set(dp.parse_observation(r.stdout)["files"]) if ok else set()
                     results.append({"pod": pd["name"], "ok": ok, "error": "" if ok else (r.stderr.strip().splitlines() or ["no output"])[-1][:200]})

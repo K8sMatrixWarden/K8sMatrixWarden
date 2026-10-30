@@ -390,7 +390,7 @@ def _credential_failure(kubeconfig: Optional[str],
         if isinstance(e, dict) and e.get("name"):
             env[str(e["name"])] = str(e.get("value", ""))
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, env=env,
+        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
                               timeout=_EXEC_TIMEOUT)
     except FileNotFoundError:
         return (f"credential plugin {command!r} is not installed or not on PATH "

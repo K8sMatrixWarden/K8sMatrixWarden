@@ -132,7 +132,8 @@ def grype_db_status() -> dict:
     if not grype:
         return {"state": "no-grype", "built": ""}
     try:
-        proc = subprocess.run([grype, "db", "status"], capture_output=True, text=True, timeout=30)
+        proc = subprocess.run([grype, "db", "status"], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=30)
         return _parse_db_status(proc.stdout + proc.stderr, proc.returncode)
     except Exception as exc:
         return {"state": "error", "built": "", "error": str(exc)[:150]}
@@ -145,7 +146,8 @@ def warm_grype_db() -> dict:
     if not grype:
         return {"error": "grype not installed"}
     try:
-        proc = subprocess.run([grype, "db", "update"], capture_output=True, text=True, timeout=600)
+        proc = subprocess.run([grype, "db", "update"], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=600)
         return {"ok": True} if proc.returncode == 0 else {"error": (proc.stderr or "db update failed")[-200:]}
     except Exception as exc:
         return {"error": str(exc)[:200]}

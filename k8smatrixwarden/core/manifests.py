@@ -111,7 +111,7 @@ class ManifestEvidenceCollector(EvidenceCollector):
         cmd = ["helm", "template", os.path.basename(chart.rstrip("/")), chart]
         for s in helm_set:
             cmd += ["--set", s]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         if proc.returncode != 0:
             self.skipped.append(f"{chart}: helm template failed: {proc.stderr.strip()[:120]}")
             return

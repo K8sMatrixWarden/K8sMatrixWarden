@@ -113,7 +113,7 @@ class SbomStore:
             return {"error": "syft is not installed, so no SBOM can be built. Install it from the Dependencies tab."}
         try:
             proc = self._run([syft, img["target"], "-o", "syft-json", "-q"], capture_output=True, text=True,
-                             timeout=self.timeout)
+                             encoding="utf-8", errors="replace", timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "syft failed").strip()[-300:]}
             json.loads(proc.stdout)                                                 # refuse to cache a half-written file
@@ -138,7 +138,7 @@ class SbomStore:
             return {"error": "grype is not installed. Install it from the Dependencies tab."}
         try:
             proc = self._run([grype, "sbom:" + self.path(key), "-o", "json", "--quiet"], capture_output=True,
-                             text=True, timeout=self.timeout)
+                             text=True, encoding="utf-8", errors="replace", timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "grype failed").strip()[-300:]}
             return parse_grype(json.loads(proc.stdout))
@@ -157,7 +157,7 @@ class SbomStore:
             return None
         try:
             proc = self._run([syft, "convert", self.path(key), "-o", fmt, "-q"], capture_output=True,
-                             text=True, timeout=120)
+                             text=True, encoding="utf-8", errors="replace", timeout=120)
             return proc.stdout if proc.returncode == 0 else None
         except (OSError, subprocess.SubprocessError):
             return None

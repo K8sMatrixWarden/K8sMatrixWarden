@@ -123,7 +123,7 @@ class GrypeRunner:
         from .tool_install import resolve
         try:
             proc = self._run([resolve(self.binary) or self.binary, img["target"], "-o", "json", "--quiet"],
-                             capture_output=True, text=True, timeout=self.timeout)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=self.timeout)
             if proc.returncode != 0:
                 return {"error": (proc.stderr or "grype failed").strip()[-300:]}
             result = parse_grype(json.loads(proc.stdout))
