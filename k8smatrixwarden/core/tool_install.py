@@ -118,6 +118,32 @@ def install_all(names) -> dict:
     return {n: install(n) for n in names}
 
 
+_HELM_DL = "https://get.helm.sh"
+
+
+def install_helm() -> dict:
+    """Download the official helm binary into the tool-local bin. {ok,path} or {error}.
+    Helm is hosted at get.helm.sh (helm-<tag>-<os>-<arch>.{zip|tar.gz}, binary nested one dir
+    deep), not the Anchore-style GitHub assets install() handles, so it has its own path."""
+    local = os.path.join(BIN_DIR, _exe("helm"))
+    if os.path.isfile(local):
+        return {"ok": True, "path": local, "cached": True}
+    osn, arch, ext = _plat()
+    try:
+        import json
+        tag = json.loads(_get("https://api.github.com/repos/helm/helm/releases/latest", binary=False)).get("tag_name", "")
+        if not tag:
+            return {"error": "could not determine the latest helm version"}
+        fn = f"helm-{tag}-{osn}-{arch}.{ext}"
+        blob = _get(f"{_HELM_DL}/{fn}")
+        sums = _get(f"{_HELM_DL}/{fn}.sha256sum", binary=False).split()
+        if sums and hashlib.sha256(blob).hexdigest() != sums[0]:
+            return {"error": f"checksum mismatch for {fn}"}
+        return {"ok": True, "path": _extract(blob, "helm", ext, BIN_DIR), "version": tag}
+    except Exception as exc:
+        return {"error": str(exc)[:300]}
+
+
 def _parse_db_status(text: str, rc: int) -> dict:
     def field(name):
         return next((l.split(":", 1)[1].strip() for l in text.splitlines()

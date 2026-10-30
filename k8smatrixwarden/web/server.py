@@ -199,6 +199,11 @@ def serve(host: str = DEFAULT_HOST, port: int = 0,
           open_browser: bool = False,
           allow_remote_kubeconfig: bool = False) -> None:
     port = port or default_port()
+    # Put the tool-local bin on PATH so a bundled helm/kubectl (and syft/grype) is found by
+    # bare-name subprocess calls too, e.g. the Falco deploy's `helm`/`kubectl` steps.
+    from ..core.tool_install import BIN_DIR as _BIN
+    if _BIN not in (os.environ.get("PATH") or ""):
+        os.environ["PATH"] = _BIN + os.pathsep + (os.environ.get("PATH") or "")
     platform = build_platform(config_path)
     # A kubeconfig in a request body is arbitrary code: loading it runs its credential
     # plugin as this process's user. On loopback the only caller is the operator, so the

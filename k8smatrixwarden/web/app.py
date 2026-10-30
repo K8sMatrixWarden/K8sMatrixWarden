@@ -478,6 +478,19 @@ class WebApp:
                 rid = self._deployer.start(action, steps, stdin_map)
                 self._falco_cache = None
                 return _json({"run": rid}, 202)
+            if action == "helm-install":
+                # Local tool install (like the deps tab), not a cluster write, so no write gate.
+                from ..core import tool_install as ti
+                if ti.resolve("helm"):
+                    self._helm = {"state": "done"}
+                elif getattr(self, "_helm", {}).get("state") != "running":
+                    self._helm = {"state": "running"}
+
+                    def _go_helm():
+                        r = ti.install_helm()
+                        self._helm = {"state": "done" if r.get("ok") else "error", "result": r}
+                    threading.Thread(target=_go_helm, daemon=True).start()
+                return _json({"install": getattr(self, "_helm", None), "helm": bool(ti.resolve("helm"))})
             if action == "falco-run":
                 run = getattr(self, "_deployer", None) and self._deployer.get(str(data.get("run")))
                 if not run:

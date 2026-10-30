@@ -2238,7 +2238,7 @@ function dpRow(p){
    example events before anything ships. Falco shows whether it is running and, only if the operator
    opted in, deploys it into its own namespace. */
 let RT={tab:'overview',cat:null,beh:null,status:null,plan:null,run:null,pollT:null,filter:'all',q:'',open:null,
-  spec:null,gen:null,tests:null,engine:null,customEv:[],msg:'',busy:'',defaultsLoaded:false,confirm:false,example:'',stats:null,tuning:{},health:null,cov:null,agents:null,agentErr:'',alerts:{slack_webhook:'',min_priority:'warning'},sim:null,hist:null};
+  spec:null,gen:null,tests:null,engine:null,customEv:[],msg:'',busy:'',defaultsLoaded:false,confirm:false,example:'',stats:null,tuning:{},health:null,cov:null,agents:null,agentErr:'',alerts:{slack_webhook:'',min_priority:'warning'},sim:null,hist:null,helm:null,helmT:null};
 const rtNewSpec=()=>({name:'',description:'',behavior:'',values:{},scope:{namespaces:'',exclude_namespaces:'',images:'',containers_only:true},exceptions:[],priority:'',stage:'audit',tactic:'',technique:''});
 async function rtApi(action,body){ try{ const r=await fetch('/api/runtime-rules/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); const d=await r.json(); d._ok=r.ok; d._status=r.status; return d; }catch(e){ return {_ok:false,error:'Could not reach the dashboard.'}; } }
 function runtimeView(){ setTimeout(rtInit,0); return `<div id='rt-root'>${rtShell()}</div>`; }
@@ -2399,6 +2399,8 @@ function rtAgentsHTML(){
 }
 /* ---- Falco ---- */
 async function rtPlan(){ RT.plan=null; rtRefresh(); const p=await rtApi('falco-plan',{alerts:RT.alerts.slack_webhook?RT.alerts:null}); RT.plan=p; rtRefresh(); }
+async function rtInstallHelm(){ RT.helm={state:'running'}; rtRefresh(); const r=await rtApi('helm-install',{}); RT.helm=r.install||{state:'running'}; rtRefresh(); rtHelmPoll(); }
+async function rtHelmPoll(){ clearTimeout(RT.helmT); const r=await rtApi('helm-install',{}); RT.helm=r.install||RT.helm; if(r.install&&r.install.state==='running'){ RT.helmT=setTimeout(rtHelmPoll,3000); } else { rtRefresh(); rtPlan(); } }  // re-plan refreshes the checks
 function rtFalcoHTML(){
   const st=RT.status; if(!st) return `<div class='panel'><div class='cv-none'>Checking the cluster…</div></div>`;
   const nodes=(st.nodes||[]).map(n=>`<tr><td>${esc(n.name)}</td><td><code>${esc(n.kernel)}</code></td><td>${esc(n.os)}</td></tr>`).join('');
@@ -2408,7 +2410,8 @@ function rtFalcoHTML(){
   if(P===null) deploy=`<div class='panel'><div class='cv-none'>Preparing a safe preview…</div></div>`;
   else if(P.error) deploy=`<div class='panel'><div class='bd-todo bad'><div><b>Could not prepare the preview</b><small>${esc(P.error)}</small></div></div></div>`;
   else {
-    const checks=P.preflight.map(c=>`<div class='bd-todo ${c.status==='bad'?'bad':c.status==='warn'?'info':'ok'}'><div><b>${c.status==='ok'?'&#10003; ':c.status==='bad'?'&#10007; ':'! '}${esc(c.title)}</b>${c.detail?`<small>${esc(c.detail)}</small>`:''}</div></div>`).join('');
+    const helmRun=RT.helm&&RT.helm.state==='running';
+    const checks=P.preflight.map(c=>`<div class='bd-todo ${c.status==='bad'?'bad':c.status==='warn'?'info':'ok'}'><div><b>${c.status==='ok'?'&#10003; ':c.status==='bad'?'&#10007; ':'! '}${esc(c.title)}</b>${c.detail?`<small>${esc(c.detail)}</small>`:''}${c.id==='helm'&&RT.helm&&RT.helm.state==='error'?`<small class='fm'>${esc((RT.helm.result||{}).error||'Install failed')}</small>`:''}</div>${c.id==='helm'&&c.status==='bad'?`<button class='btn' type='button' ${helmRun?'disabled':''} onclick='rtInstallHelm()'>${helmRun?'Installing…':'Install Helm'}</button>`:''}</div>`).join('');
     const rend=P.renders?(P.renders.ok?`<div class='bd-note'>The chart renders cleanly: ${Object.entries(P.renders.kinds).map(([k,n])=>n+' '+k).join(', ')}. Nothing has been changed.</div>`:`<div class='bd-todo bad'><div><b>The chart did not render</b><small>${esc(P.renders.error)}</small></div></div>`):`<div class='bd-note'>Helm is not available here, so the chart was not rendered.</div>`;
     const cmds=P.commands.map(c=>(c.argv||[]).join(' ')+(c.stdin?'   # namespace manifest on stdin':'')).join('\n');
     const installed=st.state!=='not-installed'&&st.state!=='unreachable';
