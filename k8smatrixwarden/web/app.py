@@ -242,8 +242,10 @@ class WebApp:
 
                 def do_install():
                     res = ti.install_all(names)
-                    st["install"] = {"state": "done" if all(v.get("ok") for v in res.values()) else "error",
-                                     "result": res}
+                    ok = all(v.get("ok") for v in res.values())
+                    if ok:                                  # warm grype's DB so the first report doesn't stall
+                        res["grype-db"] = ti.warm_grype_db()
+                    st["install"] = {"state": "done" if ok else "error", "result": res}
                 threading.Thread(target=do_install, daemon=True).start()
             return _json({"started": names, "install": st.get("install"), "tools": store.tools()})
         try:

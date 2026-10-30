@@ -17,6 +17,7 @@ import io
 import os
 import platform
 import shutil
+import subprocess
 import tarfile
 import urllib.request
 import zipfile
@@ -115,6 +116,19 @@ def install(name: str) -> dict:
 
 def install_all(names) -> dict:
     return {n: install(n) for n in names}
+
+
+def warm_grype_db() -> dict:
+    """Pre-download grype's vulnerability DB so the first report doesn't stall on it.
+    `grype db update` is idempotent and quick when the DB is already current."""
+    grype = resolve("grype")
+    if not grype:
+        return {"error": "grype not installed"}
+    try:
+        proc = subprocess.run([grype, "db", "update"], capture_output=True, text=True, timeout=600)
+        return {"ok": True} if proc.returncode == 0 else {"error": (proc.stderr or "db update failed")[-200:]}
+    except Exception as exc:
+        return {"error": str(exc)[:200]}
 
 
 def _demo() -> None:
