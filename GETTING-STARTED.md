@@ -74,8 +74,17 @@ apply an RBAC manifest that the tool generates for you.
 
 ### 1.1 What the product does
 
-K8sMatrixWarden is a Kubernetes security scanner. Most scanners answer one question. This
-product answers three, and connects the answers to each other.
+K8sMatrixWarden covers the whole Kubernetes security lifecycle from one model of how an
+attacker moves through your cluster. It does four jobs:
+
+| Job | What it does | Dashboard tab |
+|---|---|---|
+| **Design** | Builds a hardened deployment (Helm chart, admission policy, network policies, mTLS) and threat-models it as you design | Build an app |
+| **Assess** | Scans a live cluster read-only: rules, attack paths, CIS, and a namespace-to-pod drill-down | Overview, Issues, Attack paths, Cluster |
+| **Defend** | Correlates findings with live Falco events, and helps you write, test and deploy runtime rules | Runtime |
+| **Know your software** | An SBOM for every running image, its vulnerable packages, and which are really loaded | Dependencies |
+
+The assessment part answers three questions and connects the answers to each other.
 
 **Question 1: What is misconfigured?**
 
@@ -106,7 +115,7 @@ require an attacker to already be inside the cluster.
 | Runtime behavior | No | No | Yes | No | Yes |
 | Correlation of the two | No | No | No | No | **Yes** |
 | Attack path reconstruction | No | No | No | No | **Yes** |
-| Image CVE scanning | **Yes** | Yes | No | No | No |
+| Image CVE scanning | **Yes** | Yes | No | No | Yes (Grype, with an SBOM per image) |
 
 The gap this product closes: a configuration scanner reports that a pod *can* run
 privileged. A runtime sensor reports a syscall that only a privileged pod could make.
@@ -121,6 +130,10 @@ Neither connects the two observations. K8sMatrixWarden does.
 - CIS Kubernetes Benchmark v1.8, all 130 controls
 - Manifest and Helm chart scanning before deploy, with CI baseline gating and accepted-risk suppressions
 - Image CVE scanning via Grype, tied into reachability scoring
+- A secure-by-design builder with a live STRIDE threat model, producing a Helm chart
+- A runtime rules workbench: guided Falco rule creation with tests, Falco status, MITRE and agent coverage
+- An SBOM per running image (Syft), vulnerabilities (Grype), direct and indirect dependencies, runtime use
+- Drill-down resource profiles: namespace, workload, pod, service, ingress
 
 ---
 
@@ -296,7 +309,7 @@ python --version
 **Supported versions: 3.10 through 3.14.** The 3.10 floor is imposed by the optional
 extras, not by the engine. **Python 3.11 or 3.12 is recommended for production use**,
 because every optional extra has shipped prebuilt packages for those versions for years.
-The full test suite of 952 tests passes on both 3.11 and 3.14.
+The full test suite of 962 tests passes on both 3.11 and 3.14.
 
 ### 4.2 Optional, by capability
 
@@ -342,7 +355,7 @@ python -m tests.run_tests     # bundled stdlib runner, no pytest needed
 python -m pytest tests/       # also works
 ```
 
-Expected result on a fresh checkout: **892 of 952 tests passing.** This exercises every
+Expected result on a fresh checkout: **892 of 962 tests passing.** This exercises every
 shard and rule loading correctly, every MITRE technique identifier resolving against the
 vendored ATT&CK taxonomy, every composite alias resolving to real rule identifiers, no
 duplicate rule identifiers across shards, all 7 report formats rendering, the runtime
@@ -1316,10 +1329,11 @@ python -m k8smatrixwarden web --port 8080 --open
 | **Threat matrix** | MITRE ATT&CK heatmap for this scan |
 | **What changed** | Findings new, resolved, persistent, or regressed since the previous scan of the same cluster |
 | **Investigate a workload** | Drill into one workload: its findings, exposure, and RBAC path |
-| **Cluster** | Node and namespace telemetry for the scanned cluster |
+| **Cluster** | Node and namespace telemetry, plus drill-down resource profiles (see 14.3) |
 | **Policy review** | Review and accept findings as known risk, with the suppression file they generate |
-| **Runtime** | Runtime correlation and configuration drift for this scan, with a live refresh |
-| **Build an app** | A safe-by-default, drag-and-drop manifest builder |
+| **Runtime** | Deployed Falco rules, guided rule creation with tests, Falco status, MITRE and agent coverage, plus runtime correlation and drift for this scan (see 14.5) |
+| **Dependencies** | The SBOM of every running image, its vulnerable packages, and which are loaded at runtime (see 14.6) |
+| **Build an app** | A secure-by-default, drag-and-drop architecture designer with a live threat model (see 14.4) |
 | **Scans** | Every saved scan, re-openable, plus the scan form |
 | **Tasks** | Background task status for long-running scans |
 | **Accepted risks** | Findings suppressed by a baseline or suppressions file |
@@ -1379,7 +1393,91 @@ Node readiness and kubelet version require `get`/`list`/`watch` on `nodes`, whic
 generated `k8smatrixwarden-platform-inventory` ClusterRole grants (§12). Without it the
 card reports those fields as not collected rather than assuming a healthy zero.
 
-### 14.3 Security considerations
+
+### 14.3 Resource profiles (Cluster tab)
+
+The Cluster tab groups everything the scan read into one place so you do not go back to the
+command line to compare resources. Each workload row shows its status, image, service account,
+risk flags (privileged, host path, no limits, mutable image), exposure (Internet or
+unrestricted ingress) and issue count. Open a workload for its pods, the services and
+ingresses that reach it, its security context, and links to the attack paths through it.
+
+![Cluster profiles](docs/screenshots/cluster-profiles.png)
+
+![Attack paths](docs/screenshots/attack-paths.png)
+
+### 14.4 Build an app (design)
+
+Pick a pattern or drag components (workload, service, ingress, network rule, service account,
+role, secret, storage, certificate, autoscaler) onto the design. Every pattern starts locked
+down: non-root, read-only filesystem, no extra Linux capabilities, resource limits, probes,
+default-deny network rules with narrowed allows, Pod Security `restricted`, and a
+ValidatingAdmissionPolicy guardrail.
+
+- **Live security.** Selecting a component shows the protections it needs, in place or missing,
+  with an Add button. The Threats tab shows the STRIDE threats for that component, stopped,
+  partly stopped or open, with the fix beside each. Nothing waits for the design to be finished.
+- **Loosening on purpose.** A control can be relaxed only with a business reason from a list and
+  its compensating controls in place. An approver, ticket and expiry can be recorded.
+- **Encryption between services.** Choose a service mesh (Linkerd or Istio ambient) or a
+  certificate per app (cert-manager), or "none" with a reason. The tool reads your last scan to
+  tell you which of these your cluster already has.
+- **Supply chain.** Trusted registries, an image pull secret, digest pinning, and an optional
+  Kyverno policy that refuses images not signed with your cosign key.
+- **Finish.** "Review and finish" lists anything still open. When nothing is, it summarises the
+  protections, threat model, attack paths, what you accepted and why, and what the design assumes
+  about the cluster. "Mark design as complete" records it; any later edit turns it back into a
+  draft. Then download the Helm chart or save it as a reusable design.
+
+The builder only produces files. It never applies anything to a cluster.
+
+![Design: security for the selected component](docs/screenshots/builder-live-security.png)
+
+![Design: threat model](docs/screenshots/builder-threat-model.png)
+
+![Design: review and finish](docs/screenshots/builder-finish-review.png)
+
+### 14.5 Runtime workbench
+
+| Sub-tab | What it does |
+|---|---|
+| **Overview** | Which MITRE tactics have runtime detection, and runtime correlation and drift for the open scan |
+| **Rules** | Every deployed Falco rule in plain words, with how often it fires |
+| **Create a rule** | Pick what to catch (a program starts, a file is read or written, a connection goes out, a Kubernetes API call), fill in fields, and test the rule against sample events before deploying. One predicate list renders the Falco condition and evaluates the events, so the test matches the rule |
+| **Coverage** | MITRE tactic and technique coverage of the rules in place |
+| **Agents** | Whether your security agents (Falco or others) run on every node and pod, their health and version, and version drift |
+| **Falco** | Whether Falco is deployed, and a guided install |
+
+The Falco install is the single opt-in write in the product. It does nothing unless the
+dashboard was started with `K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1` and you confirm, and it
+runs your own `helm` in a dedicated namespace.
+
+![Runtime: guided rule creation](docs/screenshots/runtime-workbench.png)
+
+### 14.6 Dependencies
+
+For each image your pods run, the tab builds an SBOM (software bill of materials) with
+[Syft](https://github.com/anchore/syft), keyed by the image digest the node started, and matches
+it with [Grype](https://github.com/anchore/grype). Install both with `brew install syft grype`.
+
+- **Direct and indirect.** Where the ecosystem records which package needs which (OS packages,
+  lockfiles), a package nothing depends on is direct and the rest are indirect. Where it does
+  not, the answer is "unknown", not a guess.
+- **Is it used?** Presence is not use. "Check what is in use" runs read-only commands inside up
+  to three pods of the image (it reads `/proc` to list mapped and open files) and marks each
+  package *in use*, *inside a running jar*, *not seen*, or *cannot tell*. *Not seen* is never
+  "unused": Python and Node modules are read once at import and cannot be seen this way, and an
+  image without a shell cannot be observed. It needs permission to exec into pods and runs only
+  when you click and confirm.
+- **Fix first.** Vulnerable packages that are in use come first.
+- **Where does a package run?** Search across every SBOM already built, answering "which
+  workloads contain log4j?" without pulling anything again.
+- **Export.** CycloneDX or SPDX JSON per image.
+
+SBOMs are cached on disk by digest, so asking again is free. This tab has unit tests; its
+end-to-end behaviour on a live cluster has not been re-verified in this release.
+
+### 14.7 Security considerations
 
 
 **The dashboard binds `127.0.0.1` by default and has no authentication.** Two rules follow
@@ -1643,14 +1741,9 @@ Every control receives an explicit status, so nothing is silently skipped:
 **Coverage breakdown.** 65 of the 130 controls are evaluated directly from the Kubernetes
 API: 25 native rules, 2 built-in checks, and 38 control plane and kubelet process-flag
 checks recovered from static pod specifications. 31 controls are true node file-permission
-checks that require kube-bench. The remaining 34 are CIS-designated manual reviews.
-
-To resolve the 31 node controls:
-
-```bash
-kube-bench run --targets master,node,etcd,policies --json > kb.json
-python -m k8smatrixwarden cis --live --kube-bench-json kb.json
-```
+checks that need node filesystem access, which this tool does not have, so they stay
+`NEEDS_NODE`. The remaining 34 are CIS-designated manual reviews. Run a node-level tool such as
+kube-bench separately if you need those 31.
 
 ---
 
@@ -1964,7 +2057,7 @@ The policy lives in `core/explain.py` as `CONFIDENCE_POLICY` and is enforced by
 |---|---|
 | `K8sMatrixWarden-doc.html` | Complete technical reference. One self-contained searchable page covering architecture and design decisions, risk-scoring mathematics, all 7 shard rule catalogs, MITRE, OWASP and CIS coverage, the full CLI flag reference, configuration, live cluster setup, the runtime correlation layer, known limitations, and troubleshooting. |
 | `README.md` | Feature overview and product positioning |
-| `python -m tests.run_tests` | The full test suite, 952 tests, no external test framework required |
+| `python -m tests.run_tests` | The full test suite, 962 tests, no external test framework required |
 
 
 ## Everyday use: check, accept risks, tell the team

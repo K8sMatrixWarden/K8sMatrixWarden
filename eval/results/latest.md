@@ -1,6 +1,6 @@
 # K8sMatrixWarden evaluation against DVKA
 
-Scan of the vulnerable fixture: 201 resources, 221 findings in 0.18s (peak 8.1 MB).
+Scan of the vulnerable fixture: 201 resources, 221 findings in 0.15s (peak 8.5 MB).
 
 ## Headline
 
@@ -11,7 +11,6 @@ Scan of the vulnerable fixture: 201 resources, 221 findings in 0.18s (peak 8.1 M
 | Secure controls left unflagged | 6/7 |
 | Hardened cluster: findings reported | 1 (expected 0) |
 | Documented gaps confirmed undetected | 9/9 |
-| Runtime events in the right tier | 6/6 |
 | Attack path Internet to Secrets found | yes |
 | Exposed outranks isolated (same flaw) | yes (65.625 vs 46.875) |
 
@@ -64,17 +63,6 @@ Scan of the vulnerable fixture: 201 resources, 221 findings in 0.18s (peak 8.1 M
 | GAP-WL2 | CronJob that downloads and runs a script | yes | Falco at runtime |
 | GAP-ADM | Mutating webhook that fails open and injects a sidecar | yes | restore the admission rules (evidence is still collected) |
 | GAP-OPS | No ResourceQuota, LimitRange or PodDisruptionBudget | yes | rules over ResourceQuota / LimitRange / PodDisruptionBudget |
-
-## Runtime correlation
-
-| ID | Scenario | Expected | Got | |
-|---|---|---|---|---|
-| RT-01 | Shell in the privileged frontend | confirmed | confirmed | ok |
-| RT-02 | Read /etc/shadow in a pod with an auto-mounted token | confirmed | confirmed | ok |
-| RT-03 | Shell in a pod the scan has never seen | corroborated | corroborated | ok |
-| RT-04 | Shell in a cluster whose scan found nothing | runtime-only | runtime-only | ok |
-| RT-06 | Shell in a clean namespace of a cluster with other findings | corroborated | corroborated | ok |
-| RT-05 | Pod name that only shares a prefix with a flaw | corroborated | corroborated | ok |
 
 ## Attack path
 

@@ -1,15 +1,15 @@
 <h1 align="center">K8sMatrixWarden</h1>
 
 <p align="center">
-  <strong>Links static Kubernetes findings to live runtime exploitation</strong><br/>
-  <em>Not "here is a weakness". Instead: "this weakness is being exploited right now, and here is the kill chain."</em>
+  <strong>Design, assess and defend Kubernetes through one attack-path model</strong><br/>
+  <em>From "how should I build this securely?" to "how would an attacker move through it?" to "is it happening right now?"</em>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue"/>
   <img src="https://img.shields.io/badge/deps-zero%20(stdlib%20core)-brightgreen"/>
   <img src="https://img.shields.io/badge/rules-55-orange"/>
-  <img src="https://img.shields.io/badge/tests-952%20passing-success"/>
+  <img src="https://img.shields.io/badge/tests-962%20passing-success"/>
   <img src="https://img.shields.io/badge/license-see%20LICENSE-lightgrey"/>
 </p>
 
@@ -26,6 +26,39 @@
 | Video | Shows |
 |---|---|
 | **[Full walkthrough](https://github.com/rohitsoni1209/K8sMatrixWarden/raw/refs/heads/main/K8sMatrixWarden-working.mp4)** | Scan, correlation, attack paths, and dashboard, end to end. |
+
+---
+
+## One model, four jobs
+
+Kubernetes security is split across tools that never talk to each other: one for design
+reviews, one for config scanning, one for runtime, one for images. You reconcile them by hand
+and still miss how an attacker would chain them. K8sMatrixWarden covers the whole lifecycle
+from one model of how an attacker moves through your cluster.
+
+| | What you do | Where |
+|---|---|---|
+| **Design** | Drag components into a canvas. Get a hardened Helm chart, admission policy, network policies and mTLS, with a live STRIDE threat model that shows which protection each component needs, as you design. | *Build an app* |
+| **Assess** | Scan a live cluster read-only. See the attack graph (RBAC, NetworkPolicy reachability, exposure), ranked fix-first issues, and a namespace-to-pod drill-down with the minimum context an engineer needs. | *Overview, Issues, Attack paths, Cluster* |
+| **Defend** | Correlate findings with live Falco events. Write and test Falco rules from guided forms before deploying. See which nodes and pods run your security agents. | *Runtime* |
+| **Know your software** | An SBOM for every running image, the vulnerable packages in it, direct versus indirect dependencies, and which packages the container really loads. | *Dependencies* |
+
+![Overview: risk score, fix-first list, exposure](docs/screenshots/overview.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/attack-paths.png" alt="Attack paths: Internet to workload, hop by hop, with how to cut the route"/><br/><sub><b>Attack paths.</b> Every hop is read off a real object, with the fix that cuts the route.</sub></td>
+<td width="50%"><img src="docs/screenshots/cluster-profiles.png" alt="Cluster: workloads with risk flags, exposure and identity"/><br/><sub><b>Cluster profiles.</b> Workloads, identity, exposure and risk flags in one place, no CLI back and forth.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/builder-live-security.png" alt="Build an app: security for the selected component, live"/><br/><sub><b>Design.</b> The protections each component needs appear while you design, not after.</sub></td>
+<td><img src="docs/screenshots/builder-threat-model.png" alt="Build an app: threat model for the selected component"/><br/><sub><b>Threat model.</b> Threats stopped, partly stopped or open for the component you are editing, with the fix next to each.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/builder-finish-review.png" alt="Build an app: review and mark the design complete"/><br/><sub><b>Finish.</b> A review of what is protected, what you accepted and why, then mark the design complete.</sub></td>
+<td><img src="docs/screenshots/runtime-workbench.png" alt="Runtime: guided Falco rule creation"/><br/><sub><b>Runtime.</b> Guided Falco rule creation. Pick what to catch, fill fields, test, then deploy.</sub></td>
+</tr>
+</table>
 
 ---
 
@@ -46,9 +79,9 @@ K8sMatrixWarden closes that gap:
 | Runtime behavior | No | No | Yes | No | **Yes** |
 | Correlates both | No | No | No | No | **Yes** |
 | Attack path | No | No | No | No | **Yes** |
-| Image CVEs | **Yes** | Yes | No | No | No |
+| Image CVEs | **Yes** | Yes | No | No | Yes (Grype, plus an SBOM per image) |
 
-Trivy and K8sMatrixWarden are complements, not competitors. Run both.
+Trivy is deeper on image scanning. Run both if image depth matters to you.
 
 ---
 
@@ -61,7 +94,7 @@ pip install -e ".[live,manifests]"     # live = real clusters, manifests = YAML 
 
 k8smatrixwarden check                  # the cluster kubectl points at
 k8smatrixwarden check ./k8s ./charts   # manifests and Helm charts, before deploy (no cluster)
-k8smatrixwarden web                    # dashboard: Issues, Attack paths, Images, Tasks
+k8smatrixwarden web                    # dashboard: Overview, Attack paths, Cluster, Build, Runtime, Dependencies
 k8smatrixwarden topology               # who can reach whom (exposure paths)
 ```
 
@@ -71,8 +104,8 @@ Or without installing Python: `docker build -t k8smatrixwarden .` then
 **In the dashboard (built for someone new).** *Start here* walks through five steps with live
 status. *Policy review* explains the six settings that limit damage (network rules, Pod Security,
 admin access, quotas, dangerous pod settings, what is open to the internet) in plain words.
-*Build an app* is drag-and-drop: drop components on a canvas, keep the safe defaults, watch a
-live security check, and download a ready Helm chart. No YAML, no scripts. *What changed* compares two scans (a new internet-facing service, a wider permission, an image change) and flags what made the cluster easier to attack. *Investigate a workload* pulls its status, warnings, changes, risks and attack path onto one page, with an evidence-first containment checklist whose commands you copy and run yourself. *Tasks* runs scans. Press **Ctrl/Cmd+K** (or `/`) anywhere to search issues, workloads, images and pages.
+*Build an app* is drag-and-drop: drop components on a canvas, keep the safe defaults, watch the
+protections and threat model for each component update live, then finish the design and download a ready Helm chart. No YAML, no scripts. *Runtime* lists the Falco rules deployed, creates new ones from guided forms with tests, and shows security-agent coverage per node. *Dependencies* shows what every running image contains and which parts are loaded. *What changed* compares two scans (a new internet-facing service, a wider permission, an image change) and flags what made the cluster easier to attack. *Investigate a workload* pulls its status, warnings, changes, risks and attack path onto one page, with an evidence-first containment checklist whose commands you copy and run yourself. *Tasks* runs scans. Press **Ctrl/Cmd+K** (or `/`) anywhere to search issues, workloads, images and pages.
 It only reads your cluster and never applies anything.
 
 **What you get.** A ranked list: severity, then whether an attacker can reach it (Internet,
@@ -144,40 +177,51 @@ it exists. Two findings sharing a tactic are never claimed to be connected.
 "fix this first" brief. With CIS Benchmark v1.8 (130 controls), MITRE ATT&CK for
 Containers, and OWASP Kubernetes Top 10 mapping.
 
-**6. Attest.** Governance audit against PCI DSS v4.0, SOC 2, ISO 27001:2022, and NIST 800-53
-rev5, with per-requirement evidence. Auditor-facing, not a finding dump.
+**6. Design.** The builder turns a design into hardened manifests: Pod Security `restricted`,
+default-deny NetworkPolicy with narrowed allow rules, resource limits, probes, a
+ValidatingAdmissionPolicy (CEL) guardrail, optional Kyverno image-signature policy, and service
+mesh or cert-manager mTLS. A STRIDE threat model with trust boundaries is evaluated against the
+generated network rules in parallel with the design. Loosening a control needs a business
+reason and its compensating controls. Nothing is applied: it outputs a Helm chart.
 
-**7. Federate.** Cross-cluster blast radius. Flags **shared non-default identities**, the
-same custom ClusterRole, ServiceAccount, or cloud IAM role in more than one cluster, as
-candidate lateral movement paths to verify.
+**7. Defend.** The Runtime tab lists every deployed Falco rule in plain words, creates rules from
+guided forms (one predicate list renders the Falco condition and tests it against sample
+events), deploys Falco with a safe opt-in, and reports MITRE coverage and security-agent
+coverage (health, version, per node and pod).
+
+**8. Know your software.** Syft builds an SBOM for each running image by digest, Grype matches
+it, and a read-only look inside the container shows which packages are loaded.
+Direct and indirect dependencies come from the SBOM where the ecosystem records them.
+CycloneDX and SPDX export. Needs `syft` and `grype`.
 
 ---
 
-## Proof: Kubernetes Goat
+## Proof
 
-Measured on Docker Desktop Kubernetes, 30 pods, this repository's current build.
+**Kubernetes Goat** on a throwaway minikube (Kubernetes 1.31, Calico), measured with this build:
 
 | Metric | Result |
 |---|---|
-| Findings | **489** (28 CRITICAL, 215 HIGH, 246 MEDIUM), risk **9.9/10** |
-| Evidence coverage | **95.5 percent**, basis `measured` |
-| Attack chain | **9 tactics** reaching Impact, **25 evidence-backed resource routes** |
-| Full scan time | **~213 ms**, including RBAC graph and NetworkPolicy evaluation |
+| Findings | **432** resource findings become **175** issues to fix (11 critical, 73 high), risk **9.7/10** |
+| Attack routes | **20** evidence-backed routes, **1** reachable from the Internet (`Internet -> NodePort Service -> Deployment/internal-proxy`) |
+| Caught | privileged containers, host PID/IPC/network, Docker socket and writable hostPath mounts, cluster-admin default service account, wildcard RBAC, open metadata API, no NetworkPolicy, secrets in environment variables, NodePort exposure, missing limits, root user |
+| Not caught (yet) | secrets baked into image layers, an unauthenticated registry, a crypto-miner image, secrets in a build repository |
+| Image CVEs | five known-vulnerable images (Log4Shell, Apache 2.4.49, Struts 2.3.30, an old ingress-nginx, Redis 5.0.5) were all flagged by `--grype` |
 
-The strongest route found was `Internet -> NodePort Service -> Deployment/internal-proxy-deploy`.
-Multi-hop RBAC escalation paths are attached to findings by name, for example
-`ServiceAccount/local-path-provisioner-service-account -> RoleBinding -> Role -> create-workload`.
+**DVKA** (Damn Vulnerable Kubernetes Application, in [`eval/`](eval/README.md)) has an answer key,
+so accuracy is measured rather than claimed. Reproduce with `python3 eval/run_eval.py`:
 
-Two details that show the reporting is honest rather than flattering:
+| Measure | Result |
+|---|---|
+| Recall (planted weaknesses detected) | **100%** (115 of 115) |
+| Precision (reported findings correct) | **99.1%** (115 of 116) |
+| Documented gaps confirmed undetected | 9 of 9 |
+| Internet-to-secrets attack path found | yes |
+| Same flaw, exposed vs isolated | exposed scores higher (65.6 vs 46.9) |
 
-- The count **includes Falco's own DaemonSet**, which is privileged and mounts host paths by
-  design. The scanner reports its own sensor rather than exempting it.
-- The missing 4.5 percent of coverage is Cloud IAM, which has no Kubernetes API path on a
-  local cluster. It is reported as **unread**, never as clean.
-
-With **Falco 0.44.1** on that cluster, a `cat /etc/shadow` in three Goat pods produced 4
-`confirmed` correlations under Credential Access. Each marked only the node the event named,
-never the whole path.
+The benchmark is the project's own, so read it as a regression guard, not an independent audit.
+Cloud IAM has no Kubernetes API path on a local cluster, so it is reported as **unread**,
+never as clean.
 
 ---
 
@@ -198,7 +242,7 @@ Orchestrator (intent, scope, selector)
   -> Detection Engine                    parallel, per-rule isolation
   -> Aggregator                          dedupe, merge tags
   -> Risk Scoring                        attack-path aware
-  -> Reporting                           8 formats
+  -> Reporting                           7 formats
 ```
 
 Key modules:
@@ -212,6 +256,10 @@ Key modules:
 | Scan by runtime correlation | [`core/correlation.py`](k8smatrixwarden/core/correlation.py) |
 | Confidence policy | [`core/explain.py`](k8smatrixwarden/core/explain.py) |
 | 7 domain shards | [`shards/`](k8smatrixwarden/shards/) |
+| Secure-design builder and threat model | [`core/builder.py`](k8smatrixwarden/core/builder.py) |
+| Runtime rules, Falco deploy, agent coverage | [`core/runtime_rules.py`](k8smatrixwarden/core/runtime_rules.py), [`core/falco_deploy.py`](k8smatrixwarden/core/falco_deploy.py), [`core/agent_coverage.py`](k8smatrixwarden/core/agent_coverage.py) |
+| SBOM, dependencies, runtime use | [`core/dependencies.py`](k8smatrixwarden/core/dependencies.py) |
+| Resource profiles (namespace to pod) | [`core/cluster_inventory.py`](k8smatrixwarden/core/cluster_inventory.py) |
 
 Full architecture map: [K8sMatrixWarden-doc.html](K8sMatrixWarden-doc.html).
 
@@ -285,9 +333,9 @@ Full flag reference: [Getting Started, Section 20](GETTING-STARTED.md#20-command
 ## Safety
 
 **Detect and report only.** The scanner never mutates a cluster from any surface. There is no
-remediation or apply path. The single opt-in exception is the Runtime tab's Falco deploy: it does nothing
+remediation or apply path, and the builder only produces files. The single opt-in exception is the Runtime tab's Falco deploy: it does nothing
 unless the dashboard was started with `K8SMATRIXWARDEN_ALLOW_CLUSTER_WRITE=1` and you confirm, and then
-it runs your own `helm`/`kubectl` in a dedicated namespace; it is off by default. Scanning reads with `get`, `list`, and `watch` only, and every
+it runs your own `helm`/`kubectl` in a dedicated namespace; it is off by default. The Dependencies tab's runtime check runs read-only commands inside pods (reading `/proc`) only when you click it and confirm, and needs permission to exec into pods. Scanning reads with `get`, `list`, and `watch` only, and every
 output derives from that read-only snapshot. No module in the package ever calls a
 cluster-mutating Kubernetes API verb, enforced by a static audit in
 `tests/test_adversarial.py::test_no_module_can_write_to_the_cluster`.
@@ -309,7 +357,7 @@ front of the port before exposing it.
 
 **Python 3.10 through 3.14, and nothing else.** The core engine imports only the standard
 library, so no dependency can lag a new Python release. The 3.10 floor comes from the
-optional extras, not the engine. Verified on 3.11 and 3.14 with 952 of 952 tests passing.
+optional extras, not the engine. Verified on 3.11 and 3.14 with 962 of 962 tests passing.
 **3.11 or 3.12 is the safest choice** for a real deployment.
 
 ```bash
@@ -318,6 +366,8 @@ pip install -e ".[manifests]"   # pyyaml, for scan --manifests / check on YAML a
 pip install -e ".[pretty]"      # rich terminal tables
 pip install -e ".[all]"         # everything above
 ```
+
+The Dependencies view also needs [`syft`](https://github.com/anchore/syft) and [`grype`](https://github.com/anchore/grype) (`brew install syft grype`).
 
 Live scanning also needs a kubeconfig, read-only cluster access, and the matching cloud CLI
 for managed clusters.
@@ -335,7 +385,10 @@ covers all of that from scratch.
 | falcosidekick push feed | Tested live, 2.x. Push and pull produce identical security meaning. |
 | Kubernetes audit rules | Fixture-tested end to end against native `audit.k8s.io/v1` records |
 | All 7 report formats, the dashboard | Tested |
-| Test suite | 952 passing, 0 failures |
+| Secure-design builder | Tested, including against a real cluster (generated manifests applied and violations rejected) |
+| Runtime rules workbench | Tested (rule generation and simulation); Falco deploy exercised on a local cluster |
+| Dependencies (SBOM, vulnerabilities, runtime use) | Unit-tested parsing; end to end on a live cluster not yet re-verified |
+| Test suite | 962 passing, 0 failures |
 
 Two reported numbers are worth understanding before reading a report:
 

@@ -1,8 +1,8 @@
 {
  "resources": 201,
  "findings": 221,
- "scan_seconds": 0.177910124999471,
- "peak_mb": 8.058234,
+ "scan_seconds": 0.1494533329969272,
+ "peak_mb": 8.522536,
  "detection": {
   "outside_lab_findings": 0,
   "expected": 115,
@@ -204,54 +204,6 @@
   "findings": 1,
   "rules": [
    "sec-configmap-credentials"
-  ]
- },
- "runtime": {
-  "correct": 6,
-  "total": 6,
-  "rows": [
-   {
-    "id": "RT-01",
-    "title": "Shell in the privileged frontend",
-    "expected": "confirmed",
-    "got": "confirmed",
-    "ok": true
-   },
-   {
-    "id": "RT-02",
-    "title": "Read /etc/shadow in a pod with an auto-mounted token",
-    "expected": "confirmed",
-    "got": "confirmed",
-    "ok": true
-   },
-   {
-    "id": "RT-03",
-    "title": "Shell in a pod the scan has never seen",
-    "expected": "corroborated",
-    "got": "corroborated",
-    "ok": true
-   },
-   {
-    "id": "RT-04",
-    "title": "Shell in a cluster whose scan found nothing",
-    "expected": "runtime-only",
-    "got": "runtime-only",
-    "ok": true
-   },
-   {
-    "id": "RT-06",
-    "title": "Shell in a clean namespace of a cluster with other findings",
-    "expected": "corroborated",
-    "got": "corroborated",
-    "ok": true
-   },
-   {
-    "id": "RT-05",
-    "title": "Pod name that only shares a prefix with a flaw",
-    "expected": "corroborated",
-    "got": "corroborated",
-    "ok": true
-   }
   ]
  }
 }
